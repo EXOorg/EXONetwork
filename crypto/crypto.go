@@ -1,11 +1,23 @@
 package crypto
 
 import (
-	"io"
+	"crypto/rand"
 )
 
-type PubKey ECPoint
+func Sha256(value []byte) []byte{
+	//TODO: implement Sha256
 
-func (e *PubKey) Serialize(w io.Writer) {
-	//TODO: implement PubKey.serialize
+	return nil
+}
+
+func RIPEMD160(value []byte) []byte{
+	//TODO: implement RIPEMD160
+
+	return nil
+}
+
+// Generate the "real" random number which can be used for crypto algorithm
+func RandomNum(n int) ([]byte, error) {
+	// Get the random number from System urandom
+	return rand.GenerateRandomBytes(n)
 }

@@ -1,47 +1,94 @@
 package ledger
 
 import (
+	. "GoOnchain/common"
+	"GoOnchain/common/serialization"
 	tx "GoOnchain/core/transaction"
-	"GoOnchain/common"
-	"GoOnchain/core/contract/program"
+	. "GoOnchain/errors"
 	"io"
+	"GoOnchain/core/contract/program"
+	pl "GoOnchain/net/payload"
 )
 
 type Block struct {
-	Blockheader *Blockheader
+	Blockdata    *Blockdata
 	Transcations []*tx.Transaction
+
+	hash *Uint256
 }
 
-type Blockheader struct {
-	//TODO: define the Blockheader struct(define new uinttype)
-	Version uint
-	PrevBlockHash  common.Uint256
-	TransactionsRoot common.Uint256
-	Timestamp uint
-	Height uint
-	nonce uint64
-	Program *program.Program
-
-	hash common.Uint256
+func (b *Block) Serialize(w io.Writer) error {
+	b.Blockdata.Serialize(w)
+	err := serialization.WriteVarUint(w, uint64(len(b.Transcations)))
+	if err != nil {
+		return NewDetailErr(err, ErrNoCode, "Block item Transcations length serialization failed.")
+	}
+	for _, transaction := range b.Transcations {
+		transaction.Serialize(w)
+	}
+	return nil
 }
 
-//Serialize the blockheader
-func (bh *Blockheader) Serialize(w io.Writer)  {
-	bh.SerializeUnsigned(w)
-	w.Write([]byte{byte(1)})
-	bh.Program.Serialize(w)
-}
+func (b *Block) Deserialize(r io.Reader) error {
+	//b.Blockdata.Deserialize(r)
+	b.Blockdata.DeserializeUnsigned(r)
 
-//Serialize the blockheader data without program
-func (bh *Blockheader) SerializeUnsigned(w io.Writer) error  {
-	//TODO: implement blockheader SerializeUnsigned
+	//Transactions
+	var i uint64
+	Len, err := serialization.ReadVarUint(r, 0)
+	if err != nil {
+		return err
+	}
+	for i = 0; i < Len; i++ {
+		transaction := new(tx.Transaction)
+		err = transaction.Deserialize(r)
+		if err != nil {
+			return err
+		}
+		b.Transcations = append(b.Transcations, transaction)
+	}
+
+	//TODO: merkleTree Compute Root
+	//Wjj:  crypto/ComputeRoot ?
 
 	return nil
 }
 
+func (b *Block) GetHash() Uint256 {
 
-func (tx *Blockheader) GetProgramHashes() ([]common.Uint160, error){
-	//TODO: implement blockheader GetProgramHashes
+	if b.hash == nil {
+		//TODO: generate block hash
+	}
 
-	return nil, nil
+	return *b.hash
+}
+
+func  (b *Block) GetMessage() ([]byte){
+	//TODO: GetMessage
+	return  []byte{}
+}
+
+func (b *Block) GetProgramHashes() ([]Uint160, error){
+	return nil,nil
+}
+
+func (b *Block) SetPrograms([]*program.Program){
+
+}
+
+func (b *Block) GetPrograms()  []*program.Program{
+	return nil
+}
+
+func (b *Block) Hash() Uint256{
+	//TODO:  Hash()
+	return Uint256{}
+}
+
+func (b *Block) Verify() error{
+	return nil
+}
+
+func (b *Block) InvertoryType() pl.InventoryType{
+	return pl.Block
 }

@@ -29,21 +29,17 @@ func NewContractContext(data sig.SignableData) *ContractContext {
 	}
 }
 
-func (cxt *ContractContext) AddContract(contract *Contract, pubkey crypto.PubKey,paramenter []byte ) error {
+func (cxt *ContractContext) AddContract(contract *Contract, pubkey *crypto.PubKey,paramenter []byte ) error {
 	//TODO: implement AddContract()
 
 	//TODO: check contract type for diff building
-
 	return  nil
-
 }
 
 
-func (cxt *ContractContext) GetPrograms() ([]*program.Program,error) {
+func (cxt *ContractContext) GetPrograms() ([]*program.Program) {
 	//TODO: implement GetProgram()
 
-	return  []*program.Program{},nil
+	return  []*program.Program{}
 
 }
-
-
