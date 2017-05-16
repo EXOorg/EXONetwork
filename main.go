@@ -4,7 +4,9 @@ import (
 	"time"
 	"runtime"
 	"GoOnchain/net"
+	"GoOnchain/net/node"
 	"GoOnchain/net/httpjsonrpc"
+	"GoOnchain/common/log"
 )
 
 const (
@@ -14,6 +16,8 @@ const (
 
 func init() {
 	runtime.GOMAXPROCS(NCPU)
+	var path string = "./Log/"
+	log.CreatePrintLog(path)
 	go httpjsonrpc.StartServer()
 }
 
@@ -21,7 +25,7 @@ func init() {
 func main() {
 	time.Sleep(2 * time.Second)
 
-	net.InitNodes()
+	node.InitNodes()
 	net.StartProtocol()
 	httpjsonrpc.StartClient()
 
@@ -30,6 +34,6 @@ func main() {
 	//consensus.Start(net.NetToConsensusCh <-chan *Msg, net.ConsensusToNetCh chan<- *Msg)
 
 	for {
-
+		time.Sleep(2 * time.Second)
 	}
 }
