@@ -69,11 +69,13 @@ func (b *Block) GetMessage() []byte {
 }
 
 func (b *Block) GetProgramHashes() ([]Uint160, error) {
-	return nil, nil
+
+	return b.Blockdata.GetProgramHashes()
 }
 
 func (b *Block) SetPrograms([]*program.Program) {
-
+	b.Blockdata.GetPrograms()
+	return
 }
 
 func (b *Block) GetPrograms() []*program.Program {
@@ -96,17 +98,22 @@ func (b *Block) Type() InventoryType {
 	return BLOCK
 }
 
-func GenesisBlockInit() *Block{
+func GenesisBlockInit() (*Block,error){
 	genesisBlock := new(Block)
 	//blockdata
 	genesisBlockdata := new(Blockdata)
 	genesisBlockdata.Version = uint32(0x00)
 	genesisBlockdata.PrevBlockHash = Uint256{}
 	genesisBlockdata.TransactionsRoot = Uint256{}
-	tm := time.Now()
+	tm:=time.Date(2017, time.February, 23, 0, 0, 0, 0, time.UTC)
 	genesisBlockdata.Timestamp = uint32(tm.Unix())
 	genesisBlockdata.Height = uint32(0)
 	genesisBlockdata.ConsensusData = uint64(2083236893)
+	nextMiner,err :=GetMinerAddress(StandbyMiners)
+	if err != nil{
+		return nil,NewDetailErr(err, ErrNoCode, "[Block],GenesisBlockInit err with GetMinerAddress")
+	}
+	genesisBlockdata.NextMiner = nextMiner
 
 	pg := new(program.Program)
 	pg.Code = []byte{'0'}
@@ -139,8 +146,29 @@ func GenesisBlockInit() *Block{
 	Transcations = append(Transcations, trans)
 	genesisBlock.Transcations = Transcations
 
-	hashx := genesisBlock.Hash()
-	genesisBlock.hash = &hashx
+	//hashx := genesisBlock.Hash()
 
-	return genesisBlock
+	return genesisBlock,nil
+}
+func (b *Block)RebuildMerkleRoot()(error){
+	txs := b.Transcations
+	transactionHashes := []Uint256{}
+	for _, tx :=  range txs{
+		transactionHashes = append(transactionHashes,tx.Hash())
+	}
+	hash,err := crypto.ComputeRoot(transactionHashes)
+	if err!=nil{
+		return NewDetailErr(err, ErrNoCode, "[Block] , RebuildMerkleRoot ComputeRoot failed.")
+	}
+	b.Blockdata.TransactionsRoot =hash
+	return nil
+
+}
+
+func (bd *Block) SerializeUnsigned(w io.Writer) error {
+	/*
+	* TODO Just Add for interface of signableDate.
+	* 2017/2/27 luodanwg
+	* */
+	return nil
 }

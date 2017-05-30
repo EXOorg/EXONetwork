@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -92,9 +94,20 @@ disconnect:
 	return err
 }
 
+func printIPAddr() {
+	host, _ := os.Hostname()
+	addrs, _ := net.LookupIP(host)
+	for _, addr := range addrs {
+		if ipv4 := addr.To4(); ipv4 != nil {
+			fmt.Println("IPv4: ", ipv4)
+		}
+	}
+}
+
 // Init the server port, should be run in another thread
-func (n *node) initRx() {
-	listener, err := net.Listen("tcp", "localhost:"+strconv.Itoa(NODETESTPORT))
+func (n *node) initConnection() {
+	common.Trace()
+	listener, err := net.Listen("tcp", ":"+strconv.Itoa(NODETESTPORT))
 	if err != nil {
 		fmt.Println("Error listening\n", err.Error())
 		return
@@ -107,9 +120,9 @@ func (n *node) initRx() {
 			return
 		}
 		node := NewNode()
-		// Currently we use the address as the ID
-		node.id = conn.RemoteAddr().String()
-		node.addr = conn.RemoteAddr().String()
+		id, _ := parseIPaddr(conn.RemoteAddr().String())
+		node.id = id
+		node.addr = id
 		node.local = n
 		fmt.Println("Remote node %s connect with %s\n",
 			conn.RemoteAddr(), conn.LocalAddr())
@@ -118,8 +131,21 @@ func (n *node) initRx() {
 		// TODO lock the node and assign the connection to Node.
 		n.neighb.add(node)
 		go node.rx()
+		// FIXME is there any timing race with rx
+		buf, _ := NewVersion(n)
+		go node.Tx(buf)
 	}
 	//TODO When to free the net listen resouce?
+}
+
+
+func parseIPaddr(s string) (string, error) {
+	i := strings.Index(s, ":")
+	if (i < 0) {
+		fmt.Printf("Split IP address&port  error\n")
+		return s, errors.New("Split IP address&port error")
+	}
+	return s[:i], nil
 }
 
 func (node *node) Connect(nodeAddr string) {
@@ -133,8 +159,10 @@ func (node *node) Connect(nodeAddr string) {
 
 		n := NewNode()
 		n.conn = conn
-		n.id = conn.RemoteAddr().String()
-		n.addr = conn.RemoteAddr().String()
+
+		id, _ := parseIPaddr(conn.RemoteAddr().String())
+		n.id = id
+		n.addr = id
 		// FixMe Only for testing
 		n.height = 1000
 		n.local = node
@@ -145,6 +173,10 @@ func (node *node) Connect(nodeAddr string) {
 		// TODO Need lock
 		node.neighb.add(n)
 		go n.rx()
+
+		// FIXME is there any timing race with rx
+//		buf, _ := NewVersion(node)
+//		go n.Tx(buf)
 		return nil
 	}
 }

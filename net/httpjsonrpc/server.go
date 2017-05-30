@@ -4,7 +4,7 @@ import (
 	. "GoOnchain/common"
 	"GoOnchain/core/ledger"
 	tx "GoOnchain/core/transaction"
-	"GoOnchain/net/protocol"
+	. "GoOnchain/net/protocol"
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
 )
 
 //multiplexer that keeps track of every function to be called on specific rpc call
@@ -26,7 +27,7 @@ type BlockInfo struct {
 }
 
 type NoderInfo struct {
-	Noder protocol.JsonNoder
+	Noder JsonNoder
 }
 
 type TxInfo struct {
@@ -54,7 +55,7 @@ func SetDefaultFunc(def func(http.ResponseWriter, *http.Request)) {
 	mainMux.defaultFunction = def
 }
 
-func InitNoderInfo(jsonNode protocol.JsonNoder) {
+func InitNoderInfo(jsonNode JsonNoder) {
 	//TODO
 	//return NodeInfo
 	if nodeInfo.Noder == nil {
@@ -172,7 +173,7 @@ func getBlock(req *http.Request, cmd map[string]interface{}) map[string]interfac
 	switch (params.([]interface{})[0]).(type) {
 	case int:
 		index := params.([]interface{})[0].(uint32)
-		hash := ledger.DefaultLedger.Store.GetBlockHash(index)
+		hash,_:= ledger.DefaultLedger.Store.GetBlockHash(index)
 		block, err = ledger.DefaultLedger.Store.GetBlock(hash)
 		b = BlockInfo{
 			Hash:  ToHexString(hash.ToArray()),
@@ -214,7 +215,7 @@ func getBlockHash(req *http.Request, cmd map[string]interface{}) map[string]inte
 	var hash Uint256
 	height, ok := index.(uint32)
 	if ok == true {
-		hash = ledger.DefaultLedger.Store.GetBlockHash(height)
+		hash,_= ledger.DefaultLedger.Store.GetBlockHash(height)
 	}
 	hashhex := fmt.Sprintf("%016x", hash)
 	response := responsePacking(hashhex, id)
@@ -323,7 +324,7 @@ func StartServer() {
 	HandleFunc("getrawtransaction", getRawTransaction)
 	HandleFunc("submitblock", submitBlock)
 
-	err := http.ListenAndServe("localhost:20332", nil)
+	err := http.ListenAndServe(":" + strconv.Itoa(HTTPJSONPORT), nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err.Error())
 	}

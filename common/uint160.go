@@ -4,6 +4,11 @@ import (
 	"io"
 	"bytes"
 	"encoding/binary"
+	"crypto/sha256"
+	"math/big"
+	"golang.org/x/crypto/base58"
+	."GoOnchain/errors"
+	"errors"
 )
 
 type Uint160 [20]uint8
@@ -25,8 +30,8 @@ func (u *Uint160) CompareTo( o Uint160 ) int {
 }
 
 func (u *Uint160) ToArray() []byte {
-	var x []byte = make([]byte,32)
-	for i:=0; i<32; i++ {
+	var x []byte = make([]byte,20)
+	for i:=0; i<20; i++ {
 		x[i] = byte(u[i])
 	}
 
@@ -58,4 +63,31 @@ func (f *Uint160) Deserialize(r io.Reader) error {
 	binary.Read(b_buf, binary.LittleEndian, f)
 
 	return nil
+}
+
+func (f *Uint160) ToAddress() string {
+	data := append( []byte{23}, f.ToArray()... )
+	temp := sha256.Sum256(data)
+	temps:= sha256.Sum256(temp[:])
+	data = append( data, temps[0:4]... )
+	data = append( []byte{0x00}, data... )
+
+	bi := new( big.Int )
+	bi.SetBytes( data )
+	var dst []byte
+	dst = base58.EncodeBig( dst, bi )
+
+	return string(dst[:])
+}
+
+func Uint160ParseFromBytes(f []byte) (Uint160,error){
+	if ( len(f) != 20 ) {
+		return Uint160{},NewDetailErr(errors.New("[Common]: Uint160ParseFromBytes err, len != 20"), ErrNoCode, "");
+	}
+
+	var hash [20]uint8
+	for i:=0; i<20; i++ {
+		hash[i] = f[i]
+	}
+	return Uint160(hash),nil
 }
