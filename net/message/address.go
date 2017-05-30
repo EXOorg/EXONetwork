@@ -175,14 +175,24 @@ func (msg addr) Verify(buf []byte) error {
 func (msg addr) Handle(node Noder) error {
 	common.Trace()
 	for _, v := range msg.nodeAddrs {
-		if v.Port != 0 {
-			var ip net.IP
-			ip = v.IpAddr[:]
-			// Fixme consider the IPv6 case
-			address := ip.To4().String() + ":" + strconv.Itoa(int(v.Port))
-			fmt.Printf("The ip address is %s\n", address)
-			go node.LocalNode().Connect(address)
+		var ip net.IP
+		ip = v.IpAddr[:]
+		// Fixme consider the IPv6 case
+		address := ip.To4().String() + ":" + strconv.Itoa(int(v.Port))
+		fmt.Printf("The ip address is %s id is 0x%x\n", address, v.ID)
+
+		if (v.ID == node.LocalNode().GetID()) {
+			continue
 		}
+		if node.LocalNode().NodeEstablished(v.ID) {
+			continue
+		}
+
+		if v.Port == 0 {
+			continue
+		}
+
+		go node.LocalNode().Connect(address)
 	}
 	return nil
 }

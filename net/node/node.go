@@ -2,6 +2,7 @@ package node
 
 import (
 	"GoOnchain/common"
+	. "GoOnchain/config"
 	"GoOnchain/core/ledger"
 	"GoOnchain/core/transaction"
 	. "GoOnchain/net/message"
@@ -11,7 +12,6 @@ import (
 	"math/rand"
 	"net"
 	"runtime"
-	"sync/atomic"
 	"time"
 )
 
@@ -24,56 +24,44 @@ const (
 
 type node struct {
 	state          uint      // node status
-	id             string    // The nodes's id, MAC or IP?
-	addr           string    // The address of the node
-	conn           net.Conn  // Connect socket with the peer node
-	nonce          uint32    // Random number to identify different entity from the same IP
+	id             uint64    // The nodes's id
 	cap            uint32    // The node capability set
 	version        uint32    // The network protocol the node used
 	services       uint64    // The services the node supplied
-	port           uint16    // The server port of the node
 	relay          bool      // The relay capability of the node (merge into capbility flag)
-	handshakeRetry uint32    // Handshake retry times
-	handshakeTime  time.Time // Last Handshake trigger time
 	height         uint64    // The node latest block height
-	time           time.Time // The latest time the node activity
 	// TODO does this channel should be a buffer channel
 	chF   chan func() error // Channel used to operate the node without lock
-	rxBuf struct {          // The RX buffer of this node to solve mutliple packets problem
-		p   []byte
-		len int
-	}
-	link           // The link status and infomation
-	local  *node   // The pointer to local node
-	neighb nodeMap // The neighbor node connect with currently node except itself
-	//neighborNodes	*nodeMAP	// The node connect with it except the local node
+	link			// The link status and infomation
+	local  *node		// The pointer to local node
+	nbrNodes		// The neighbor node connect with currently node except itself
 	eventQueue                // The event queue to notice notice other modules
 	TXNPool                   // Unconfirmed transaction pool
 	idCache                   // The buffer to store the id of the items which already be processed
 	ledger     *ledger.Ledger // The Local ledger
-	private    *uint          // Reserver for future using
 }
 
 func (node node) DumpInfo() {
 	fmt.Printf("Node info:\n")
 	fmt.Printf("\t state = %d\n", node.state)
-	fmt.Printf("\t id = %s\n", node.id)
+	fmt.Printf("\t id = 0x%x\n", node.id)
 	fmt.Printf("\t addr = %s\n", node.addr)
 	fmt.Printf("\t conn = %v\n", node.conn)
-	fmt.Printf("\t nonce = %d\n", node.nonce)
 	fmt.Printf("\t cap = %d\n", node.cap)
 	fmt.Printf("\t version = %d\n", node.version)
 	fmt.Printf("\t services = %d\n", node.services)
 	fmt.Printf("\t port = %d\n", node.port)
 	fmt.Printf("\t relay = %v\n", node.relay)
 	fmt.Printf("\t height = %v\n", node.height)
+
+	fmt.Printf("\t conn cnt = %v\n", node.link.connCnt)
 }
 
 func (node *node) UpdateInfo(t time.Time, version uint32, services uint64,
-	port uint16, nonce uint32, relay uint8, height uint32) {
+	port uint16, nonce uint64, relay uint8, height uint64) {
 	// TODO need lock
 	node.UpdateTime(t)
-	node.nonce = nonce
+	node.id = nonce
 	node.version = version
 	node.services = services
 	node.port = port
@@ -90,7 +78,6 @@ func NewNode() *node {
 		state: INIT,
 		chF:   make(chan func() error),
 	}
-	// Update nonce
 	runtime.SetFinalizer(&n, rmNode)
 	go n.backend()
 	return &n
@@ -102,20 +89,20 @@ func InitNode() Tmper {
 
 	n.version = PROTOCOLVERSION
 	n.services = NODESERVICES
-	n.port = NODETESTPORT
+	n.link.port = uint16(Parameters.NodePort)
 	n.relay = true
 	rand.Seed(time.Now().UTC().UnixNano())
 	// Fixme replace with the real random number
-	n.nonce = rand.Uint32()
-
-	n.neighb.init()
+	n.id = uint64(rand.Uint32())<<32 + uint64(rand.Uint32())
+	fmt.Printf("Init node ID to 0x%0x \n", n.id)
+	n.nbrNodes.init()
 	n.local = n
 	n.TXNPool.init()
 	n.eventQueue.init()
 	n.ledger, err = ledger.GetDefaultLedger()
 	if err != nil {
+		fmt.Printf("Get Default Ledger error\n")
 		errors.New("Get Default Ledger error")
-		// FIXME report the error
 	}
 
 	go n.initConnection()
@@ -129,13 +116,12 @@ func rmNode(node *node) {
 
 // TODO pass pointer to method only need modify it
 func (node *node) backend() {
-	common.Trace()
 	for f := range node.chF {
 		f()
 	}
 }
 
-func (node node) GetID() string {
+func (node node) GetID() uint64 {
 	return node.id
 }
 
@@ -149,10 +135,6 @@ func (node node) getConn() net.Conn {
 
 func (node node) GetPort() uint16 {
 	return node.port
-}
-
-func (node node) GetNonce() uint32 {
-	return node.nonce
 }
 
 func (node node) GetRelay() bool {
@@ -171,25 +153,8 @@ func (node *node) SetState(state uint) {
 	node.state = state
 }
 
-func (node node) GetHandshakeTime() time.Time {
-	return node.handshakeTime
-}
-
-func (node *node) SetHandshakeTime(t time.Time) {
-	node.handshakeTime = t
-}
-
 func (node *node) LocalNode() Noder {
 	return node.local
-}
-
-func (node node) GetHandshakeRetry() uint32 {
-	return atomic.LoadUint32(&(node.handshakeRetry))
-}
-
-func (node *node) SetHandshakeRetry(r uint32) {
-	node.handshakeRetry = r
-	atomic.StoreUint32(&(node.handshakeRetry), r)
 }
 
 func (node node) GetHeight() uint64 {
@@ -211,25 +176,53 @@ func (node node) GetMemoryPool() map[common.Uint256]*transaction.Transaction {
 
 func (node node) SynchronizeMemoryPool() {
 	// Fixme need lock
-	for _, n := range node.neighb.List {
+	for _, n := range node.nbrNodes.List {
 		if n.state == ESTABLISH {
-			ReqMemoryPool(&node)
+			ReqMemoryPool(n)
 		}
 	}
 }
 
 func (node node) Xmit(inv common.Inventory) error {
-	// Fixme here we only consider 1 inventory case
-	var msg Inv
-	t := "inv"
-	copy(msg.Hdr.CMD[0:len(t)], t)
-	msg.P.InvType = uint8(inv.Type())
-	// FIXME filling the inventory header
-	hash := inv.Hash()
-	msg.P.Blk = hash[:]
-	buf, _ := msg.Serialization()
-	node.neighb.Broadcast(buf)
-	// FIXME currenly we have no error check
+
+	fmt.Println("****** node Xmit ********")
+	var buffer []byte
+	var err error
+
+	if inv.Type() == common.TRANSACTION {
+		fmt.Printf("****TX transaction message*****\n")
+		transaction, isTransaction := inv.(*transaction.Transaction)
+		if isTransaction {
+			//transaction.Serialize(tmpBuffer)
+			buffer, err = NewTx(transaction)
+			if err != nil {
+				fmt.Println("Error New Tx message ", err.Error())
+				return err
+			}
+		}
+
+	} else if inv.Type() == common.BLOCK {
+		fmt.Printf("****TX block message****\n")
+		block, isBlock := inv.(*ledger.Block)
+		if isBlock {
+			buffer, err = NewBlock(block)
+			if err != nil {
+				fmt.Println("Error New Block message ", err.Error())
+				return err
+			}
+		}
+	} else if inv.Type() == common.CONSENSUS {
+		fmt.Printf("*****TX consensus message****\n")
+		payload, isConsensusPayload := inv.(*ConsensusPayload)
+		if isConsensusPayload {
+			buffer, err = NewConsensus(payload)
+			if err != nil {
+				fmt.Println("Error New consensus message ", err.Error())
+				return err
+			}
+		}
+	}
+	node.neighb.Broadcast(buffer)
 	return nil
 }
 
@@ -237,11 +230,11 @@ func (node node) GetAddr() string {
 	return node.addr
 }
 
-func (node node) GetAddress() ([16]byte, error) {
+func (node node) GetAddr16() ([16]byte, error) {
 	common.Trace()
 	var result [16]byte
 	ip := net.ParseIP(node.addr).To16()
-	if (ip == nil) {
+	if ip == nil {
 		fmt.Printf("Parse IP address error\n")
 		return result, errors.New("Parse IP address error")
 	}
@@ -255,31 +248,24 @@ func (node node) GetTime() int64 {
 	return t.UnixNano()
 }
 
-func (node node) getNbrNum() uint {
-	var i uint
-	for _, n := range node.local.neighb.List {
-		if n.GetState() == ESTABLISH {
-			i++
-		}
-	}
-	return i
-}
-
 func (node node) GetNeighborAddrs() ([]NodeAddr, uint64) {
 	var i uint64
-
-	cnt := node.getNbrNum()
-	addrs := make([]NodeAddr, cnt)
+	var addrs []NodeAddr
 	// TODO read lock
-	for _, n := range node.local.neighb.List {
-		if n.GetState() == ESTABLISH {
-			addrs[i].IpAddr, _ = n.GetAddress()
-			addrs[i].Time = n.GetTime()
-			addrs[i].Services = n.Services()
-			addrs[i].Port = n.GetPort()
-
-			i++
+	for _, n := range node.nbrNodes.List {
+		if n.GetState() != ESTABLISH {
+			continue
 		}
+		var addr NodeAddr
+		addr.IpAddr, _ = n.GetAddr16()
+		addr.Time = n.GetTime()
+		addr.Services = n.Services()
+		addr.Port = n.GetPort()
+		addr.ID = n.GetID()
+		addrs = append(addrs, addr)
+
+		i++
 	}
+
 	return addrs, i
 }
