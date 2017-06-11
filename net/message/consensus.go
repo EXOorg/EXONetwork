@@ -2,23 +2,22 @@ package message
 
 import (
 	"GoOnchain/common"
+	"GoOnchain/common/log"
 	"GoOnchain/common/serialization"
+	"GoOnchain/core/contract"
 	"GoOnchain/core/contract/program"
-	//"GoOnchain/events"
+	"GoOnchain/core/ledger"
+	sig "GoOnchain/core/signature"
+	. "GoOnchain/errors"
+	"GoOnchain/events"
 	. "GoOnchain/net/protocol"
 	"bytes"
-	"GoOnchain/events"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"GoOnchain/core/contract"
-	"GoOnchain/core/ledger"
 	"strconv"
-	. "GoOnchain/errors"
-	sig "GoOnchain/core/signature"
 )
 
 type ConsensusPayload struct {
@@ -54,23 +53,23 @@ func (cp *ConsensusPayload) InvertoryType() common.InventoryType {
 
 func (cp *ConsensusPayload) GetProgramHashes() ([]common.Uint160, error) {
 	common.Trace()
-	if ledger.DefaultLedger == nil{
-		return nil,errors.New("The Default ledger not exists.")
+	if ledger.DefaultLedger == nil {
+		return nil, errors.New("The Default ledger not exists.")
 	}
-	if cp.PrevHash != ledger.DefaultLedger.Store.GetCurrentBlockHash(){
-		return nil,errors.New("The PreHash Not matched.")
+	if cp.PrevHash != ledger.DefaultLedger.Store.GetCurrentBlockHash() {
+		return nil, errors.New("The PreHash Not matched.")
 	}
 	miners := ledger.DefaultLedger.Blockchain.GetMiners()
-	if uint16(len(miners)) <= cp.MinerIndex{
-		return nil,errors.New("MinerIndex invalidate. miners lengths="+ strconv.Itoa(len(miners))+ "MinerIndex ="+strconv.Itoa(int(cp.MinerIndex)))
+	if uint16(len(miners)) <= cp.MinerIndex {
+		return nil, errors.New("MinerIndex invalidate. miners lengths=" + strconv.Itoa(len(miners)) + "MinerIndex =" + strconv.Itoa(int(cp.MinerIndex)))
 	}
-	contract,err:= contract.CreateSignatureContract(miners[cp.MinerIndex])
+	contract, err := contract.CreateSignatureContract(miners[cp.MinerIndex])
 	hash := contract.ProgramHash
-	fmt.Println("program hash== ",hash)
+	fmt.Println("program hash== ", hash)
 
 	//signatureRedeemScript, err := contract.CreateSignatureRedeemScript(miners[cp.MinerIndex])
 	if err != nil {
-		return  nil, NewDetailErr(err, ErrNoCode, "[Consensus], CreateSignatureContract failed.")
+		return nil, NewDetailErr(err, ErrNoCode, "[Consensus], CreateSignatureContract failed.")
 	}
 
 	//hash, err:=common.ToCodeHash(signatureRedeemScript)
@@ -78,17 +77,26 @@ func (cp *ConsensusPayload) GetProgramHashes() ([]common.Uint160, error) {
 	//	return  nil, NewDetailErr(err, ErrNoCode, "[Consensus], ToCodeHash failed.")
 	//}
 	programhashes := []common.Uint160{}
-	programhashes = append(programhashes,hash)
+	programhashes = append(programhashes, hash)
 	return programhashes, nil
 }
 
 func (cp *ConsensusPayload) SetPrograms(programs []*program.Program) {
-	cp.Program = programs[0]
+	if programs == nil {
+		log.Warn("Set programs with NULL parameters")
+		return
+	}
+
+	if len(programs) > 0 {
+		cp.Program = programs[0]
+	} else {
+		log.Warn("Set programs with 0 program")
+	}
 }
 
 func (cp *ConsensusPayload) GetPrograms() []*program.Program {
 	cpg := []*program.Program{}
-	cpg = append(cpg,cp.Program)
+	cpg = append(cpg, cp.Program)
 	return cpg
 }
 
@@ -139,8 +147,7 @@ func (cp *ConsensusPayload) SerializeUnsigned(w io.Writer) error {
 func (cp *ConsensusPayload) Serialize(w io.Writer) error {
 	err := cp.SerializeUnsigned(w)
 	if cp.Program == nil {
-		common.Trace()
-		fmt.Println("Program is NULL")
+		log.Error("Program is NULL")
 		return errors.New("Program in consensus is NULL")
 	}
 	err = cp.Program.Serialize(w)
@@ -163,36 +170,43 @@ func (cp *ConsensusPayload) DeserializeUnsigned(r io.Reader) error {
 	var err error
 	cp.Version, err = serialization.ReadUint32(r)
 	if err != nil {
+		log.Info("consensus item Version Deserialize failed.")
 		return errors.New("consensus item Version Deserialize failed.")
 	}
 
 	preBlock := new(common.Uint256)
 	err = preBlock.Deserialize(r)
 	if err != nil {
+		log.Info("consensus item preHash Deserialize failed.")
 		return errors.New("consensus item preHash Deserialize failed.")
 	}
 	cp.PrevHash = *preBlock
 
 	cp.Height, err = serialization.ReadUint32(r)
 	if err != nil {
+		log.Info("consensus item Height Deserialize failed.")
 		return errors.New("consensus item Height Deserialize failed.")
 	}
 
 	cp.MinerIndex, err = serialization.ReadUint16(r)
 	if err != nil {
+		log.Info("consensus item MinerIndex Deserialize failed.")
 		return errors.New("consensus item MinerIndex Deserialize failed.")
 	}
 
 	cp.Timestamp, err = serialization.ReadUint32(r)
 	if err != nil {
+		log.Info("consensus item Timestamp Deserialize failed.")
 		return errors.New("consensus item Timestamp Deserialize failed.")
 	}
 
 	cp.Data, err = serialization.ReadVarBytes(r)
-	fmt.Printf("The consensus payload data len is %d\n", len(cp.Data))
+	log.Info("The consensus payload data len is ", len(cp.Data))
 	if err != nil {
+		log.Info("consensus item Data Deserialize failed.")
 		return errors.New("consensus item Data Deserialize failed.")
 	}
+	common.Trace()
 	return nil
 }
 
@@ -203,6 +217,7 @@ func (cp *ConsensusPayload) Deserialize(r io.Reader) error {
 	pg := new(program.Program)
 	err = pg.Deserialize(r)
 	if err != nil {
+		log.Error("Blockdata item Program Deserialize failed")
 		return NewDetailErr(err, ErrNoCode, "Blockdata item Program Deserialize failed.")
 	}
 	cp.Program = pg
@@ -245,9 +260,5 @@ func NewConsensus(cp *ConsensusPayload) ([]byte, error) {
 		fmt.Println("Error Convert net message ", err.Error())
 		return nil, err
 	}
-
-	str := hex.EncodeToString(m)
-	fmt.Printf("The message length is %d, %s\n", len(m), str)
-
 	return m, nil
 }

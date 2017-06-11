@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	defaultConfigFilename = "./config.json"
+	DefaultConfigFilename = "./config.json"
 )
 
 type ProtocolConfiguration struct {
@@ -17,10 +17,16 @@ type ProtocolConfiguration struct {
 	CoinVersion   int      `json:"CoinVersion"`
 	StandbyMiners []string `json:"StandbyMiners"`
 	SeedList      []string `json:"SeedList"`
-	HttpJsonPort  int	`json:"HttpJsonPort"`
-	NodePort      int	`json:"NodePort"`
-	WebSocketPort int	`json:"WebSocketPort"`
-	MinerName     string	`json:"MinerName"`
+	HttpJsonPort  int      `json:"HttpJsonPort"`
+	HttpLocalPort int      `json:"HttpLocalPort"`
+	NodePort      int      `json:"NodePort"`
+	WebSocketPort int      `json:"WebSocketPort"`
+	MinerName     string   `json:"MinerName"`
+	PrintLevel    int      `json:"PrintLevel"`
+	IsTLS         bool     `json:"IsTLS"`
+	CertPath      string   `json:"CertPath"`
+	KeyPath       string   `json:"KeyPath"`
+	CAPath        string   `json:"CAPath"`
 }
 
 type ProtocolFile struct {
@@ -30,7 +36,7 @@ type ProtocolFile struct {
 var Parameters *ProtocolConfiguration
 
 func init() {
-	file, e := ioutil.ReadFile("./config/protocol.json")
+	file, e := ioutil.ReadFile(DefaultConfigFilename)
 	if e != nil {
 		log.Fatalf("File error: %v\n", e)
 		os.Exit(1)

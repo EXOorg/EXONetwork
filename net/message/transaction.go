@@ -2,15 +2,15 @@ package message
 
 import (
 	"GoOnchain/common"
+	"GoOnchain/common/log"
 	"GoOnchain/core/ledger"
 	"GoOnchain/core/transaction"
 	. "GoOnchain/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
+	"errors"
 	"fmt"
-	"unsafe"
 )
 
 type dataReq struct {
@@ -30,7 +30,7 @@ type trn struct {
 
 func (msg trn) Handle(node Noder) error {
 	common.Trace()
-	fmt.Printf("RX TRX message\n")
+	log.Debug("RX Transaction message")
 
 	if !node.LocalNode().ExistedID(msg.txn.Hash()) {
 		node.LocalNode().AppendTxnPool(&(msg.txn))
@@ -53,9 +53,6 @@ func reqTxnData(node Noder, hash common.Uint256) error {
 func (msg dataReq) Serialization() ([]byte, error) {
 	var buf bytes.Buffer
 
-	fmt.Printf("The size of messge is %d in serialization\n",
-		uint32(unsafe.Sizeof(msg)))
-
 	//using serilization function
 	err := binary.Write(&buf, binary.LittleEndian, msg)
 	if err != nil {
@@ -66,20 +63,37 @@ func (msg dataReq) Serialization() ([]byte, error) {
 }
 
 func (msg *dataReq) Deserialization(p []byte) error {
-	fmt.Printf("The size of messge is %d in deserialization\n",
-		uint32(unsafe.Sizeof(*msg)))
-	// TODO
+	buf := bytes.NewBuffer(p)
+	err := binary.Read(buf, binary.LittleEndian, &(msg.msgHdr))
+	if err != nil {
+		log.Warn("Parse datareq message hdr error")
+		return errors.New("Parse datareq message hdr error")
+	}
+
+	err = binary.Read(buf, binary.LittleEndian, &(msg.dataType))
+	if err != nil {
+		log.Warn("Parse datareq message dataType error")
+		return errors.New("Parse datareq message dataType error")
+	}
+
+	err = msg.hash.Deserialize(buf)
+	if err != nil {
+		log.Warn("Parse datareq message hash error")
+		return errors.New("Parse datareq message hash error")
+	}
 	return nil
 }
 
-func NewTxFromHash(hash common.Uint256) *transaction.Transaction {
+func NewTxnFromHash(hash common.Uint256) (*transaction.Transaction, error) {
+	txn, err := ledger.DefaultLedger.GetTransactionWithHash(hash)
+	if err != nil {
+		log.Error("Get transaction with hash error: ", err.Error())
+		return nil, err
+	}
 
-	trx, _ := ledger.DefaultLedger.GetTransactionWithHash(hash)
-
-	//var trx *transaction.Transaction
-	return trx
+	return txn, nil
 }
-func NewTx(trx *transaction.Transaction) ([]byte, error) {
+func NewTxn(txn *transaction.Transaction) ([]byte, error) {
 	common.Trace()
 	var msg trn
 
@@ -87,12 +101,12 @@ func NewTx(trx *transaction.Transaction) ([]byte, error) {
 	cmd := "tx"
 	copy(msg.msgHdr.CMD[0:len(cmd)], cmd)
 	tmpBuffer := bytes.NewBuffer([]byte{})
-	trx.Serialize(tmpBuffer)
-	msg.txn = *trx
+	txn.Serialize(tmpBuffer)
+	msg.txn = *txn
 	b := new(bytes.Buffer)
 	err := binary.Write(b, binary.LittleEndian, tmpBuffer.Bytes())
 	if err != nil {
-		fmt.Println("Binary Write failed at new Msg")
+		log.Error("Binary Write failed at new Msg")
 		return nil, err
 	}
 	s := sha256.Sum256(b.Bytes())
@@ -101,25 +115,18 @@ func NewTx(trx *transaction.Transaction) ([]byte, error) {
 	buf := bytes.NewBuffer(s[:4])
 	binary.Read(buf, binary.LittleEndian, &(msg.msgHdr.Checksum))
 	msg.msgHdr.Length = uint32(len(b.Bytes()))
-	fmt.Printf("The message payload length is %d\n", msg.msgHdr.Length)
+	log.Info(fmt.Sprintf("The message payload length is %d", msg.msgHdr.Length))
 
 	m, err := msg.Serialization()
 	if err != nil {
-		fmt.Println("Error Convert net message ", err.Error())
+		log.Error("Error Convert net message ", err.Error())
 		return nil, err
 	}
-
-	str := hex.EncodeToString(m)
-	fmt.Printf("The message length is %d, %s\n", len(m), str)
 
 	return m, nil
 }
 
 func (msg trn) Serialization() ([]byte, error) {
-	//buf := bytes.NewBuffer([]byte{})
-
-	fmt.Printf("The size of messge is %d in serialization\n",
-		uint32(unsafe.Sizeof(msg)))
 	hdrBuf, err := msg.msgHdr.Serialization()
 	if err != nil {
 		return nil, err

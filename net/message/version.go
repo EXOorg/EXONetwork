@@ -2,14 +2,14 @@ package message
 
 import (
 	"GoOnchain/common"
+	"GoOnchain/common/log"
 	. "GoOnchain/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
-	"errors"
 )
 
 type version struct {
@@ -19,7 +19,7 @@ type version struct {
 		Services  uint64
 		TimeStamp uint32
 		Port      uint16
-		Nonce	  uint64
+		Nonce     uint64
 		// TODO remove tempory to get serilization function passed
 		UserAgent   uint8
 		StartHeight uint64
@@ -59,7 +59,7 @@ func NewVersion(n Noder) ([]byte, error) {
 	p := new(bytes.Buffer)
 	err := binary.Write(p, binary.LittleEndian, &(msg.P))
 	if err != nil {
-		fmt.Println("Binary Write failed at new Msg")
+		log.Error("Binary Write failed at new Msg")
 		return nil, err
 	}
 	s := sha256.Sum256(p.Bytes())
@@ -68,16 +68,14 @@ func NewVersion(n Noder) ([]byte, error) {
 	buf := bytes.NewBuffer(s[:4])
 	binary.Read(buf, binary.LittleEndian, &(msg.Hdr.Checksum))
 	msg.Hdr.Length = uint32(len(p.Bytes()))
-	fmt.Printf("The message payload length is %d\n", msg.Hdr.Length)
+	log.Debug("The message payload length is ", msg.Hdr.Length)
 
 	m, err := msg.Serialization()
 	if err != nil {
-		fmt.Println("Error Convert net message ", err.Error())
+		log.Error("Error Convert net message ", err.Error())
 		return nil, err
 	}
 
-	str := hex.EncodeToString(m)
-	fmt.Printf("The message length is %d, %s\n", len(m), str)
 	return m, nil
 }
 
@@ -126,21 +124,21 @@ func (msg version) Handle(node Noder) error {
 	localNode := node.LocalNode()
 
 	// Exclude the node itself
-	if (msg.P.Nonce == localNode.GetID()) {
-		fmt.Printf("The node handshark with itself\n")
+	if msg.P.Nonce == localNode.GetID() {
+		log.Warn("The node handshark with itself")
 		return errors.New("The node handshark with itself")
 	}
 
 	s := node.GetState()
-	if (s != INIT) {
-		fmt.Printf("Unknow status to received version\n")
+	if s != INIT {
+		log.Warn("Unknow status to received version")
 		return errors.New("Unknow status to received version")
 	}
 
 	// Obsolete node
 	n, ret := localNode.DelNbrNode(msg.P.Nonce)
 	if ret == true {
-		fmt.Printf("Remove a eixted Node\n")
+		log.Info(fmt.Sprintf("Node reconnect 0x%x", msg.P.Nonce))
 		// Close the connection and release the node soure
 		n.SetState(INACTIVITY)
 		n.CloseConn()

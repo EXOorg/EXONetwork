@@ -2,6 +2,7 @@ package message
 
 import (
 	"GoOnchain/common"
+	"GoOnchain/common/log"
 	"GoOnchain/common/serialization"
 	"GoOnchain/core/ledger"
 	. "GoOnchain/net/protocol"
@@ -11,7 +12,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"unsafe"
 )
 
 type InventoryType byte
@@ -49,7 +49,10 @@ func (msg blocksReq) Handle(node Noder) error {
 	stophash = msg.HashStop
 	//FIXME if HeaderHashCount > 1
 	inv := GetInvFromBlockHash(starthash[0], stophash)
-	buf, _ := NewInv(inv)
+	buf, err := NewInv(inv)
+	if err != nil {
+		return err
+	}
 	go node.Tx(buf)
 	return nil
 }
@@ -57,8 +60,6 @@ func (msg blocksReq) Handle(node Noder) error {
 func (msg blocksReq) Serialization() ([]byte, error) {
 	var buf bytes.Buffer
 
-	fmt.Printf("The size of messge is %d in serialization\n",
-		uint32(unsafe.Sizeof(msg)))
 	err := binary.Write(&buf, binary.LittleEndian, msg)
 	if err != nil {
 		return nil, err
@@ -68,9 +69,6 @@ func (msg blocksReq) Serialization() ([]byte, error) {
 }
 
 func (msg *blocksReq) Deserialization(p []byte) error {
-	fmt.Printf("The size of messge is %d in deserialization\n",
-		uint32(unsafe.Sizeof(*msg)))
-
 	buf := bytes.NewBuffer(p)
 	err := binary.Read(buf, binary.LittleEndian, msg)
 	return err
@@ -92,33 +90,30 @@ func (msg Inv) Handle(node Noder) error {
 	invType := common.InventoryType(msg.P.InvType)
 	switch invType {
 	case common.TRANSACTION:
-		fmt.Printf("RX TRX message\n")
+		log.Debug("RX TRX message")
 		// TODO check the ID queue
 		id.Deserialize(bytes.NewReader(msg.P.Blk[:32]))
 		if !node.ExistedID(id) {
 			reqTxnData(node, id)
 		}
 	case common.BLOCK:
-		fmt.Printf("RX block message\n")
+		log.Debug("RX block message")
 		id.Deserialize(bytes.NewReader(msg.P.Blk[:32]))
 		if !node.ExistedID(id) {
 			// send the block request
 			reqBlkData(node, id)
 		}
 	case common.CONSENSUS:
-		fmt.Printf("RX consensus message\n")
+		log.Debug("RX consensus message")
 		id.Deserialize(bytes.NewReader(msg.P.Blk[:32]))
 		reqConsensusData(node, id)
 	default:
-		fmt.Printf("RX unknown inventory message\n")
-		// Warning:
+		log.Warn("RX unknown inventory message")
 	}
 	return nil
 }
 
 func (msg Inv) Serialization() ([]byte, error) {
-	fmt.Printf("The size of messge is %d in serialization\n",
-		uint32(unsafe.Sizeof(msg)))
 	hdrBuf, err := msg.Hdr.Serialization()
 	if err != nil {
 		return nil, err
@@ -130,9 +125,6 @@ func (msg Inv) Serialization() ([]byte, error) {
 }
 
 func (msg *Inv) Deserialization(p []byte) error {
-	fmt.Printf("The size of messge is %d in deserialization\n",
-		uint32(unsafe.Sizeof(*msg)))
-
 	err := msg.Hdr.Deserialization(p)
 
 	msg.P.InvType = p[MSGHDRLEN]
@@ -172,21 +164,25 @@ func GetInvFromBlockHash(starthash common.Uint256, stophash common.Uint256) invP
 	var stopheight uint32
 	var count uint32 = 0
 	var i uint32
-	/*wait for GetBlockWithHash commit
+
 	var empty common.Uint256
-	bkstart, _ := ledger.DefaultLedger.Blockchain.GetBlockWithHash(starthash)
+	bkstart, _ := ledger.DefaultLedger.GetBlockWithHash(starthash)
 	startheight := bkstart.Blockdata.Height
-	if (stophash != empty){
-		bkstop, _ := ledger.DefaultLedger.Blockchain.GetBlockWithHash(starthash)
+	if stophash != empty {
+		bkstop, _ := ledger.DefaultLedger.GetBlockWithHash(starthash)
 		stopheight = bkstop.Blockdata.Height
 		count = startheight - stopheight
-		if (count >= 500) {
-			count = 500
+		if count >= MAXINVHDRCNT {
+			count = MAXINVHDRCNT
+			stopheight = startheight - MAXINVHDRCNT
 		}
-	}else{
-		count = 500
+	} else {
+		if startheight > MAXINVHDRCNT {
+			count = MAXINVHDRCNT
+		} else {
+			count = startheight
+		}
 	}
-	*/
 
 	tmpBuffer := bytes.NewBuffer([]byte{})
 	for i = 1; i <= count; i++ {
@@ -214,7 +210,7 @@ func NewInv(inv invPayload) ([]byte, error) {
 	b := new(bytes.Buffer)
 	err := binary.Write(b, binary.LittleEndian, tmpBuffer.Bytes())
 	if err != nil {
-		fmt.Println("Binary Write failed at new Msg")
+		log.Error("Binary Write failed at new Msg", err.Error())
 		return nil, err
 	}
 	s := sha256.Sum256(b.Bytes())
@@ -223,16 +219,13 @@ func NewInv(inv invPayload) ([]byte, error) {
 	buf := bytes.NewBuffer(s[:4])
 	binary.Read(buf, binary.LittleEndian, &(msg.Hdr.Checksum))
 	msg.Hdr.Length = uint32(len(buf.Bytes()))
-	fmt.Printf("The message payload length is %d\n", msg.Hdr.Length)
 
 	m, err := msg.Serialization()
 	if err != nil {
-		fmt.Println("Error Convert net message ", err.Error())
+		log.Error("Error Convert net message ", err.Error())
 		return nil, err
 	}
 
-	str := hex.EncodeToString(m)
-	fmt.Printf("The message length is %d, %s\n", len(m), str)
 	return m, nil
 }
 

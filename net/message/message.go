@@ -2,6 +2,7 @@ package message
 
 import (
 	"GoOnchain/common"
+	"GoOnchain/common/log"
 	. "GoOnchain/net/protocol"
 	"bytes"
 	"crypto/sha256"
@@ -20,7 +21,7 @@ type Messager interface {
 
 // The network communication message header
 type msgHdr struct {
-	Magic    uint32
+	Magic uint32
 	//ID	 uint64
 	CMD      [MSGCMDLEN]byte // The message type
 	Length   uint32
@@ -190,14 +191,12 @@ func NewMsg(t string, n Noder) ([]byte, error) {
 // FIXME the length exceed int32 case?
 func HandleNodeMsg(node Noder, buf []byte, len int) error {
 	if len < MSGHDRLEN {
-		fmt.Println("Unexpected size of received message")
+		log.Warn("Unexpected size of received message")
 		return errors.New("Unexpected size of received message")
 	}
 
-	//str := hex.EncodeToString(buf[:len])
-	//fmt.Printf("Received data len %d\n: %s \n  Received string: %v \n",
-	//	len, str, string(buf[:len]))
-	//fmt.Printf("Received data len %d : \"%v\" ", len, string(buf[:len]))
+	str := hex.EncodeToString(buf[:len])
+	log.Debug("Received data len: ", len, "\n", str)
 
 	s, err := MsgType(buf)
 	if err != nil {
@@ -211,8 +210,10 @@ func HandleNodeMsg(node Noder, buf []byte, len int) error {
 		return err
 	}
 	// Todo attach a ndoe pointer to each message
-	msg.Deserialization(buf[0:len])
+	// Todo drop the message when verify/deseria packet error
+	msg.Deserialization(buf[:len])
 	msg.Verify(buf[MSGHDRLEN:len])
+
 	return msg.Handle(node)
 }
 
@@ -255,17 +256,16 @@ func (hdr *msgHdr) init(cmd string, checksum []byte, length uint32) {
 // Verify the message header information
 // @p payload of the message
 func (hdr msgHdr) Verify(buf []byte) error {
-	if hdr.Magic != NETMAGIC {
-		fmt.Printf("Unmatched magic number 0x%d\n", hdr.Magic)
+	if magicVerify(hdr.Magic) == false {
+		log.Warn(fmt.Sprintf("Unmatched magic number 0x%0x", hdr.Magic))
 		return errors.New("Unmatched magic number")
 	}
-
 	checkSum := checkSum(buf)
 	if bytes.Equal(hdr.Checksum[:], checkSum[:]) == false {
 		str1 := hex.EncodeToString(hdr.Checksum[:])
 		str2 := hex.EncodeToString(checkSum[:])
-		fmt.Printf("Message Checksum error, Received checksum %s Wanted checksum: %s\n",
-			str1, str2)
+		log.Warn(fmt.Sprintf("Message Checksum error, Received checksum %s Wanted checksum: %s",
+			str1, str2))
 		return errors.New("Message Checksum error")
 	}
 

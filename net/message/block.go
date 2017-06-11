@@ -2,16 +2,15 @@ package message
 
 import (
 	"GoOnchain/common"
+	"GoOnchain/common/log"
 	"GoOnchain/core/ledger"
 	"GoOnchain/events"
-	//"GoOnchain/events"
 	. "GoOnchain/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
+	"errors"
 	"fmt"
-	"unsafe"
 )
 
 type blockReq struct {
@@ -29,32 +28,53 @@ type block struct {
 func (msg block) Handle(node Noder) error {
 	common.Trace()
 
-	fmt.Printf("RX block message\n")
+	log.Debug("RX block message")
+	err := ledger.DefaultLedger.Blockchain.AddBlock(&msg.blk)
+	if err != nil {
+		log.Warn("Add block error")
+		return errors.New("Add block error before Xmit\n")
+	}
 	node.LocalNode().GetEvent("block").Notify(events.EventNewInventory, &msg.blk)
 	return nil
 }
 
 func (msg dataReq) Handle(node Noder) error {
 	common.Trace()
-	reqtype := msg.dataType
+	reqtype := common.InventoryType(msg.dataType)
 	hash := msg.hash
 	switch reqtype {
-	case 0x01:
-		block := NewBlockFromHash(hash)
-		buf, _ := NewBlock(block)
+	case common.BLOCK:
+		block, err := NewBlockFromHash(hash)
+		if err != nil {
+			return err
+		}
+		buf, err := NewBlock(block)
+		if err != nil {
+			return err
+		}
 		go node.Tx(buf)
 
-	case 0x02:
-		tx := NewTxFromHash(hash)
-		buf, _ := NewTx(tx)
+	case common.TRANSACTION:
+		txn, err := NewTxnFromHash(hash)
+		if err != nil {
+			return err
+		}
+		buf, err := NewTxn(txn)
+		if err != nil {
+			return err
+		}
 		go node.Tx(buf)
 	}
 	return nil
 }
 
-func NewBlockFromHash(hash common.Uint256) *ledger.Block {
-	bk, _ := ledger.DefaultLedger.Store.GetBlock(hash)
-	return bk
+func NewBlockFromHash(hash common.Uint256) (*ledger.Block, error) {
+	bk, err := ledger.DefaultLedger.Store.GetBlock(hash)
+	if err != nil {
+		log.Error("Get Block error: ", err.Error())
+		return nil, err
+	}
+	return bk, nil
 }
 
 func NewBlock(bk *ledger.Block) ([]byte, error) {
@@ -69,7 +89,7 @@ func NewBlock(bk *ledger.Block) ([]byte, error) {
 	p := new(bytes.Buffer)
 	err := binary.Write(p, binary.LittleEndian, tmpBuffer.Bytes())
 	if err != nil {
-		fmt.Println("Binary Write failed at new Msg")
+		log.Error("Binary Write failed at new Msg")
 		return nil, err
 	}
 	s := sha256.Sum256(p.Bytes())
@@ -82,12 +102,10 @@ func NewBlock(bk *ledger.Block) ([]byte, error) {
 
 	m, err := msg.Serialization()
 	if err != nil {
-		fmt.Println("Error Convert net message ", err.Error())
+		log.Error("Error Convert net message ", err.Error())
 		return nil, err
 	}
 
-	str := hex.EncodeToString(m)
-	fmt.Printf("The message length is %d, %s\n", len(m), str)
 	return m, nil
 }
 
@@ -110,9 +128,6 @@ func (msg block) Verify(buf []byte) error {
 }
 
 func (msg block) Serialization() ([]byte, error) {
-
-	fmt.Printf("The size of messge is %d in serialization\n",
-		uint32(unsafe.Sizeof(msg)))
 	hdrBuf, err := msg.msgHdr.Serialization()
 	if err != nil {
 		return nil, err
@@ -124,11 +139,19 @@ func (msg block) Serialization() ([]byte, error) {
 }
 
 func (msg *block) Deserialization(p []byte) error {
-	fmt.Printf("The size of messge is %d in deserialization\n",
-		uint32(unsafe.Sizeof(*msg)))
-
 	buf := bytes.NewBuffer(p)
-	err := binary.Read(buf, binary.LittleEndian, msg.msgHdr)
-	msg.blk.Deserialize(buf)
+
+	err := binary.Read(buf, binary.LittleEndian, &(msg.msgHdr))
+	if err != nil {
+		log.Warn("Parse block message hdr error")
+		return errors.New("Parse block message hdr error")
+	}
+
+	err = msg.blk.Deserialize(buf)
+	if err != nil {
+		log.Warn("Parse block message error")
+		return errors.New("Parse block message error")
+	}
+
 	return err
 }

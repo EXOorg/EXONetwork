@@ -2,6 +2,7 @@ package message
 
 import (
 	"GoOnchain/common"
+	"GoOnchain/common/log"
 	. "GoOnchain/net/protocol"
 	"bytes"
 	"crypto/sha256"
@@ -10,7 +11,6 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"unsafe"
 )
 
 type addrReq struct {
@@ -41,7 +41,7 @@ func newGetAddr() ([]byte, error) {
 	}
 
 	str := hex.EncodeToString(buf)
-	fmt.Printf("The message get addr length is %d, %s\n", len(buf), str)
+	log.Info("The message get addr length is: ", len(buf), " ", str)
 
 	return buf, err
 }
@@ -56,13 +56,13 @@ func NewAddrs(nodeaddrs []NodeAddr, count uint64) ([]byte, error) {
 	p := new(bytes.Buffer)
 	err := binary.Write(p, binary.LittleEndian, msg.nodeCnt)
 	if err != nil {
-		fmt.Println("Binary Write failed at new Msg")
+		log.Error("Binary Write failed at new Msg: ", err.Error())
 		return nil, err
 	}
 
 	err = binary.Write(p, binary.LittleEndian, msg.nodeAddrs)
 	if err != nil {
-		fmt.Println("Binary Write failed at new Msg")
+		log.Error("Binary Write failed at new Msg: ", err.Error())
 		return nil, err
 	}
 	s := sha256.Sum256(p.Bytes())
@@ -71,16 +71,14 @@ func NewAddrs(nodeaddrs []NodeAddr, count uint64) ([]byte, error) {
 	buf := bytes.NewBuffer(s[:4])
 	binary.Read(buf, binary.LittleEndian, &(msg.hdr.Checksum))
 	msg.hdr.Length = uint32(len(p.Bytes()))
-	fmt.Printf("The message payload length is %d\n", msg.hdr.Length)
+	log.Debug("The message payload length is ", msg.hdr.Length)
 
 	m, err := msg.Serialization()
 	if err != nil {
-		fmt.Println("Error Convert net message ", err.Error())
+		log.Error("Error Convert net message ", err.Error())
 		return nil, err
 	}
 
-	str := hex.EncodeToString(m)
-	fmt.Printf("The message length is %d, %s\n", len(m), str)
 	return m, nil
 }
 
@@ -96,16 +94,16 @@ func (msg addrReq) Handle(node Noder) error {
 	var addrstr []NodeAddr
 	var count uint64
 	addrstr, count = node.LocalNode().GetNeighborAddrs()
-	buf, _ := NewAddrs(addrstr, count)
+	buf, err := NewAddrs(addrstr, count)
+	if err != nil {
+		return err
+	}
 	go node.Tx(buf)
 	return nil
 }
 
 func (msg addrReq) Serialization() ([]byte, error) {
 	var buf bytes.Buffer
-
-	fmt.Printf("The size of messge is %d in serialization\n",
-		uint32(unsafe.Sizeof(msg)))
 	err := binary.Write(&buf, binary.LittleEndian, msg)
 	if err != nil {
 		return nil, err
@@ -115,9 +113,6 @@ func (msg addrReq) Serialization() ([]byte, error) {
 }
 
 func (msg *addrReq) Deserialization(p []byte) error {
-	fmt.Printf("The size of messge is %d in deserialization\n",
-		uint32(unsafe.Sizeof(*msg)))
-
 	buf := bytes.NewBuffer(p)
 	err := binary.Read(buf, binary.LittleEndian, msg)
 	return err
@@ -135,7 +130,6 @@ func (msg addr) Serialization() ([]byte, error) {
 		return nil, err
 	}
 	for _, v := range msg.nodeAddrs {
-		//err = binary.Write(&buf, binary.LittleEndian, v.Serialization)
 		err = binary.Write(&buf, binary.LittleEndian, v)
 		if err != nil {
 			return nil, err
@@ -146,15 +140,10 @@ func (msg addr) Serialization() ([]byte, error) {
 }
 
 func (msg *addr) Deserialization(p []byte) error {
-	fmt.Printf("The size of messge is %d in deserialization\n",
-		uint32(unsafe.Sizeof(*msg)))
-
 	buf := bytes.NewBuffer(p)
 	err := binary.Read(buf, binary.LittleEndian, &(msg.hdr))
-	//err := msg.hdr.Deserialization(p)
 	err = binary.Read(buf, binary.LittleEndian, &(msg.nodeCnt))
-	//err = binary.Read(p[MSGHDRLEN:p[MSGHDRLEN + 8], binary.LittleEndian, &cnt)
-	fmt.Printf("The address count is %d \n", msg.nodeCnt)
+	log.Debug("The address count is ", msg.nodeCnt)
 	msg.nodeAddrs = make([]NodeAddr, msg.nodeCnt)
 	for i := 0; i < int(msg.nodeCnt); i++ {
 		err := binary.Read(buf, binary.LittleEndian, &(msg.nodeAddrs[i]))
@@ -177,11 +166,11 @@ func (msg addr) Handle(node Noder) error {
 	for _, v := range msg.nodeAddrs {
 		var ip net.IP
 		ip = v.IpAddr[:]
-		// Fixme consider the IPv6 case
-		address := ip.To4().String() + ":" + strconv.Itoa(int(v.Port))
-		fmt.Printf("The ip address is %s id is 0x%x\n", address, v.ID)
+		//address := ip.To4().String() + ":" + strconv.Itoa(int(v.Port))
+		address := ip.To16().String() + ":" + strconv.Itoa(int(v.Port))
+		log.Info(fmt.Sprintf("The ip address is %s id is 0x%x", address, v.ID))
 
-		if (v.ID == node.LocalNode().GetID()) {
+		if v.ID == node.LocalNode().GetID() {
 			continue
 		}
 		if node.LocalNode().NodeEstablished(v.ID) {
