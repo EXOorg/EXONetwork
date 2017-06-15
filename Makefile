@@ -2,10 +2,10 @@ GOFMT=gofmt
 GC=go build
 VERSION := $(shell git describe --abbrev=4 --dirty --always --tags)
 Minversion := $(shell date)
-BUILD_PAR = -ldflags "-X main.Version=$(VERSION)"
+BUILD_PAR = -ldflags "-X main.Version=$(VERSION)" #-race
 
 all:
-	$(GC)  $(BUILD_PAR) main.go
+	$(GC)  $(BUILD_PAR) -o node main.go
 	$(GC)  $(BUILD_PAR) nodectl.go
 
 format:

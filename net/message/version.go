@@ -1,9 +1,11 @@
 package message
 
 import (
-	"GoOnchain/common"
-	"GoOnchain/common/log"
-	. "GoOnchain/net/protocol"
+	"DNA/common"
+	"DNA/common/log"
+	"DNA/core/ledger"
+	"DNA/crypto"
+	. "DNA/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -26,6 +28,7 @@ type version struct {
 		// FIXME check with the specify relay type length
 		Relay uint8
 	}
+	pk *crypto.PubKey
 }
 
 func (msg *version) init(n Noder) {
@@ -43,21 +46,23 @@ func NewVersion(n Noder) ([]byte, error) {
 	msg.P.Port = n.GetPort()
 	msg.P.Nonce = n.GetID()
 	msg.P.UserAgent = 0x00
-	// Fixme Get the block height from ledger
-	msg.P.StartHeight = uint64(n.GetLedger().GetLocalBlockChainHeight())
+	msg.P.StartHeight = uint64(ledger.DefaultLedger.GetLocalBlockChainHeight())
 	if n.GetRelay() {
 		msg.P.Relay = 1
 	} else {
 		msg.P.Relay = 0
 	}
 
+	msg.pk = n.GetMinerAddr()
+	log.Debug("new version msg.pk is ", msg.pk)
 	// TODO the function to wrap below process
 	// msg.HDR.init("version", n.GetID(), uint32(len(p.Bytes())))
 
 	msg.Hdr.Magic = NETMAGIC
 	copy(msg.Hdr.CMD[0:7], "version")
-	p := new(bytes.Buffer)
+	p := bytes.NewBuffer([]byte{})
 	err := binary.Write(p, binary.LittleEndian, &(msg.P))
+	msg.pk.Serialize(p)
 	if err != nil {
 		log.Error("Binary Write failed at new Msg")
 		return nil, err
@@ -87,19 +92,41 @@ func (msg version) Verify(buf []byte) error {
 }
 
 func (msg version) Serialization() ([]byte, error) {
-	var buf bytes.Buffer
-
-	err := binary.Write(&buf, binary.LittleEndian, msg)
+	hdrBuf, err := msg.Hdr.Serialization()
 	if err != nil {
 		return nil, err
 	}
+	buf := bytes.NewBuffer(hdrBuf)
+	err = binary.Write(buf, binary.LittleEndian, msg.P)
+	if err != nil {
+		return nil, err
+	}
+	msg.pk.Serialize(buf)
 
 	return buf.Bytes(), err
 }
 
 func (msg *version) Deserialization(p []byte) error {
 	buf := bytes.NewBuffer(p)
-	err := binary.Read(buf, binary.LittleEndian, msg)
+
+	err := binary.Read(buf, binary.LittleEndian, &(msg.Hdr))
+	if err != nil {
+		log.Warn("Parse version message hdr error")
+		return errors.New("Parse version message hdr error")
+	}
+
+	err = binary.Read(buf, binary.LittleEndian, &(msg.P))
+	if err != nil {
+		log.Warn("Parse version P message error")
+		return errors.New("Parse version P message error")
+	}
+
+	pk := new(crypto.PubKey)
+	err = pk.DeSerialize(buf)
+	if err != nil {
+		return errors.New("Parse pubkey Deserialize failed.")
+	}
+	msg.pk = pk
 	return err
 }
 
@@ -130,7 +157,7 @@ func (msg version) Handle(node Noder) error {
 	}
 
 	s := node.GetState()
-	if s != INIT {
+	if s != INIT && s != HAND {
 		log.Warn("Unknow status to received version")
 		return errors.New("Unknow status to received version")
 	}
@@ -144,16 +171,20 @@ func (msg version) Handle(node Noder) error {
 		n.CloseConn()
 	}
 
-	node.SetState(HANDSHAKE)
+	log.Info("handle version msg.pk is ", msg.pk)
+	node.SetMinerAddr(msg.pk)
 	node.UpdateInfo(time.Now(), msg.P.Version, msg.P.Services,
 		msg.P.Port, msg.P.Nonce, msg.P.Relay, msg.P.StartHeight)
 	localNode.AddNbrNode(node)
 
-	buf, _ := NewVersion(localNode)
-	node.Tx(buf)
-
-	time.Sleep(2 * time.Second)
-	buf, _ = NewVerack()
+	var buf []byte
+	if s == INIT {
+		node.SetState(HANDSHAKE)
+		buf, _ = NewVersion(localNode)
+	} else if s == HAND {
+		node.SetState(HANDSHAKED)
+		buf, _ = NewVerack()
+	}
 	node.Tx(buf)
 
 	return nil

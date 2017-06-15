@@ -1,11 +1,11 @@
 package message
 
 import (
-	"GoOnchain/common"
-	"GoOnchain/common/log"
-	"GoOnchain/core/ledger"
-	"GoOnchain/core/transaction"
-	. "GoOnchain/net/protocol"
+	"DNA/common"
+	"DNA/common/log"
+	"DNA/core/ledger"
+	"DNA/core/transaction"
+	. "DNA/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -144,6 +144,20 @@ func (msg trn) DeSerialization(p []byte) error {
 	if err != nil {
 		return err
 	}
+
+	return nil
+}
+
+
+type txnPool struct {
+	msgHdr
+	//TBD
+}
+
+func ReqTxnPool(node Noder) error {
+	msg := AllocMsg("txnpool", 0)
+	buf, _ := msg.Serialization()
+	go node.Tx(buf)
 
 	return nil
 }

@@ -1,11 +1,11 @@
 package node
 
 import (
-	"GoOnchain/common"
-	"GoOnchain/common/log"
-	. "GoOnchain/config"
-	. "GoOnchain/net/message"
-	. "GoOnchain/net/protocol"
+	"DNA/common"
+	"DNA/common/log"
+	. "DNA/config"
+	. "DNA/net/message"
+	. "DNA/net/protocol"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
@@ -21,6 +21,7 @@ import (
 )
 
 type link struct {
+	//Todo Add lock here
 	addr  string    // The address of the node
 	conn  net.Conn  // Connect socket with the peer node
 	port  uint16    // The server port of the node
@@ -44,13 +45,11 @@ func unpackNodeBuf(node *node, buf []byte) {
 			return
 		}
 		// FIXME Check the payload < 0 error case
-		//fmt.Printf("The Rx msg payload is %d\n", PayloadLen(buf))
 		msgLen = PayloadLen(buf) + MSGHDRLEN
 	} else {
 		msgLen = node.rxBuf.len
 	}
 
-	//fmt.Printf("The msg length is %d, buf len is %d\n", msgLen, len(buf))
 	if len(buf) == msgLen {
 		msgBuf = append(node.rxBuf.p, buf[:]...)
 		go HandleNodeMsg(node, msgBuf, len(msgBuf))
@@ -85,7 +84,7 @@ func (node *node) rx() error {
 			//go handleNodeMsg(node, buf, len)
 			break
 		case io.EOF:
-			//fmt.Println("Reading EOF of network conn")
+			//log.Debug("Reading EOF of network conn")
 			break
 		default:
 			log.Error("Read connetion error ", err)
@@ -209,43 +208,41 @@ func parseIPaddr(s string) (string, error) {
 	return s[:i], nil
 }
 
-func (node *node) Connect(nodeAddr string) {
-	node.chF <- func() error {
-		common.Trace()
-		isTls := Parameters.IsTLS
-		var conn net.Conn
-		var err error
-		if isTls {
-			conn, err = TLSDial(nodeAddr)
-			if err != nil {
-				log.Error("TLS connect failed: ", err)
-				return nil
-			}
-		} else {
-			conn, err = NonTLSDial(nodeAddr)
-			if err != nil {
-				log.Error("non TLS connect failed:", err)
-				return nil
-			}
+func (node *node) Connect(nodeAddr string) error {
+	common.Trace()
+	isTls := Parameters.IsTLS
+	var conn net.Conn
+	var err error
+	if isTls {
+		conn, err = TLSDial(nodeAddr)
+		if err != nil {
+			log.Error("TLS connect failed: ", err)
+			return nil
 		}
-		node.link.connCnt++
-
-		n := NewNode()
-		n.conn = conn
-		n.addr, err = parseIPaddr(conn.RemoteAddr().String())
-		n.local = node
-
-		log.Info(fmt.Sprintf("Connect node %s connect with %s with %s",
-			conn.LocalAddr().String(), conn.RemoteAddr().String(),
-			conn.RemoteAddr().Network()))
-		go n.rx()
-
-		time.Sleep(2 * time.Second)
-		// FIXME is there any timing race with rx
-		buf, _ := NewVersion(node)
-		n.Tx(buf)
-		return nil
+	} else {
+		conn, err = NonTLSDial(nodeAddr)
+		if err != nil {
+			log.Error("non TLS connect failed:", err)
+			return nil
+		}
 	}
+	node.link.connCnt++
+
+	n := NewNode()
+	n.conn = conn
+	n.addr, err = parseIPaddr(conn.RemoteAddr().String())
+	n.local = node
+
+	log.Info(fmt.Sprintf("Connect node %s connect with %s with %s",
+		conn.LocalAddr().String(), conn.RemoteAddr().String(),
+		conn.RemoteAddr().Network()))
+	go n.rx()
+
+	n.SetState(HAND)
+	buf, _ := NewVersion(node)
+	n.Tx(buf)
+
+	return nil
 }
 
 func NonTLSDial(nodeAddr string) (net.Conn, error) {
@@ -290,9 +287,7 @@ func TLSDial(nodeAddr string) (net.Conn, error) {
 	return conn, nil
 }
 
-// TODO construct a TX channel and other application just drop the message to the channel
 func (node node) Tx(buf []byte) {
-	//node.chF <- func() error {
 	common.Trace()
 	str := hex.EncodeToString(buf)
 	log.Debug(fmt.Sprintf("TX buf length: %d\n%s", len(buf), str))
@@ -301,40 +296,4 @@ func (node node) Tx(buf []byte) {
 	if err != nil {
 		log.Error("Error sending messge to peer node ", err.Error())
 	}
-	//return err
-	//}
 }
-
-// func (net net) Xmit(inv Inventory) error {
-// 	//if (!KnownHashes.Add(inventory.Hash)) return false;
-// 	t := inv.Type()
-// 	switch t {
-// 	case BLOCK:
-//                 if (Blockchain.Default == null) {
-// 			return false
-// 		}
-//                 Block block = (Block)inventory;
-//                 if (Blockchain.Default.ContainsBlock(block.Hash)) {
-// 			return false;
-// 		}
-//                 if (!Blockchain.Default.AddBlock(block)) {
-// 			return false;
-// 		}
-// 	case TRANSACTION:
-// 		if (!AddTransaction((Transaction)inventory)) {
-// 			return false
-// 		}
-// 	case CONSENSUS:
-//                 if (!inventory.Verify()) {
-// 			return false
-// 		}
-// 	default:
-// 		fmt.Print("Unknow inventory type/n")
-// 		return errors.New("Unknow inventory type/n")
-// 	}
-
-// 	RelayCache.Add(inventory);
-// 	foreach (RemoteNode node in connectedPeers)
-// 	relayed |= node.Relay(inventory);
-// 	NewInventory.Invoke(this, inventory);
-// }

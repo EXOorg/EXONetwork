@@ -1,15 +1,16 @@
 package ledger
 
 import (
-	. "GoOnchain/common"
-	"GoOnchain/common/serialization"
-	"GoOnchain/core/contract/program"
-	tx "GoOnchain/core/transaction"
-	"GoOnchain/crypto"
-	. "GoOnchain/errors"
+	. "DNA/common"
+	"DNA/common/serialization"
+	"DNA/core/contract/program"
+	tx "DNA/core/transaction"
+	"DNA/crypto"
+	. "DNA/errors"
 	"io"
 	"time"
-	"GoOnchain/vm"
+	"DNA/vm"
+	"DNA/common/log"
 )
 
 type Block struct {
@@ -91,6 +92,7 @@ func (b *Block) Hash() Uint256 {
 }
 
 func (b *Block) Verify() error {
+	log.Info("This function is expired.please use Validation/blockValidator to Verify Block.")
 	return nil
 }
 
@@ -98,7 +100,7 @@ func (b *Block) Type() InventoryType {
 	return BLOCK
 }
 
-func GenesisBlockInit() (*Block,error){
+func GenesisBlockInit(miners []*crypto.PubKey) (*Block,error){
 	genesisBlock := new(Block)
 	//blockdata
 	genesisBlockdata := new(Blockdata)
@@ -109,7 +111,7 @@ func GenesisBlockInit() (*Block,error){
 	genesisBlockdata.Timestamp = uint32(tm.Unix())
 	genesisBlockdata.Height = uint32(0)
 	genesisBlockdata.ConsensusData = uint64(2083236893)
-	nextMiner,err :=GetMinerAddress(StandbyMiners)
+	nextMiner, err := GetMinerAddress(miners)
 	if err != nil{
 		return nil,NewDetailErr(err, ErrNoCode, "[Block],GenesisBlockInit err with GetMinerAddress")
 	}
@@ -142,14 +144,32 @@ func GenesisBlockInit() (*Block,error){
 	}
 	genesisBlock.Blockdata = genesisBlockdata
 
-	Transcations := []*tx.Transaction{}
-	Transcations = append(Transcations, trans)
-	genesisBlock.Transcations = Transcations
+	genesisBlock.Transcations = append(genesisBlock.Transcations,trans)
 
 	//hashx := genesisBlock.Hash()
 
 	return genesisBlock,nil
 }
+
+func CreateGenesisBlock(miners []*crypto.PubKey) error {
+	genesisBlock, err := GenesisBlockInit(miners)
+	if err != nil {
+		log.Error("Init Genesis Block Error")
+		return err
+	}
+	err = genesisBlock.RebuildMerkleRoot()
+	if err != nil {
+		return err
+	}
+	hashx := genesisBlock.Hash()
+	genesisBlock.hash = &hashx
+	DefaultLedger.Store.InitLevelDBStoreWithGenesisBlock(genesisBlock)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (b *Block)RebuildMerkleRoot()(error){
 	txs := b.Transcations
 	transactionHashes := []Uint256{}

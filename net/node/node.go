@@ -1,18 +1,20 @@
 package node
 
 import (
-	"GoOnchain/common"
-	"GoOnchain/common/log"
-	. "GoOnchain/config"
-	"GoOnchain/core/ledger"
-	"GoOnchain/core/transaction"
-	. "GoOnchain/net/message"
-	. "GoOnchain/net/protocol"
+	"DNA/common"
+	"DNA/common/log"
+	. "DNA/config"
+	"DNA/core/ledger"
+	"DNA/core/transaction"
+	"DNA/crypto"
+	. "DNA/net/message"
+	. "DNA/net/protocol"
 	"errors"
 	"fmt"
 	"math/rand"
 	"net"
 	"runtime"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,13 +26,15 @@ const (
 )
 
 type node struct {
-	state    uint   // node status
-	id       uint64 // The nodes's id
-	cap      uint32 // The node capability set
-	version  uint32 // The network protocol the node used
-	services uint64 // The services the node supplied
-	relay    bool   // The relay capability of the node (merge into capbility flag)
-	height   uint64 // The node latest block height
+	//sync.RWMutex	//The Lock not be used as expected to use function channel instead of lock
+	state     uint32 // node state
+	id        uint64 // The nodes's id
+	cap       uint32 // The node capability set
+	version   uint32 // The network protocol the node used
+	services  uint64 // The services the node supplied
+	relay     bool   // The relay capability of the node (merge into capbility flag)
+	height    uint64 // The node latest block height
+	publicKey *crypto.PubKey
 	// TODO does this channel should be a buffer channel
 	chF        chan func() error // Channel used to operate the node without lock
 	link                         // The link status and infomation
@@ -39,7 +43,6 @@ type node struct {
 	eventQueue                   // The event queue to notice notice other modules
 	TXNPool                      // Unconfirmed transaction pool
 	idCache                      // The buffer to store the id of the items which already be processed
-	ledger     *ledger.Ledger    // The Local ledger
 }
 
 func (node node) DumpInfo() {
@@ -54,13 +57,12 @@ func (node node) DumpInfo() {
 	fmt.Printf("\t port = %d\n", node.port)
 	fmt.Printf("\t relay = %v\n", node.relay)
 	fmt.Printf("\t height = %v\n", node.height)
-
 	fmt.Printf("\t conn cnt = %v\n", node.link.connCnt)
 }
 
 func (node *node) UpdateInfo(t time.Time, version uint32, services uint64,
 	port uint16, nonce uint64, relay uint8, height uint64) {
-	// TODO need lock
+
 	node.UpdateTime(t)
 	node.id = nonce
 	node.version = version
@@ -84,8 +86,7 @@ func NewNode() *node {
 	return &n
 }
 
-func InitNode() Noder {
-	var err error
+func InitNode(pubKey *crypto.PubKey) Noder {
 	n := NewNode()
 
 	n.version = PROTOCOLVERSION
@@ -98,13 +99,9 @@ func InitNode() Noder {
 	fmt.Printf("Init node ID to 0x%0x \n", n.id)
 	n.nbrNodes.init()
 	n.local = n
+	n.publicKey = pubKey
 	n.TXNPool.init()
 	n.eventQueue.init()
-	n.ledger, err = ledger.GetDefaultLedger()
-	if err != nil {
-		fmt.Printf("Get Default Ledger error\n")
-		errors.New("Get Default Ledger error")
-	}
 
 	go n.initConnection()
 	go n.updateNodeInfo()
@@ -127,8 +124,8 @@ func (node node) GetID() uint64 {
 	return node.id
 }
 
-func (node node) GetState() uint {
-	return node.state
+func (node node) GetState() uint32 {
+	return atomic.LoadUint32(&(node.state))
 }
 
 func (node node) getConn() net.Conn {
@@ -151,8 +148,12 @@ func (node node) Services() uint64 {
 	return node.services
 }
 
-func (node *node) SetState(state uint) {
-	node.state = state
+func (node *node) SetState(state uint32) {
+	atomic.StoreUint32(&(node.state), state)
+}
+
+func (node *node) CompareAndSetState(old, new uint32) bool {
+	return atomic.CompareAndSwapUint32(&(node.state), old, new)
 }
 
 func (node *node) LocalNode() Noder {
@@ -163,26 +164,8 @@ func (node node) GetHeight() uint64 {
 	return node.height
 }
 
-func (node node) GetLedger() *ledger.Ledger {
-	return node.ledger
-}
-
 func (node *node) UpdateTime(t time.Time) {
 	node.time = t
-}
-
-func (node node) GetMemoryPool() map[common.Uint256]*transaction.Transaction {
-	return node.GetTxnPool()
-	// TODO refresh the pending transaction pool
-}
-
-func (node node) SynchronizeMemoryPool() {
-	// Fixme need lock
-	for _, n := range node.nbrNodes.List {
-		if n.state == ESTABLISH {
-			ReqMemoryPool(n)
-		}
-	}
 }
 
 func (node node) Xmit(inv common.Inventory) error {
@@ -249,7 +232,7 @@ func (node node) GetAddr16() ([16]byte, error) {
 	var result [16]byte
 	ip := net.ParseIP(node.addr).To16()
 	if ip == nil {
-		fmt.Printf("Parse IP address error\n")
+		log.Error("Parse IP address error\n")
 		return result, errors.New("Parse IP address error")
 	}
 
@@ -262,24 +245,26 @@ func (node node) GetTime() int64 {
 	return t.UnixNano()
 }
 
-func (node node) GetNeighborAddrs() ([]NodeAddr, uint64) {
+func (node node) GetMinerAddr() *crypto.PubKey {
+	return node.publicKey
+}
+
+func (node node) GetMinersAddrs() ([]*crypto.PubKey, uint64) {
+	pks := make([]*crypto.PubKey, 1)
+	pks[0] = node.publicKey
 	var i uint64
-	var addrs []NodeAddr
-	// TODO read lock
+	i = 1
+	//TODO read lock
 	for _, n := range node.nbrNodes.List {
-		if n.GetState() != ESTABLISH {
-			continue
+		if n.GetState() == ESTABLISH {
+			pktmp := n.GetMinerAddr()
+			pks = append(pks, pktmp)
+			i++
 		}
-		var addr NodeAddr
-		addr.IpAddr, _ = n.GetAddr16()
-		addr.Time = n.GetTime()
-		addr.Services = n.Services()
-		addr.Port = n.GetPort()
-		addr.ID = n.GetID()
-		addrs = append(addrs, addr)
-
-		i++
 	}
+	return pks, i
+}
 
-	return addrs, i
+func (node *node) SetMinerAddr(pk *crypto.PubKey) {
+	node.publicKey = pk
 }

@@ -1,10 +1,12 @@
 package httpjsonrpc
 
 import (
-	. "GoOnchain/common"
-	"GoOnchain/core/ledger"
-	tx "GoOnchain/core/transaction"
+	. "DNA/common"
+	"DNA/common/log"
+	"DNA/core/ledger"
+	tx "DNA/core/transaction"
 	"bytes"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -20,36 +22,29 @@ func getBestBlockHash(req *http.Request, cmd map[string]interface{}) map[string]
 func getBlock(req *http.Request, cmd map[string]interface{}) map[string]interface{} {
 	id := cmd["id"]
 	params := cmd["params"]
-	var block *ledger.Block
 	var err error
-	var b BlockInfo
+	var hash Uint256
 	switch (params.([]interface{})[0]).(type) {
-	case int:
-		index := params.([]interface{})[0].(uint32)
-		hash, _ := ledger.DefaultLedger.Store.GetBlockHash(index)
-		block, err = ledger.DefaultLedger.Store.GetBlock(hash)
-		b = BlockInfo{
-			Hash:      ToHexString(hash.ToArray()),
-			BlockData: block.Blockdata,
+	// the value type is float64 after unmarshal JSON number into an interface value
+	case float64:
+		index := uint32(params.([]interface{})[0].(float64))
+		hash, err = ledger.DefaultLedger.Store.GetBlockHash(index)
+		if err != nil {
+			return responsePacking([]interface{}{-100, "Unknown block hash"}, id)
 		}
 	case string:
-		hash := params.([]interface{})[0].(string)
-		hashslice, _ := hex.DecodeString(hash)
-		var hasharr Uint256
-		hasharr.Deserialize(bytes.NewReader(hashslice[0:32]))
-		block, err = ledger.DefaultLedger.Store.GetBlock(hasharr)
-		b = BlockInfo{
-			Hash:      hash,
-			BlockData: block.Blockdata,
-		}
+		hashstr := params.([]interface{})[0].(string)
+		hashslice, _ := hex.DecodeString(hashstr)
+		hash.Deserialize(bytes.NewReader(hashslice[0:32]))
 	}
-
+	block, err := ledger.DefaultLedger.Store.GetBlock(hash)
 	if err != nil {
-		var erro []interface{} = []interface{}{-100, "Unknown block"}
-		response := responsePacking(erro, id)
-		return response
+		return responsePacking([]interface{}{-100, "Unknown block"}, id)
 	}
-
+	b := BlockInfo{
+		Hash:      ToHexString(hash.ToArray()),
+		BlockData: block.Blockdata,
+	}
 	return responsePacking(b, id)
 }
 
@@ -79,7 +74,7 @@ func getConnectionCount(req *http.Request, cmd map[string]interface{}) map[strin
 
 func getRawMemPool(req *http.Request, cmd map[string]interface{}) map[string]interface{} {
 	id := cmd["id"]
-	mempoollist := node.GetTxnPool()
+	mempoollist := node.GetTxnPool(false)
 	return responsePacking(mempoollist, id)
 }
 
@@ -92,6 +87,7 @@ func getRawTransaction(req *http.Request, cmd map[string]interface{}) map[string
 	txidArr.Deserialize(bytes.NewReader(txidSlice[0:32]))
 	verbose := params.([]interface{})[1].(bool)
 	tx := node.GetTransaction(txidArr)
+	// FIXME Get transaction from ledger
 	txBuffer := bytes.NewBuffer([]byte{})
 	tx.Serialize(txBuffer)
 	if verbose == true {
@@ -153,7 +149,7 @@ func getNeighbor(req *http.Request, cmd map[string]interface{}) map[string]inter
 func getNodeState(req *http.Request, cmd map[string]interface{}) map[string]interface{} {
 	id := cmd["id"]
 	n := NodeInfo{
-		State:    node.GetState(),
+		State:    uint(node.GetState()),
 		Time:     node.GetTime(),
 		Port:     node.GetPort(),
 		ID:       node.GetID(),
@@ -187,4 +183,32 @@ func stopConsensus(req *http.Request, cmd map[string]interface{}) map[string]int
 		response = responsePacking("Consensus Stopped", id)
 	}
 	return response
+}
+
+func sendSampleTransaction(req *http.Request, cmd map[string]interface{}) map[string]interface{} {
+	var response map[string]interface{}
+	id := cmd["id"]
+	params, err := base64.StdEncoding.DecodeString(cmd["params"].([]interface{})[0].(string))
+	buf := bytes.NewBuffer(params)
+	var t tx.Transaction
+	if err = t.Deserialize(buf); err != nil {
+		response = responsePacking("Unmarshal Sample TX error", id)
+		return response
+	}
+
+	log.Debug("---------------------------")
+	log.Debug("Transaction:")
+	log.Debug("Transaction Type:", t.TxType)
+	log.Debug("Transaction Nonce:", t.Nonce)
+	for _, v := range t.Programs {
+		log.Debug("Transaction Program Code:", v.Code)
+		log.Debug("Transaction Program Parameter:", v.Parameter)
+	}
+	log.Debug("---------------------------")
+
+	if err = node.Xmit(&t); err != nil {
+		response = responsePacking("Xmit Sample TX error", id)
+		return response
+	}
+	return responsePacking("Transaction Sended", id)
 }

@@ -2,14 +2,13 @@ package dbft
 
 import (
 	"io"
-	ser "GoOnchain/common/serialization"
+	ser "DNA/common/serialization"
 )
 
 type ChangeView struct {
 	msgData ConsensusMessageData
 	NewViewNumber byte
 }
-
 
 func (cv *ChangeView) Serialize(w io.Writer)error{
 	cv.msgData.Serialize(w)

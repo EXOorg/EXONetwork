@@ -1,10 +1,10 @@
 package protocol
 
 import (
-	"GoOnchain/common"
-	"GoOnchain/core/ledger"
-	"GoOnchain/core/transaction"
-	"GoOnchain/events"
+	"DNA/common"
+	"DNA/core/transaction"
+	"DNA/crypto"
+	"DNA/events"
 	"bytes"
 	"encoding/binary"
 	"time"
@@ -40,9 +40,11 @@ const (
 // The node state
 const (
 	INIT       = 0
-	HANDSHAKE  = 1
-	ESTABLISH  = 2
-	INACTIVITY = 3
+	HAND       = 1
+	HANDSHAKE  = 2
+	HANDSHAKED = 3
+	ESTABLISH  = 4
+	INACTIVITY = 5
 )
 
 type Noder interface {
@@ -50,9 +52,10 @@ type Noder interface {
 	GetID() uint64
 	Services() uint64
 	GetPort() uint16
-	GetState() uint
+	GetState() uint32
 	GetRelay() bool
-	SetState(state uint)
+	SetState(state uint32)
+	CompareAndSetState(old, new uint32) bool
 	UpdateTime(t time.Time)
 	LocalNode() Noder
 	DelNbrNode(id uint64) (Noder, bool)
@@ -60,15 +63,14 @@ type Noder interface {
 	CloseConn()
 	GetHeight() uint64
 	GetConnectionCnt() uint
-	GetLedger() *ledger.Ledger
-	GetTxnPool() map[common.Uint256]*transaction.Transaction
+	GetTxnPool(bool) map[common.Uint256]*transaction.Transaction
 	AppendTxnPool(*transaction.Transaction) bool
 	ExistedID(id common.Uint256) bool
 	ReqNeighborList()
 	DumpInfo()
 	UpdateInfo(t time.Time, version uint32, services uint64,
 		port uint16, nonce uint64, relay uint8, height uint64)
-	Connect(nodeAddr string)
+	Connect(nodeAddr string) error
 	Tx(buf []byte)
 	GetTime() int64
 	NodeEstablished(uid uint64) bool
@@ -76,13 +78,15 @@ type Noder interface {
 	GetNeighborAddrs() ([]NodeAddr, uint64)
 	GetTransaction(hash common.Uint256) *transaction.Transaction
 	Xmit(common.Inventory) error
-	GetMemoryPool() map[common.Uint256]*transaction.Transaction
-	SynchronizeMemoryPool()
+	SynchronizeTxnPool()
+	GetMinerAddr() *crypto.PubKey
+	GetMinersAddrs() ([]*crypto.PubKey, uint64)
+	SetMinerAddr(pk *crypto.PubKey)
 }
 
 type JsonNoder interface {
 	GetConnectionCnt() uint
-	GetTxnPool() map[common.Uint256]*transaction.Transaction
+	GetTxnPool(bool) map[common.Uint256]*transaction.Transaction
 	Xmit(common.Inventory) error
 	GetTransaction(hash common.Uint256) *transaction.Transaction
 }

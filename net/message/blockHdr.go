@@ -1,11 +1,11 @@
 package message
 
 import (
-	"GoOnchain/common"
-	"GoOnchain/common/log"
-	"GoOnchain/common/serialization"
-	"GoOnchain/core/ledger"
-	. "GoOnchain/net/protocol"
+	"DNA/common"
+	"DNA/common/log"
+	"DNA/common/serialization"
+	"DNA/core/ledger"
+	. "DNA/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -30,9 +30,8 @@ type blkHeader struct {
 func NewHeadersReq(n Noder) ([]byte, error) {
 	var h headersReq
 
-	// Fixme correct with the exactly request length
 	h.p.len = 1
-	buf := n.GetLedger().Blockchain.CurrentBlockHash()
+	buf := ledger.DefaultLedger.Blockchain.CurrentBlockHash()
 	copy(h.p.hashStart[:], reverse(buf[:]))
 
 	p := new(bytes.Buffer)
@@ -110,12 +109,12 @@ blkHdrErr:
 func (msg headersReq) Handle(node Noder) error {
 	common.Trace()
 	// lock
-	var starthash [HASHLEN]byte //[]common.Uint256
-	var stophash [HASHLEN]byte  //common.Uint256
+	var starthash [HASHLEN]byte
+	var stophash [HASHLEN]byte
 	starthash = msg.p.hashStart
 	stophash = msg.p.hashEnd
 	//FIXME if HeaderHashCount > 1
-	headers, cnt := GetHeadersFromHash(starthash, stophash) //(starthash[0], stophash)
+	headers, cnt := GetHeadersFromHash(starthash, stophash)
 	buf, _ := NewHeaders(headers, cnt)
 	go node.Tx(buf)
 	return nil
@@ -126,7 +125,7 @@ func (msg blkHeader) Handle(node Noder) error {
 	for i := 0; i < int(msg.cnt); i++ {
 		var header ledger.Header
 		header.Blockdata = &msg.blkHdr[i]
-		err := ledger.DefaultLedger.Store.SaveHeader(&header)
+		err := ledger.DefaultLedger.Store.SaveHeader(&header, ledger.DefaultLedger)
 		if err != nil {
 			log.Warn("Add block Header error")
 			return errors.New("Add block Header error\n")

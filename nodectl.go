@@ -1,14 +1,23 @@
 package main
 
 import (
-	"GoOnchain/utility"
-	"GoOnchain/utility/consensus"
-	"GoOnchain/utility/info"
-	"GoOnchain/utility/test"
+	"DNA/common/log"
+	"DNA/crypto"
+	"DNA/utility"
+	"DNA/utility/consensus"
+	"DNA/utility/info"
+	"DNA/utility/test"
 	"os"
 )
 
+const (
+	path string = "./Log"
+)
+
 func main() {
+	crypto.SetAlg(crypto.P256R1)
+	log.CreatePrintLog(path)
+
 	cmds := map[string]*utility.Command{
 		"info":      info.Command,
 		"consensus": consensus.Command,
