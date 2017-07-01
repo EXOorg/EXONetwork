@@ -1,13 +1,14 @@
 package main
 
 import (
+	"os"
+
 	"DNA/common/log"
 	"DNA/crypto"
 	"DNA/utility"
 	"DNA/utility/consensus"
 	"DNA/utility/info"
 	"DNA/utility/test"
-	"os"
 )
 
 const (

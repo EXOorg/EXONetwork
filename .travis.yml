@@ -1,5 +1,10 @@
 language: go
 
+install:
+  - grep 'import' -rl ./| grep ".go"| xargs sed -i 's#"DNA/#"github.com/DNAProject/DNA/#g'
+  - go get github.com/Masterminds/glide
+  - glide up
+
 go:
   - 1.7.x
   - master
