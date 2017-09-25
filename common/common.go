@@ -1,13 +1,13 @@
 package common
 
 import (
+	"DNA/common/log"
 	. "DNA/errors"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"github.com/golang/crypto/ripemd160"
 	"io"
 	_ "io"
@@ -29,11 +29,9 @@ func ToCodeHash(code []byte) (Uint160, error) {
 }
 
 func GetNonce() uint64 {
-	Trace()
+	log.Trace()
 	// Fixme replace with the real random number generator
 	nonce := uint64(rand.Uint32())<<32 + uint64(rand.Uint32())
-	Trace()
-	fmt.Println(fmt.Sprintf("The new nonce is: 0x%x", nonce))
 	return nonce
 }
 

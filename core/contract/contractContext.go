@@ -8,8 +8,6 @@ import (
 	"DNA/crypto"
 	_ "DNA/errors"
 	"errors"
-	"fmt"
-	_ "fmt"
 	"math/big"
 	"sort"
 )
@@ -27,7 +25,7 @@ type ContractContext struct {
 }
 
 func NewContractContext(data sig.SignableData) *ContractContext {
-	Trace()
+	log.Trace()
 	programHashes, _ := data.GetProgramHashes() //TODO: check error
 	log.Debug("programHashes= ", programHashes)
 	log.Debug("hashLen := len(programHashes) ", len(programHashes))
@@ -43,7 +41,7 @@ func NewContractContext(data sig.SignableData) *ContractContext {
 }
 
 func (cxt *ContractContext) Add(contract *Contract, index int, parameter []byte) error {
-	Trace()
+	log.Trace()
 	i := cxt.GetIndex(contract.ProgramHash)
 	if i < 0 {
 		return errors.New("Program Hash is not exist.")
@@ -59,33 +57,33 @@ func (cxt *ContractContext) Add(contract *Contract, index int, parameter []byte)
 }
 
 func (cxt *ContractContext) AddContract(contract *Contract, pubkey *crypto.PubKey, parameter []byte) error {
-	Trace()
+	log.Trace()
 	if contract.GetType() == MultiSigContract {
-		Trace()
+		log.Trace()
 		// add multi sig contract
 
-		fmt.Println("Multi Sig: contract.ProgramHash:", contract.ProgramHash)
-		fmt.Println("Multi Sig: cxt.ProgramHashes:", cxt.ProgramHashes)
+		log.Debug("Multi Sig: contract.ProgramHash:", contract.ProgramHash)
+		log.Debug("Multi Sig: cxt.ProgramHashes:", cxt.ProgramHashes)
 
 		index := cxt.GetIndex(contract.ProgramHash)
 
-		fmt.Println("Multi Sig: GetIndex:", index)
+		log.Debug("Multi Sig: GetIndex:", index)
 
 		if index < 0 {
 			return errors.New("The program hash is not exist.")
 		}
 
-		fmt.Println("Multi Sig: contract.Code:", cxt.Codes[index])
+		log.Debug("Multi Sig: contract.Code:", cxt.Codes[index])
 
 		if cxt.Codes[index] == nil {
 			cxt.Codes[index] = contract.Code
 		}
-		fmt.Println("Multi Sig: cxt.Codes[index]:", cxt.Codes[index])
+		log.Debug("Multi Sig: cxt.Codes[index]:", cxt.Codes[index])
 
 		if cxt.Parameters[index] == nil {
 			cxt.Parameters[index] = make([][]byte, len(contract.Parameters))
 		}
-		fmt.Println("Multi Sig: cxt.Parameters[index]:", cxt.Parameters[index])
+		log.Debug("Multi Sig: cxt.Parameters[index]:", cxt.Parameters[index])
 
 		if err := cxt.Add(contract, cxt.tempParaIndex, parameter); err != nil {
 			return err
@@ -112,7 +110,7 @@ func (cxt *ContractContext) AddContract(contract *Contract, pubkey *crypto.PubKe
 
 	} else {
 		//add non multi sig contract
-		Trace()
+		log.Trace()
 		index := -1
 		for i := 0; i < len(contract.Parameters); i++ {
 			if contract.Parameters[i] == Signature {
@@ -223,16 +221,16 @@ func (cxt *ContractContext) GetIndex(programHash Uint160) int {
 }
 
 func (cxt *ContractContext) GetPrograms() []*pg.Program {
-	Trace()
-	//fmt.Println("!cxt.IsCompleted()=",!cxt.IsCompleted())
-	//fmt.Println(cxt.Codes)
-	//fmt.Println(cxt.Parameters)
+	log.Trace()
+	//log.Debug("!cxt.IsCompleted()=",!cxt.IsCompleted())
+	//log.Debug(cxt.Codes)
+	//log.Debug(cxt.Parameters)
 	if !cxt.IsCompleted() {
 		return nil
 	}
 	programs := make([]*pg.Program, len(cxt.Parameters))
 
-	fmt.Println(" len(cxt.Codes)", len(cxt.Codes))
+	log.Debug(" len(cxt.Codes)", len(cxt.Codes))
 
 	for i := 0; i < len(cxt.Codes); i++ {
 		sb := pg.NewProgramBuilder()
@@ -244,8 +242,8 @@ func (cxt *ContractContext) GetPrograms() []*pg.Program {
 				sb.PushData(parameter)
 			}
 		}
-		//fmt.Println(" cxt.Codes[i])", cxt.Codes[i])
-		//fmt.Println(" sb.ToArray()", sb.ToArray())
+		//log.Debug(" cxt.Codes[i])", cxt.Codes[i])
+		//log.Debug(" sb.ToArray()", sb.ToArray())
 		programs[i] = &pg.Program{
 			Code:      cxt.Codes[i],
 			Parameter: sb.ToArray(),
