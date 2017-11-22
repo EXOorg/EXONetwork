@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"DNA/common"
+	"DNA/core/ledger"
 	"DNA/core/transaction"
 	"DNA/crypto"
 	"DNA/events"
@@ -18,16 +19,29 @@ type NodeAddr struct {
 	ID       uint64 // Unique ID
 }
 
+// The node capability type
 const (
-	MSGCMDLEN    = 12
-	CMDOFFSET    = 4
-	CHECKSUMLEN  = 4
-	HASHLEN      = 32 // hash length in byte
-	MSGHDRLEN    = 24
-	NETMAGIC     = 0x74746e41
-	MAXBLKHDRCNT = 2000
-	MAXINVHDRCNT = 500
-	DIVHASHLEN   = 5
+	VERIFYNODE  = 1
+	SERVICENODE = 2
+)
+
+const (
+	VERIFYNODENAME  = "verify"
+	SERVICENODENAME = "service"
+)
+
+const (
+	MSGCMDLEN     = 12
+	CMDOFFSET     = 4
+	CHECKSUMLEN   = 4
+	HASHLEN       = 32 // hash length in byte
+	MSGHDRLEN     = 24
+	NETMAGIC      = 0x74746e41
+	MAXBLKHDRCNT  = 2000
+	MAXINVHDRCNT  = 500
+	DIVHASHLEN    = 5
+	MINCONNCNT    = 3
+	MAXREQBLKONCE = 16
 )
 const (
 	HELLOTIMEOUT     = 3 // Seconds
@@ -36,6 +50,8 @@ const (
 	MAXCHANBUF       = 512
 	PROTOCOLVERSION  = 0
 	PERIODUPDATETIME = 3 // Time to update and sync information with other nodes
+	HEARTBEAT        = 2
+	KEEPALIVETIMEOUT = 3
 )
 
 // The node state
@@ -57,7 +73,7 @@ type Noder interface {
 	GetRelay() bool
 	SetState(state uint32)
 	CompareAndSetState(old, new uint32) bool
-	UpdateTime(t time.Time)
+	UpdateRXTime(t time.Time)
 	LocalNode() Noder
 	DelNbrNode(id uint64) (Noder, bool)
 	AddNbrNode(Noder)
@@ -71,6 +87,7 @@ type Noder interface {
 	DumpInfo()
 	UpdateInfo(t time.Time, version uint32, services uint64,
 		port uint16, nonce uint64, relay uint8, height uint64)
+	ConnectSeeds()
 	Connect(nodeAddr string) error
 	Tx(buf []byte)
 	GetTime() int64
@@ -82,20 +99,30 @@ type Noder interface {
 	GetTxnCnt() uint64
 	GetRxTxnCnt() uint64
 
-	Xmit(common.Inventory) error
+	Xmit(interface{}) error
 	SynchronizeTxnPool()
-	GetMinerAddr() *crypto.PubKey
-	GetMinersAddrs() ([]*crypto.PubKey, uint64)
-	SetMinerAddr(pk *crypto.PubKey)
+	GetBookKeeperAddr() *crypto.PubKey
+	GetBookKeepersAddrs() ([]*crypto.PubKey, uint64)
+	SetBookKeeperAddr(pk *crypto.PubKey)
 	GetNeighborHeights() ([]uint64, uint64)
 	SyncNodeHeight()
-}
+	CleanSubmittedTransactions(block *ledger.Block) error
 
-type JsonNoder interface {
-	GetConnectionCnt() uint
-	GetTxnPool(bool) map[common.Uint256]*transaction.Transaction
-	Xmit(common.Inventory) error
-	GetTransaction(hash common.Uint256) *transaction.Transaction
+	IsSyncHeaders() bool
+	SetSyncHeaders(b bool)
+	IsSyncFailed() bool
+	SetSyncFailed()
+	StartRetryTimer()
+	StopRetryTimer()
+	GetNeighborNoder() []Noder
+	GetNbrNodeCnt() uint32
+	StoreFlightHeight(height uint32)
+	GetFlightHeightCnt() int
+	RemoveFlightHeightLessThan(height uint32)
+	RemoveFlightHeight(height uint32)
+	GetLastRXTime() time.Time
+	SetHeight(height uint64)
+	WaitForFourPeersStart()
 }
 
 func (msg *NodeAddr) Deserialization(p []byte) error {

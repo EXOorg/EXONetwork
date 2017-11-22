@@ -2,11 +2,9 @@ package message
 
 import (
 	"DNA/common/log"
-	"DNA/core/ledger"
 	. "DNA/net/protocol"
 	"encoding/hex"
 	"errors"
-	"time"
 )
 
 type verACK struct {
@@ -27,7 +25,7 @@ func NewVerack() ([]byte, error) {
 	}
 
 	str := hex.EncodeToString(buf)
-	log.Info("The message tx verack length is %d, %s\n", len(buf), str)
+	log.Debug("The message tx verack length is ", len(buf), ", ", str)
 
 	return buf, err
 }
@@ -51,9 +49,8 @@ func NewVerack() ([]byte, error) {
  */
 // TODO The process should be adjusted based on above table
 func (msg verACK) Handle(node Noder) error {
-	log.Trace()
+	log.Debug()
 
-	t := time.Now()
 	s := node.GetState()
 	if s != HANDSHAKE && s != HANDSHAKED {
 		log.Warn("Unknow status to received verack")
@@ -61,37 +58,17 @@ func (msg verACK) Handle(node Noder) error {
 	}
 
 	node.SetState(ESTABLISH)
+
 	if s == HANDSHAKE {
 		buf, _ := NewVerack()
 		node.Tx(buf)
 	}
 
-	// TODO update other node info
-	node.UpdateTime(t)
 	node.DumpInfo()
 	// Fixme, there is a race condition here,
 	// but it doesn't matter to access the invalid
 	// node which will trigger a warning
 	node.ReqNeighborList()
 
-	// FIXME compact to a seperate function
-	if uint64(ledger.DefaultLedger.Blockchain.BlockHeight) < node.GetHeight() {
-		/*
-			log.Info("request header")
-			buf, err := NewHeadersReq(node)
-			if err != nil {
-				log.Error("failed build a new headersReq")
-			} else {
-				node.Tx(buf)
-			}
-				log.Info("request blocks header hash")
-				buf, err = NewBlocksReq(node)
-				if err != nil {
-					log.Error("failed build a new blockReq")
-				} else {
-					node.Tx(buf)
-				}
-		*/
-	}
 	return nil
 }

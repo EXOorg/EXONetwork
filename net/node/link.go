@@ -1,8 +1,9 @@
 package node
 
 import (
+	. "DNA/common/config"
 	"DNA/common/log"
-	. "DNA/config"
+	"DNA/events"
 	. "DNA/net/message"
 	. "DNA/net/protocol"
 	"crypto/tls"
@@ -65,37 +66,31 @@ func unpackNodeBuf(node *node, buf []byte) {
 
 		unpackNodeBuf(node, buf[msgLen:])
 	}
-
-	// TODO we need reset the node.rxBuf.p pointer and length if CheckSUM error happened?
 }
 
-func (node *node) rx() error {
+func (node *node) rx() {
 	conn := node.getConn()
-	from := conn.RemoteAddr().String()
-
+	buf := make([]byte, MAXBUFLEN)
 	for {
-		buf := make([]byte, MAXBUFLEN)
 		len, err := conn.Read(buf[0:(MAXBUFLEN - 1)])
 		buf[MAXBUFLEN-1] = 0 //Prevent overflow
 		switch err {
 		case nil:
+			t := time.Now()
+			node.UpdateRXTime(t)
 			unpackNodeBuf(node, buf[0:len])
-			//go handleNodeMsg(node, buf, len)
 			break
 		case io.EOF:
-			//log.Debug("Reading EOF of network conn")
-			break
+			log.Error("Rx io.EOF ", err)
+			goto DISCONNECT
 		default:
-			log.Error("Read connetion error ", err)
-			goto disconnect
+			log.Error("Read connection error ", err)
+			goto DISCONNECT
 		}
 	}
 
-disconnect:
-	err := conn.Close()
-	node.SetState(INACTIVITY)
-	log.Debug("Close connection ", from)
-	return err
+DISCONNECT:
+	node.local.eventQueue.GetEvent("disconnect").Notify(events.EventNodeDisconnect, node)
 }
 
 func printIPAddr() {
@@ -108,11 +103,10 @@ func printIPAddr() {
 	}
 }
 
-func (link link) CloseConn() {
+func (link *link) CloseConn() {
 	link.conn.Close()
 }
 
-// Init the server port, should be run in another thread
 func (n *node) initConnection() {
 	isTls := Parameters.IsTLS
 	var listener net.Listener
@@ -146,11 +140,11 @@ func (n *node) initConnection() {
 		node.conn = conn
 		go node.rx()
 	}
-	//TODO When to free the net listen resouce?
+	//TODO Release the net listen resouce
 }
 
 func initNonTlsListen() (net.Listener, error) {
-	log.Trace()
+	log.Debug()
 	listener, err := net.Listen("tcp", ":"+strconv.Itoa(Parameters.NodePort))
 	if err != nil {
 		log.Error("Error listening\n", err.Error())
@@ -208,7 +202,7 @@ func parseIPaddr(s string) (string, error) {
 }
 
 func (node *node) Connect(nodeAddr string) error {
-	log.Trace()
+	log.Debug()
 	isTls := Parameters.IsTLS
 	var conn net.Conn
 	var err error
@@ -221,7 +215,7 @@ func (node *node) Connect(nodeAddr string) error {
 	} else {
 		conn, err = NonTLSDial(nodeAddr)
 		if err != nil {
-			log.Error("non TLS connect failed:", err)
+			log.Error("non TLS connect failed: ", err)
 			return nil
 		}
 	}
@@ -245,10 +239,9 @@ func (node *node) Connect(nodeAddr string) error {
 }
 
 func NonTLSDial(nodeAddr string) (net.Conn, error) {
-	log.Trace()
+	log.Debug()
 	conn, err := net.Dial("tcp", nodeAddr)
 	if err != nil {
-		log.Error("Error dialing\n", err.Error())
 		return nil, err
 	}
 	return conn, nil
@@ -264,7 +257,6 @@ func TLSDial(nodeAddr string) (net.Conn, error) {
 	cacert, err := ioutil.ReadFile(CAPath)
 	cert, err := tls.LoadX509KeyPair(CertPath, KeyPath)
 	if err != nil {
-		log.Error("ReadFile err: ", err)
 		return nil, err
 	}
 
@@ -280,14 +272,13 @@ func TLSDial(nodeAddr string) (net.Conn, error) {
 
 	conn, err := tls.Dial("tcp", nodeAddr, conf)
 	if err != nil {
-		log.Error("Dial failed: ", err)
 		return nil, err
 	}
 	return conn, nil
 }
 
-func (node node) Tx(buf []byte) {
-	log.Trace()
+func (node *node) Tx(buf []byte) {
+	log.Debug()
 	str := hex.EncodeToString(buf)
 	log.Debug(fmt.Sprintf("TX buf length: %d\n%s", len(buf), str))
 

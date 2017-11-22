@@ -18,9 +18,7 @@ func VerifyBlock(block *ledger.Block, ld *ledger.Ledger, completely bool) error 
 	}
 
 	flag, err := VerifySignableData(block)
-	if flag && err == nil {
-		return nil
-	} else {
+	if flag == false || err != nil {
 		return err
 	}
 
@@ -38,31 +36,31 @@ func VerifyBlock(block *ledger.Block, ld *ledger.Ledger, completely bool) error 
 
 	//verfiy block's transactions
 	if completely {
-	/*
-		mineraddress, err := ledger.GetMinerAddress(ld.Blockchain.GetMinersByTXs(block.Transactions))
-		if err != nil {
-			return errors.New(fmt.Sprintf("GetMinerAddress Failed."))
-		}
-		if block.Blockdata.NextMiner != mineraddress {
-			return errors.New(fmt.Sprintf("Miner is not validate."))
-		}
-	*/
-		//TODO: NextMiner Check.
-		for _, txVerify := range block.Transcations {
-			transpool := []*tx.Transaction{}
-			for _, tx := range block.Transactions {
-				if tx.Hash() != txVerify.Hash() {
-					transpool = append(transpool, tx)
-				}
-			}
-			err := VerifyTransaction(txVerify, ld, transpool)
+		/*
+			//TODO: NextBookKeeper Check.
+			bookKeeperaddress, err := ledger.GetBookKeeperAddress(ld.Blockchain.GetBookKeepersByTXs(block.Transactions))
 			if err != nil {
-				return errors.New(fmt.Sprintf("The Input is exist in serval transaction in one block."))
+				return errors.New(fmt.Sprintf("GetBookKeeperAddress Failed."))
+			}
+			if block.Blockdata.NextBookKeeper != bookKeeperaddress {
+				return errors.New(fmt.Sprintf("BookKeeper is not validate."))
+			}
+		*/
+		for _, txVerify := range block.Transactions {
+			if err := VerifyTransaction(txVerify); err != nil {
+				return errors.New(fmt.Sprintf("VerifyTransaction error when verifiy block"))
+			}
+			if err := VerifyTransactionWithLedger(txVerify, ledger.DefaultLedger); err != nil {
+				return errors.New(fmt.Sprintf("VerifyTransactionWithLedger error when verifiy block"))
 			}
 		}
 	}
 
 	return nil
+}
+
+func VerifyHeader(bd *ledger.Header, ledger *ledger.Ledger) error {
+	return VerifyBlockData(bd.Blockdata, ledger)
 }
 
 func VerifyBlockData(bd *ledger.Blockdata, ledger *ledger.Ledger) error {

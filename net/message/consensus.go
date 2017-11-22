@@ -20,14 +20,14 @@ import (
 )
 
 type ConsensusPayload struct {
-	Version    uint32
-	PrevHash   common.Uint256
-	Height     uint32
-	MinerIndex uint16
-	Timestamp  uint32
-	Data       []byte
-	Owner      *crypto.PubKey
-	Program    *program.Program
+	Version         uint32
+	PrevHash        common.Uint256
+	Height          uint32
+	BookKeeperIndex uint16
+	Timestamp       uint32
+	Data            []byte
+	Owner           *crypto.PubKey
+	Program         *program.Program
 
 	hash common.Uint256
 }
@@ -52,7 +52,7 @@ func (cp *ConsensusPayload) InvertoryType() common.InventoryType {
 }
 
 func (cp *ConsensusPayload) GetProgramHashes() ([]common.Uint160, error) {
-	log.Trace()
+	log.Debug()
 
 	if ledger.DefaultLedger == nil {
 		return nil, errors.New("The Default ledger not exists.")
@@ -65,7 +65,7 @@ func (cp *ConsensusPayload) GetProgramHashes() ([]common.Uint160, error) {
 	hash := contract.ProgramHash
 	log.Debug("program hash == ", hash)
 
-	//signatureRedeemScript, err := contract.CreateSignatureRedeemScript(miners[cp.MinerIndex])
+	//signatureRedeemScript, err := contract.CreateSignatureRedeemScript(bookKeepers[cp.BookKeeperIndex])
 	if err != nil {
 		return nil, NewDetailErr(err, ErrNoCode, "[Consensus], CreateSignatureContract failed.")
 	}
@@ -105,7 +105,13 @@ func (cp *ConsensusPayload) GetMessage() []byte {
 }
 
 func (msg consensus) Handle(node Noder) error {
-	log.Trace()
+	log.Debug()
+	heights, _ := node.LocalNode().GetNeighborHeights()
+	if common.CompareHeight(uint64(ledger.DefaultLedger.Blockchain.BlockHeight), heights) == false {
+		log.Info("sync up block havn't finished, height is ", uint64(ledger.DefaultLedger.Blockchain.BlockHeight), " ,others height are: ", heights)
+		return errors.New("sync up block havn't finished")
+
+	}
 
 	node.LocalNode().GetEvent("consensus").Notify(events.EventNewInventory, &msg.cons)
 	return nil
@@ -132,7 +138,7 @@ func (cp *ConsensusPayload) SerializeUnsigned(w io.Writer) error {
 	serialization.WriteUint32(w, cp.Version)
 	cp.PrevHash.Serialize(w)
 	serialization.WriteUint32(w, cp.Height)
-	serialization.WriteUint16(w, cp.MinerIndex)
+	serialization.WriteUint16(w, cp.BookKeeperIndex)
 	serialization.WriteUint32(w, cp.Timestamp)
 	serialization.WriteVarBytes(w, cp.Data)
 	err := cp.Owner.Serialize(w)
@@ -165,60 +171,56 @@ func (msg *consensus) Serialization() ([]byte, error) {
 }
 
 func (cp *ConsensusPayload) DeserializeUnsigned(r io.Reader) error {
-	log.Trace()
 	var err error
 	cp.Version, err = serialization.ReadUint32(r)
 	if err != nil {
-		log.Info("consensus item Version Deserialize failed.")
+		log.Warn("consensus item Version Deserialize failed.")
 		return errors.New("consensus item Version Deserialize failed.")
 	}
 
 	preBlock := new(common.Uint256)
 	err = preBlock.Deserialize(r)
 	if err != nil {
-		log.Info("consensus item preHash Deserialize failed.")
+		log.Warn("consensus item preHash Deserialize failed.")
 		return errors.New("consensus item preHash Deserialize failed.")
 	}
 	cp.PrevHash = *preBlock
 
 	cp.Height, err = serialization.ReadUint32(r)
 	if err != nil {
-		log.Info("consensus item Height Deserialize failed.")
+		log.Warn("consensus item Height Deserialize failed.")
 		return errors.New("consensus item Height Deserialize failed.")
 	}
 
-	cp.MinerIndex, err = serialization.ReadUint16(r)
+	cp.BookKeeperIndex, err = serialization.ReadUint16(r)
 	if err != nil {
-		log.Info("consensus item MinerIndex Deserialize failed.")
-		return errors.New("consensus item MinerIndex Deserialize failed.")
+		log.Warn("consensus item BookKeeperIndex Deserialize failed.")
+		return errors.New("consensus item BookKeeperIndex Deserialize failed.")
 	}
 
 	cp.Timestamp, err = serialization.ReadUint32(r)
 	if err != nil {
-		log.Info("consensus item Timestamp Deserialize failed.")
+		log.Warn("consensus item Timestamp Deserialize failed.")
 		return errors.New("consensus item Timestamp Deserialize failed.")
 	}
 
 	cp.Data, err = serialization.ReadVarBytes(r)
-	log.Info("The consensus payload data len is ", len(cp.Data))
 	if err != nil {
-		log.Info("consensus item Data Deserialize failed.")
+		log.Warn("consensus item Data Deserialize failed.")
 		return errors.New("consensus item Data Deserialize failed.")
 	}
 	pk := new(crypto.PubKey)
 	err = pk.DeSerialize(r)
 	if err != nil {
-		log.Info("consensus item Owner deserialize failed.")
+		log.Warn("consensus item Owner deserialize failed.")
 		return errors.New("consensus item Owner deserialize failed.")
 	}
 	cp.Owner = pk
 
-	log.Trace()
 	return nil
 }
 
 func (cp *ConsensusPayload) Deserialize(r io.Reader) error {
-	log.Trace()
 	err := cp.DeserializeUnsigned(r)
 
 	pg := new(program.Program)
@@ -232,7 +234,7 @@ func (cp *ConsensusPayload) Deserialize(r io.Reader) error {
 }
 
 func (msg *consensus) Deserialization(p []byte) error {
-	log.Trace()
+	log.Debug()
 	buf := bytes.NewBuffer(p)
 	err := binary.Read(buf, binary.LittleEndian, &(msg.msgHdr))
 	err = msg.cons.Deserialize(buf)
@@ -240,7 +242,7 @@ func (msg *consensus) Deserialization(p []byte) error {
 }
 
 func NewConsensus(cp *ConsensusPayload) ([]byte, error) {
-	log.Trace()
+	log.Debug()
 	var msg consensus
 	msg.msgHdr.Magic = NETMAGIC
 	cmd := "consensus"
@@ -260,7 +262,7 @@ func NewConsensus(cp *ConsensusPayload) ([]byte, error) {
 	buf := bytes.NewBuffer(s[:4])
 	binary.Read(buf, binary.LittleEndian, &(msg.msgHdr.Checksum))
 	msg.msgHdr.Length = uint32(len(b.Bytes()))
-	log.Debug("NewConsensus The message payload length is %d\n", msg.msgHdr.Length)
+	log.Debug("NewConsensus The message payload length is ", msg.msgHdr.Length)
 
 	m, err := msg.Serialization()
 	if err != nil {

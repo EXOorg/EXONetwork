@@ -25,34 +25,41 @@ type block struct {
 }
 
 func (msg block) Handle(node Noder) error {
-	log.Trace()
-
 	log.Debug("RX block message")
-
-	err := ledger.DefaultLedger.Blockchain.AddBlock(&msg.blk)
-	if err != nil {
-		log.Error("Add block error after Received")
-		return errors.New("Add block error after reveived\n")
+	hash := msg.blk.Hash()
+	if ledger.DefaultLedger.BlockInLedger(hash) {
+		log.Warn("Receive duplicated block: ", hash)
+		return errors.New("Received duplicate block")
 	}
+	if err := ledger.DefaultLedger.Blockchain.AddBlock(&msg.blk); err != nil {
+		log.Error("Block adding error: ", hash)
+		return err
+	}
+	node.RemoveFlightHeight(msg.blk.Blockdata.Height)
 	node.LocalNode().GetEvent("block").Notify(events.EventNewInventory, &msg.blk)
 	return nil
 }
 
 func (msg dataReq) Handle(node Noder) error {
-	log.Trace()
+	log.Debug()
 	reqtype := common.InventoryType(msg.dataType)
 	hash := msg.hash
 	switch reqtype {
 	case common.BLOCK:
 		block, err := NewBlockFromHash(hash)
 		if err != nil {
+			log.Error("Can't get block from hash: ", hash, " ,send not found message")
+			//call notfound message
+			b, err := NewNotFound(hash)
+			node.Tx(b)
 			return err
 		}
+		log.Debug("block height is ", block.Blockdata.Height, " ,hash is ", hash)
 		buf, err := NewBlock(block)
 		if err != nil {
 			return err
 		}
-		go node.Tx(buf)
+		node.Tx(buf)
 
 	case common.TRANSACTION:
 		txn, err := NewTxnFromHash(hash)
@@ -78,7 +85,7 @@ func NewBlockFromHash(hash common.Uint256) (*ledger.Block, error) {
 }
 
 func NewBlock(bk *ledger.Block) ([]byte, error) {
-	log.Trace()
+	log.Debug()
 	var msg block
 	msg.blk = *bk
 	msg.msgHdr.Magic = NETMAGIC
@@ -98,7 +105,7 @@ func NewBlock(bk *ledger.Block) ([]byte, error) {
 	buf := bytes.NewBuffer(s[:4])
 	binary.Read(buf, binary.LittleEndian, &(msg.msgHdr.Checksum))
 	msg.msgHdr.Length = uint32(len(p.Bytes()))
-	log.Debug("The message payload length is %d\n", msg.msgHdr.Length)
+	log.Debug("The message payload length is ", msg.msgHdr.Length)
 
 	m, err := msg.Serialization()
 	if err != nil {
@@ -109,7 +116,7 @@ func NewBlock(bk *ledger.Block) ([]byte, error) {
 	return m, nil
 }
 
-func reqBlkData(node Noder, hash common.Uint256) error {
+func ReqBlkData(node Noder, hash common.Uint256) error {
 	var msg dataReq
 	msg.dataType = common.BLOCK
 	msg.hash = hash
@@ -137,7 +144,7 @@ func reqBlkData(node Noder, hash common.Uint256) error {
 		return err
 	}
 
-	go node.Tx(sendBuf)
+	node.Tx(sendBuf)
 
 	return nil
 }

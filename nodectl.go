@@ -2,31 +2,47 @@ package main
 
 import (
 	"os"
+	"sort"
 
-	"DNA/common/log"
-	"DNA/crypto"
-	"DNA/utility"
-	"DNA/utility/consensus"
-	"DNA/utility/info"
-	"DNA/utility/test"
+	_ "DNA/cli"
+	"DNA/cli/asset"
+	. "DNA/cli/common"
+	"DNA/cli/consensus"
+	"DNA/cli/debug"
+	"DNA/cli/info"
+	"DNA/cli/test"
+	"DNA/cli/wallet"
+
+	"github.com/urfave/cli"
 )
 
-const (
-	path string = "./Log"
-)
+var Version string
 
 func main() {
-	crypto.SetAlg(crypto.P256R1)
-	log.CreatePrintLog(path)
-
-	cmds := map[string]*utility.Command{
-		"info":      info.Command,
-		"consensus": consensus.Command,
-		"test":      test.Command,
+	app := cli.NewApp()
+	app.Name = "nodectl"
+	app.Version = Version
+	app.HelpName = "nodectl"
+	app.Usage = "command line tool for DNA blockchain"
+	app.UsageText = "nodectl [global options] command [command options] [args]"
+	app.HideHelp = false
+	app.HideVersion = false
+	//global options
+	app.Flags = []cli.Flag{
+		NewIpFlag(),
+		NewPortFlag(),
 	}
-
-	err := utility.Start(cmds)
-	if err != nil {
-		os.Exit(1)
+	//commands
+	app.Commands = []cli.Command{
+		*consensus.NewCommand(),
+		*debug.NewCommand(),
+		*info.NewCommand(),
+		*test.NewCommand(),
+		*wallet.NewCommand(),
+		*asset.NewCommand(),
 	}
+	sort.Sort(cli.CommandsByName(app.Commands))
+	sort.Sort(cli.FlagsByName(app.Flags))
+
+	app.Run(os.Args)
 }

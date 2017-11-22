@@ -1,21 +1,20 @@
 package common
 
 import (
-	"DNA/common/log"
-	. "DNA/errors"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"github.com/golang/crypto/ripemd160"
 	"io"
-	_ "io"
+	"os"
 	"math/rand"
+	"DNA/common/log"
+	. "DNA/errors"
+	"github.com/golang/crypto/ripemd160"
 )
 
 func ToCodeHash(code []byte) (Uint160, error) {
-	//TODO: ToCodeHash
 	temp := sha256.Sum256(code)
 	md := ripemd160.New()
 	io.WriteString(md, string(temp[:]))
@@ -29,7 +28,7 @@ func ToCodeHash(code []byte) (Uint160, error) {
 }
 
 func GetNonce() uint64 {
-	log.Trace()
+	log.Debug()
 	// Fixme replace with the real random number generator
 	nonce := uint64(rand.Uint32())<<32 + uint64(rand.Uint32())
 	return nonce
@@ -87,3 +86,45 @@ func CompareHeight(blockHeight uint64, heights []uint64) bool {
 	}
 	return true
 }
+
+func GetUint16Array(source []byte) ([]uint16, error) {
+	if source == nil {
+		return nil, NewDetailErr(errors.New("[Common] , GetUint16Array err, source = nil"), ErrNoCode, "")
+	}
+
+	if len(source)%2 != 0 {
+		return nil, NewDetailErr(errors.New("[Common] , GetUint16Array err, length of source is odd."), ErrNoCode, "")
+	}
+
+	dst := make([]uint16, len(source)/2)
+	for i := 0; i < len(source)/2; i++ {
+		dst[i] = uint16(source[i*2]) + uint16(source[i*2+1])*256
+	}
+
+	return dst, nil
+}
+
+func ToByteArray(source []uint16) []byte {
+	dst := make([]byte, len(source)*2)
+	for i := 0; i < len(source); i++ {
+		dst[i*2] = byte(source[i] % 256)
+		dst[i*2+1] = byte(source[i] / 256)
+	}
+
+	return dst
+}
+
+func SliceRemove(slice []uint32, h uint32) []uint32 {
+	for i, v := range slice {
+		if v == h {
+			return append(slice[:i], slice[i+1:]...)
+		}
+	}
+	return slice
+}
+
+func FileExisted(filename string) bool {
+	_, err := os.Stat(filename)
+	return err == nil || os.IsExist(err)
+}
+

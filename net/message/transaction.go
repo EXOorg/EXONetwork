@@ -5,12 +5,12 @@ import (
 	"DNA/common/log"
 	"DNA/core/ledger"
 	"DNA/core/transaction"
+	va "DNA/core/validation"
 	. "DNA/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"fmt"
 )
 
 type dataReq struct {
@@ -29,10 +29,16 @@ type trn struct {
 }
 
 func (msg trn) Handle(node Noder) error {
-	log.Trace()
+	log.Debug()
 	log.Debug("RX Transaction message")
-
-	if !node.LocalNode().ExistedID(msg.txn.Hash()) {
+	tx := &msg.txn
+	if !node.LocalNode().ExistedID(tx.Hash()) {
+		if err := va.VerifyTransaction(tx); err != nil {
+			return errors.New("[VerifyTransaction] error")
+		}
+		if err := va.VerifyTransactionWithLedger(tx, ledger.DefaultLedger); err != nil {
+			return errors.New("[VerifyTransactionWithLedger] error")
+		}
 		node.LocalNode().AppendTxnPool(&(msg.txn))
 		node.LocalNode().IncRxTxnCnt()
 		log.Debug("RX Transaction message hash", msg.txn.Hash())
@@ -100,7 +106,7 @@ func NewTxnFromHash(hash common.Uint256) (*transaction.Transaction, error) {
 	return txn, nil
 }
 func NewTxn(txn *transaction.Transaction) ([]byte, error) {
-	log.Trace()
+	log.Debug()
 	var msg trn
 
 	msg.msgHdr.Magic = NETMAGIC
@@ -121,7 +127,7 @@ func NewTxn(txn *transaction.Transaction) ([]byte, error) {
 	buf := bytes.NewBuffer(s[:4])
 	binary.Read(buf, binary.LittleEndian, &(msg.msgHdr.Checksum))
 	msg.msgHdr.Length = uint32(len(b.Bytes()))
-	log.Info(fmt.Sprintf("The message payload length is %d", msg.msgHdr.Length))
+	log.Debug("The message payload length is ", msg.msgHdr.Length)
 
 	m, err := msg.Serialization()
 	if err != nil {

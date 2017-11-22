@@ -137,25 +137,27 @@ func AllocMsg(t string, length int) Messager {
 		copy(msg.msgHdr.CMD[0:len(t)], t)
 		return &msg
 	case "alert":
-		errors.New("Not supported message type")
+		log.Warn("Not supported message type - alert")
 		return nil
 	case "merkleblock":
-		errors.New("Not supported message type")
+		log.Warn("Not supported message type - merkleblock")
 		return nil
 	case "notfound":
-		errors.New("Not supported message type")
+		log.Warn("Not supported message type - notfound")
 		return nil
 	case "ping":
-		errors.New("Not supported message type")
-		return nil
+		var msg ping
+		copy(msg.msgHdr.CMD[0:len(t)], t)
+		return &msg
 	case "pong":
-		errors.New("Not supported message type")
-		return nil
+		var msg pong
+		copy(msg.msgHdr.CMD[0:len(t)], t)
+		return &msg
 	case "reject":
-		errors.New("Not supported message type")
+		log.Warn("Not supported message type - reject")
 		return nil
 	default:
-		errors.New("Unknown message type")
+		log.Warn("Unknown message type")
 		return nil
 	}
 }
@@ -178,7 +180,7 @@ func NewMsg(t string, n Noder) ([]byte, error) {
 	case "verack":
 		return NewVerack()
 	case "getheaders":
-		return NewHeadersReq(n)
+		return NewHeadersReq()
 	case "getaddr":
 		return newGetAddr()
 
@@ -199,16 +201,16 @@ func HandleNodeMsg(node Noder, buf []byte, len int) error {
 
 	s, err := MsgType(buf)
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Error("Message type parsing error")
 		return err
 	}
 
 	msg := AllocMsg(s, len)
 	if msg == nil {
-		fmt.Println(err.Error())
-		return err
+		log.Error(fmt.Sprintf("Allocation message %s failed", s))
+		return errors.New("Allocation message failed")
 	}
-	// Todo attach a ndoe pointer to each message
+	// Todo attach a node pointer to each message
 	// Todo drop the message when verify/deseria packet error
 	msg.Deserialization(buf[:len])
 	msg.Verify(buf[MSGHDRLEN:len])
@@ -291,7 +293,7 @@ func (hdr msgHdr) Serialization() ([]byte, error) {
 }
 
 func (hdr msgHdr) Handle(n Noder) error {
-	log.Trace()
+	log.Debug()
 	// TBD
 	return nil
 }

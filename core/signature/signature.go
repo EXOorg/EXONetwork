@@ -6,7 +6,7 @@ import (
 	"DNA/core/contract/program"
 	"DNA/crypto"
 	. "DNA/errors"
-	"DNA/vm"
+	"DNA/vm/interfaces"
 	"bytes"
 	"crypto/sha256"
 	"io"
@@ -14,7 +14,7 @@ import (
 
 //SignableData describe the data need be signed.
 type SignableData interface {
-	vm.ISignableObject
+	interfaces.ISignableObject
 
 	//Get the the SignableData's program hashes
 	GetProgramHashes() ([]common.Uint160, error)
@@ -28,7 +28,7 @@ type SignableData interface {
 }
 
 func SignBySigner(data SignableData, signer Signer) ([]byte, error) {
-	log.Trace()
+	log.Debug()
 	//fmt.Println("data",data)
 	rtx, err := Sign(data, signer.PrivKey())
 	if err != nil {

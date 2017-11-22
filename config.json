@@ -1,0 +1,24 @@
+﻿{
+  "Configuration": {
+    "Magic": 7630401,
+    "Version": 23,
+    "SeedList": [
+      "127.0.0.1:20338",
+      "127.0.0.1:30338"
+    ],
+    "BookKeepers": [
+    ],
+    "HttpRestPort": 20334,
+    "HttpJsonPort": 20336,
+    "HttpLocalPort": 20337,
+    "NoticeServerAddr":"http://139.196.243.115:8080/block",
+    "OauthServerAddr":"http://139.196.243.115:18080/oauth-server/oc/v3/oauth2/check/token",
+    "NodePort": 20338,
+    "PrintLevel": 1,
+    "IsTLS": false,
+    "CertPath": "./sample-cert.pem",
+    "KeyPath": "./sample-cert-key.pem",
+    "CAPath": "./sample-ca.pem",
+    "MultiCoreNum": 4
+  }
+}

@@ -3,7 +3,6 @@ package dbft
 import (
 	"DNA/common/log"
 	ser "DNA/common/serialization"
-	tx "DNA/core/transaction"
 	"bytes"
 	"errors"
 	"io"
@@ -22,15 +21,13 @@ type ConsensusMessageData struct {
 }
 
 func DeserializeMessage(data []byte) (ConsensusMessage, error) {
-	log.Trace()
+	log.Debug()
 	msgType := ConsensusMessageType(data[0])
 
 	r := bytes.NewReader(data)
 	switch msgType {
 	case PrepareRequestMsg:
-		prMsg := &PrepareRequest{
-			BookkeepingTransaction: new(tx.Transaction),
-		}
+		prMsg := &PrepareRequest{}
 		err := prMsg.Deserialize(r)
 		if err != nil {
 			log.Error("[DeserializeMessage] PrepareRequestMsg Deserialize Error: ", err.Error())
@@ -61,7 +58,7 @@ func DeserializeMessage(data []byte) (ConsensusMessage, error) {
 }
 
 func (cd *ConsensusMessageData) Serialize(w io.Writer) {
-	log.Trace()
+	log.Debug()
 	//ConsensusMessageType
 	w.Write([]byte{byte(cd.Type)})
 
@@ -72,7 +69,7 @@ func (cd *ConsensusMessageData) Serialize(w io.Writer) {
 
 //read data to reader
 func (cd *ConsensusMessageData) Deserialize(r io.Reader) error {
-	log.Trace()
+	log.Debug()
 	//ConsensusMessageType
 	var msgType [1]byte
 	_, err := io.ReadFull(r, msgType[:])

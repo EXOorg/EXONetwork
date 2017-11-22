@@ -1,7 +1,7 @@
 package message
 
 import (
-	"DNA/common"
+	. "DNA/common"
 	"DNA/common/log"
 	"DNA/common/serialization"
 	"DNA/core/ledger"
@@ -14,8 +14,6 @@ import (
 	"io"
 )
 
-type InventoryType byte
-
 type blocksReq struct {
 	msgHdr
 	p struct {
@@ -25,14 +23,15 @@ type blocksReq struct {
 	}
 }
 
-type invPayload struct {
-	InvType uint8
+type InvPayload struct {
+	InvType InventoryType
+	Cnt     uint32
 	Blk     []byte
 }
 
 type Inv struct {
 	Hdr msgHdr
-	P   invPayload
+	P   InvPayload
 }
 
 func NewBlocksReq(n Noder) ([]byte, error) {
@@ -68,10 +67,10 @@ func (msg blocksReq) Verify(buf []byte) error {
 }
 
 func (msg blocksReq) Handle(node Noder) error {
-	log.Trace()
+	log.Debug()
 	log.Debug("handle blocks request")
-	var starthash common.Uint256
-	var stophash common.Uint256
+	var starthash Uint256
+	var stophash Uint256
 	starthash = msg.p.hashStart
 	stophash = msg.p.hashStop
 	//FIXME if HeaderHashCount > 1
@@ -111,35 +110,38 @@ func (msg Inv) Verify(buf []byte) error {
 }
 
 func (msg Inv) Handle(node Noder) error {
-	log.Trace()
-	var id common.Uint256
+	log.Debug()
+	var id Uint256
 	str := hex.EncodeToString(msg.P.Blk)
-	fmt.Printf("The inv type: 0x%x block len: %d, %s\n",
-		msg.P.InvType, len(msg.P.Blk), str)
+	log.Debug(fmt.Sprintf("The inv type: 0x%x block len: %d, %s\n",
+		msg.P.InvType, len(msg.P.Blk), str))
 
-	invType := common.InventoryType(msg.P.InvType)
+	invType := InventoryType(msg.P.InvType)
 	switch invType {
-	case common.TRANSACTION:
+	case TRANSACTION:
 		log.Debug("RX TRX message")
 		// TODO check the ID queue
 		id.Deserialize(bytes.NewReader(msg.P.Blk[:32]))
 		if !node.ExistedID(id) {
 			reqTxnData(node, id)
 		}
-	case common.BLOCK:
+	case BLOCK:
 		log.Debug("RX block message")
-		var i int
-		count := len(msg.P.Blk) >> DIVHASHLEN
+		var i uint32
+		count := msg.P.Cnt
+		log.Debug("RX inv-block message, hash is ", msg.P.Blk)
 		for i = 0; i < count; i++ {
-			id.Deserialize(bytes.NewReader(msg.P.Blk[HASHLEN*i+1:]))
-			if !node.ExistedID(id) {
+			id.Deserialize(bytes.NewReader(msg.P.Blk[HASHLEN*i:]))
+			// TODO check the ID queue
+			if !ledger.DefaultLedger.Store.BlockInCache(id) &&
+				!ledger.DefaultLedger.BlockInLedger(id) {
 				// send the block request
 				log.Info("inv request block hash: ", id)
-				reqBlkData(node, id)
+				ReqBlkData(node, id)
 			}
 
 		}
-	case common.CONSENSUS:
+	case CONSENSUS:
 		log.Debug("RX consensus message")
 		id.Deserialize(bytes.NewReader(msg.P.Blk[:32]))
 		reqConsensusData(node, id)
@@ -162,64 +164,66 @@ func (msg Inv) Serialization() ([]byte, error) {
 
 func (msg *Inv) Deserialization(p []byte) error {
 	err := msg.Hdr.Deserialization(p)
+	if err != nil {
+		return err
+	}
 
-	msg.P.InvType = p[MSGHDRLEN]
-	msg.P.Blk = p[MSGHDRLEN+1:]
+	buf := bytes.NewBuffer(p[MSGHDRLEN:])
+	invType, err := serialization.ReadUint8(buf)
+	if err != nil {
+		return err
+	}
+	msg.P.InvType = InventoryType(invType)
+	msg.P.Cnt, err = serialization.ReadUint32(buf)
+	if err != nil {
+		return err
+	}
+
+	msg.P.Blk = make([]byte, msg.P.Cnt*HASHLEN)
+	err = binary.Read(buf, binary.LittleEndian, &(msg.P.Blk))
+
 	return err
 }
 
-func (msg Inv) invType() byte {
+func (msg Inv) invType() InventoryType {
 	return msg.P.InvType
 }
 
-//func (msg inv) invLen() (uint64, uint8) {
-func (msg Inv) invLen() (uint64, uint8) {
-	var val uint64
-	var size uint8
-
-	len := binary.LittleEndian.Uint64(msg.P.Blk[0:1])
-	if len < 0xfd {
-		val = len
-		size = 1
-	} else if len == 0xfd {
-		val = binary.LittleEndian.Uint64(msg.P.Blk[1:3])
-		size = 3
-	} else if len == 0xfe {
-		val = binary.LittleEndian.Uint64(msg.P.Blk[1:5])
-		size = 5
-	} else if len == 0xff {
-		val = binary.LittleEndian.Uint64(msg.P.Blk[1:9])
-		size = 9
-	}
-
-	return val, size
-}
-
-func GetInvFromBlockHash(starthash common.Uint256, stophash common.Uint256) (invPayload, error) {
-	var inv invPayload
+func GetInvFromBlockHash(starthash Uint256, stophash Uint256) (*InvPayload, error) {
 	var count uint32 = 0
 	var i uint32
-
-	var empty common.Uint256
+	var empty Uint256
 	var startheight uint32
 	var stopheight uint32
 	curHeight := ledger.DefaultLedger.GetLocalBlockChainHeight()
 	if starthash == empty {
-		if curHeight > MAXBLKHDRCNT {
-			count = MAXBLKHDRCNT
+		if stophash == empty {
+			if curHeight > MAXBLKHDRCNT {
+				count = MAXBLKHDRCNT
+			} else {
+				count = curHeight
+			}
 		} else {
-			count = curHeight
+			bkstop, err := ledger.DefaultLedger.GetBlockWithHash(stophash)
+			if err != nil {
+				return nil, err
+			}
+			stopheight = bkstop.Blockdata.Height
+			count = curHeight - stopheight
+			if curHeight > MAXINVHDRCNT {
+				count = MAXINVHDRCNT
+			}
 		}
 	} else {
 		bkstart, err := ledger.DefaultLedger.GetBlockWithHash(starthash)
 		if err != nil {
-			return inv, err
+			return nil, err
 		}
 		startheight = bkstart.Blockdata.Height
 		if stophash != empty {
 			bkstop, err := ledger.DefaultLedger.GetBlockWithHash(stophash)
 			if err != nil {
-				return inv, err
+				return nil, err
 			}
 			stopheight = bkstop.Blockdata.Height
 			count = startheight - stopheight
@@ -240,19 +244,27 @@ func GetInvFromBlockHash(starthash common.Uint256, stophash common.Uint256) (inv
 	for i = 1; i <= count; i++ {
 		//FIXME need add error handle for GetBlockWithHash
 		hash, _ := ledger.DefaultLedger.Store.GetBlockHash(stopheight + i)
+		log.Debug("GetInvFromBlockHash i is ", i, " , hash is ", hash)
 		hash.Serialize(tmpBuffer)
 	}
-
-	inv.Blk = tmpBuffer.Bytes()
-	inv.InvType = 0x02
-	return inv, nil
+	log.Debug("GetInvFromBlockHash hash is ", tmpBuffer.Bytes())
+	return NewInvPayload(BLOCK, count, tmpBuffer.Bytes()), nil
 }
 
-func NewInv(inv invPayload) ([]byte, error) {
+func NewInvPayload(invType InventoryType, count uint32, msg []byte) *InvPayload {
+	return &InvPayload{
+		InvType: invType,
+		Cnt:     count,
+		Blk:     msg,
+	}
+}
+
+func NewInv(inv *InvPayload) ([]byte, error) {
 	var msg Inv
 
 	msg.P.Blk = inv.Blk
 	msg.P.InvType = inv.InvType
+	msg.P.Cnt = inv.Cnt
 	msg.Hdr.Magic = NETMAGIC
 	cmd := "inv"
 	copy(msg.Hdr.CMD[0:len(cmd)], cmd)
@@ -281,7 +293,9 @@ func NewInv(inv invPayload) ([]byte, error) {
 	return m, nil
 }
 
-func (msg *invPayload) Serialization(w io.Writer) {
-	serialization.WriteUint8(w, msg.InvType)
-	serialization.WriteVarBytes(w, msg.Blk)
+func (msg *InvPayload) Serialization(w io.Writer) {
+	serialization.WriteUint8(w, uint8(msg.InvType))
+	serialization.WriteUint32(w, msg.Cnt)
+
+	binary.Write(w, binary.LittleEndian, msg.Blk)
 }

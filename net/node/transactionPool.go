@@ -2,16 +2,20 @@ package node
 
 import (
 	"DNA/common"
+	"DNA/common/log"
+	"DNA/core/ledger"
 	"DNA/core/transaction"
+	"DNA/errors"
 	msg "DNA/net/message"
 	. "DNA/net/protocol"
+	"fmt"
 	"sync"
 )
 
 type TXNPool struct {
 	sync.RWMutex
-	txnCnt	uint64
-	list map[common.Uint256]*transaction.Transaction
+	txnCnt uint64
+	list   map[common.Uint256]*transaction.Transaction
 }
 
 func (txnPool *TXNPool) GetTransaction(hash common.Uint256) *transaction.Transaction {
@@ -23,17 +27,12 @@ func (txnPool *TXNPool) GetTransaction(hash common.Uint256) *transaction.Transac
 }
 
 func (txnPool *TXNPool) AppendTxnPool(txn *transaction.Transaction) bool {
-	txnPool.Lock()
-	defer txnPool.Unlock()
-
 	hash := txn.Hash()
-	if _, ret := txnPool.list[hash]; ret {
-		return false
-	} else {
-		txnPool.list[hash] = txn
-		txnPool.txnCnt++
-	}
-
+	// TODO: Call VerifyTransactionWithTxPool to verify tx
+	txnPool.Lock()
+	txnPool.list[hash] = txn
+	txnPool.txnCnt++
+	txnPool.Unlock()
 	return true
 }
 
@@ -46,7 +45,32 @@ func (txnPool *TXNPool) GetTxnPool(cleanPool bool) map[common.Uint256]*transacti
 	if cleanPool == true {
 		txnPool.init()
 	}
-	return list
+	return DeepCopy(list)
+}
+
+func DeepCopy(mapIn map[common.Uint256]*transaction.Transaction) map[common.Uint256]*transaction.Transaction {
+	reply := make(map[common.Uint256]*transaction.Transaction)
+	for k, v := range mapIn {
+		reply[k] = v
+	}
+	return reply
+}
+
+// Attention: clean the trasaction Pool with committed transactions.
+func (txnPool *TXNPool) CleanTxnPool(txs []*transaction.Transaction) error {
+	txsNum := len(txs)
+	txInPoolNum := len(txnPool.list)
+	cleaned := 0
+	// skip the first bookkeeping transaction
+	for _, tx := range txs[1:] {
+		delete(txnPool.list, tx.Hash())
+		cleaned++
+	}
+	if txsNum-cleaned != 1 {
+		log.Info(fmt.Sprintf("The Transactions num Unmatched. Expect %d, got %d .\n", txsNum, cleaned))
+	}
+	log.Debug(fmt.Sprintf("[CleanTxnPool], Requested %d clean, %d transactions cleaned from localNode.TransPool and remains %d still in TxPool", txsNum, cleaned, txInPoolNum-cleaned))
+	return nil
 }
 
 func (txnPool *TXNPool) init() {
@@ -63,4 +87,16 @@ func (node *node) SynchronizeTxnPool() {
 			msg.ReqTxnPool(n)
 		}
 	}
+}
+
+func (txnPool *TXNPool) CleanSubmittedTransactions(block *ledger.Block) error {
+	txnPool.Lock()
+	defer txnPool.Unlock()
+	log.Debug()
+
+	err := txnPool.CleanTxnPool(block.Transactions)
+	if err != nil {
+		return errors.NewDetailErr(err, errors.ErrNoCode, "[TxnPool], CleanSubmittedTransactions failed.")
+	}
+	return nil
 }

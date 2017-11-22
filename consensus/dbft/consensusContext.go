@@ -1,7 +1,7 @@
 package dbft
 
 import (
-	cl "DNA/client"
+	cl "DNA/account"
 	. "DNA/common"
 	"DNA/common/log"
 	ser "DNA/common/serialization"
@@ -11,90 +11,86 @@ import (
 	"DNA/net"
 	msg "DNA/net/message"
 	"fmt"
-	"sort"
 	"sync"
 )
 
 const ContextVersion uint32 = 0
 
 type ConsensusContext struct {
-	State             ConsensusState
-	PrevHash          Uint256
-	Height            uint32
-	ViewNumber        byte
-	Miners            []*crypto.PubKey
-	Owner             *crypto.PubKey
-	MinerIndex        int
-	PrimaryIndex      uint32
-	Timestamp         uint32
-	Nonce             uint64
-	NextMiner         Uint160
-	TransactionHashes []Uint256
-	Transactions      map[Uint256]*tx.Transaction
-	Signatures        [][]byte
-	ExpectedView      []byte
+	State           ConsensusState
+	PrevHash        Uint256
+	Height          uint32
+	ViewNumber      byte
+	BookKeepers     []*crypto.PubKey
+	NextBookKeepers []*crypto.PubKey
+	PreBookKeepers  []*crypto.PubKey
+	Owner           *crypto.PubKey
+	BookKeeperIndex int
+	PrimaryIndex    uint32
+	Timestamp       uint32
+	Nonce           uint64
+	NextBookKeeper  Uint160
+	Transactions    []*tx.Transaction
+	Signatures      [][]byte
+	ExpectedView    []byte
 
-	txlist []*tx.Transaction
 	header *ledger.Block
 
-	contextMu sync.Mutex
+	contextMu           sync.Mutex
+	isBookKeeperChanged bool
+	nmChangedblkHeight  uint32
 }
 
 func (cxt *ConsensusContext) M() int {
-	log.Trace()
-	return len(cxt.Miners) - (len(cxt.Miners)-1)/3
+	log.Debug()
+	return len(cxt.BookKeepers) - (len(cxt.BookKeepers)-1)/3
 }
 
 func NewConsensusContext() *ConsensusContext {
-	log.Trace()
+	log.Debug()
 	return &ConsensusContext{}
 }
 
 func (cxt *ConsensusContext) ChangeView(viewNum byte) {
-	log.Trace()
-	p := (cxt.Height - uint32(viewNum)) % uint32(len(cxt.Miners))
+	log.Debug()
+	p := (cxt.Height - uint32(viewNum)) % uint32(len(cxt.BookKeepers))
 	cxt.State &= SignatureSent
 	cxt.ViewNumber = viewNum
 	if p >= 0 {
 		cxt.PrimaryIndex = uint32(p)
 	} else {
-		cxt.PrimaryIndex = uint32(p) + uint32(len(cxt.Miners))
+		cxt.PrimaryIndex = uint32(p) + uint32(len(cxt.BookKeepers))
 	}
 
 	if cxt.State == Initial {
-		cxt.TransactionHashes = nil
-		cxt.Signatures = make([][]byte, len(cxt.Miners))
+		cxt.Transactions = nil
+		cxt.Signatures = make([][]byte, len(cxt.BookKeepers))
 	}
 	cxt.header = nil
 }
 
-func (cxt *ConsensusContext) HasTxHash(txHash Uint256) bool {
-	log.Trace()
-	for _, hash := range cxt.TransactionHashes {
-		if hash == txHash {
-			return true
-		}
-	}
-	return false
-}
-
 func (cxt *ConsensusContext) MakeChangeView() *msg.ConsensusPayload {
-	log.Trace()
+	log.Debug()
 	cv := &ChangeView{
-		NewViewNumber: cxt.ExpectedView[cxt.MinerIndex],
+		NewViewNumber: cxt.ExpectedView[cxt.BookKeeperIndex],
 	}
 	cv.msgData.Type = ChangeViewMsg
 	return cxt.MakePayload(cv)
 }
 
 func (cxt *ConsensusContext) MakeHeader() *ledger.Block {
-	log.Trace()
-	if cxt.TransactionHashes == nil {
+	log.Debug()
+	if cxt.Transactions == nil {
 		return nil
 	}
-
-	txRoot, _ := crypto.ComputeRoot(cxt.TransactionHashes)
-
+	txHash := []Uint256{}
+	for _, t := range cxt.Transactions {
+		txHash = append(txHash, t.Hash())
+	}
+	txRoot, err := crypto.ComputeRoot(txHash)
+	if err != nil {
+		return nil
+	}
 	if cxt.header == nil {
 		blockData := &ledger.Blockdata{
 			Version:          ContextVersion,
@@ -103,7 +99,7 @@ func (cxt *ConsensusContext) MakeHeader() *ledger.Block {
 			Timestamp:        cxt.Timestamp,
 			Height:           cxt.Height,
 			ConsensusData:    cxt.Nonce,
-			NextMiner:        cxt.NextMiner,
+			NextBookKeeper:   cxt.NextBookKeeper,
 		}
 		cxt.header = &ledger.Block{
 			Blockdata:    blockData,
@@ -114,34 +110,33 @@ func (cxt *ConsensusContext) MakeHeader() *ledger.Block {
 }
 
 func (cxt *ConsensusContext) MakePayload(message ConsensusMessage) *msg.ConsensusPayload {
-	log.Trace()
+	log.Debug()
 	message.ConsensusMessageData().ViewNumber = cxt.ViewNumber
 	return &msg.ConsensusPayload{
-		Version:    ContextVersion,
-		PrevHash:   cxt.PrevHash,
-		Height:     cxt.Height,
-		MinerIndex: uint16(cxt.MinerIndex),
-		Timestamp:  cxt.Timestamp,
-		Data:       ser.ToArray(message),
-		Owner:      cxt.Owner,
+		Version:         ContextVersion,
+		PrevHash:        cxt.PrevHash,
+		Height:          cxt.Height,
+		BookKeeperIndex: uint16(cxt.BookKeeperIndex),
+		Timestamp:       cxt.Timestamp,
+		Data:            ser.ToArray(message),
+		Owner:           cxt.Owner,
 	}
 }
 
 func (cxt *ConsensusContext) MakePrepareRequest() *msg.ConsensusPayload {
-	log.Trace()
+	log.Debug()
 	preReq := &PrepareRequest{
-		Nonce:                  cxt.Nonce,
-		NextMiner:              cxt.NextMiner,
-		TransactionHashes:      cxt.TransactionHashes,
-		BookkeepingTransaction: cxt.Transactions[cxt.TransactionHashes[0]],
-		Signature:              cxt.Signatures[cxt.MinerIndex],
+		Nonce:          cxt.Nonce,
+		NextBookKeeper: cxt.NextBookKeeper,
+		Transactions:   cxt.Transactions,
+		Signature:      cxt.Signatures[cxt.BookKeeperIndex],
 	}
 	preReq.msgData.Type = PrepareRequestMsg
 	return cxt.MakePayload(preReq)
 }
 
 func (cxt *ConsensusContext) MakePrepareResponse(signature []byte) *msg.ConsensusPayload {
-	log.Trace()
+	log.Debug()
 	preRes := &PrepareResponse{
 		Signature: signature,
 	}
@@ -150,7 +145,7 @@ func (cxt *ConsensusContext) MakePrepareResponse(signature []byte) *msg.Consensu
 }
 
 func (cxt *ConsensusContext) GetSignaturesCount() (count int) {
-	log.Trace()
+	log.Debug()
 	count = 0
 	for _, sig := range cxt.Signatures {
 		if sig != nil {
@@ -158,17 +153,6 @@ func (cxt *ConsensusContext) GetSignaturesCount() (count int) {
 		}
 	}
 	return count
-}
-
-func (cxt *ConsensusContext) GetTransactionList() []*tx.Transaction {
-	log.Trace()
-	if cxt.txlist == nil {
-		cxt.txlist = []*tx.Transaction{}
-		for _, TX := range cxt.Transactions {
-			cxt.txlist = append(cxt.txlist, TX)
-		}
-	}
-	return cxt.txlist
 }
 
 func (cxt *ConsensusContext) GetStateDetail() string {
@@ -184,54 +168,37 @@ func (cxt *ConsensusContext) GetStateDetail() string {
 
 }
 
-func (cxt *ConsensusContext) GetTXByHashes() []*tx.Transaction {
-	log.Trace()
-	TXs := []*tx.Transaction{}
-	var i int
-	var j int
-	for _, hash := range cxt.TransactionHashes {
-		i++
-		if TX, ok := cxt.Transactions[hash]; ok {
-			TXs = append(TXs, TX)
-			j++
-		}
-	}
-	return TXs
-}
-
-func (cxt *ConsensusContext) CheckTxHashesExist() bool {
-	log.Trace()
-	for _, hash := range cxt.TransactionHashes {
-		if _, ok := cxt.Transactions[hash]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
 func (cxt *ConsensusContext) Reset(client cl.Client, localNode net.Neter) {
-	log.Trace()
+	log.Debug()
 	cxt.State = Initial
 	cxt.PrevHash = ledger.DefaultLedger.Blockchain.CurrentBlockHash()
 	cxt.Height = ledger.DefaultLedger.Blockchain.BlockHeight + 1
 	cxt.ViewNumber = 0
-	cxt.MinerIndex = -1
+	cxt.BookKeeperIndex = -1
 
-	miners, _ := localNode.GetMinersAddrs()
-	cxt.Owner = miners[0]
-	sort.Sort(crypto.PubKeySlice(miners))
-	cxt.Miners = miners
+	cxt.BookKeepers, cxt.NextBookKeepers, _ = ledger.DefaultLedger.Store.GetBookKeeperList()
+	log.Info("curr bookkeeper, len:", len(cxt.BookKeepers))
+	log.Info("next bookkeeper, len:", len(cxt.NextBookKeepers))
 
-	minerLen := len(cxt.Miners)
-	cxt.PrimaryIndex = cxt.Height % uint32(minerLen)
-	cxt.TransactionHashes = nil
-	cxt.Signatures = make([][]byte, minerLen)
-	cxt.ExpectedView = make([]byte, minerLen)
+	var err error
+	cxt.NextBookKeeper, err = ledger.GetBookKeeperAddress(cxt.NextBookKeepers)
+	if err != nil {
+		log.Error("[ConsensusContext] GetBookKeeperAddres failed")
+	}
 
-	for i := 0; i < minerLen; i++ {
+	cxt.Owner = cxt.BookKeepers[0]
+
+	bookKeeperLen := len(cxt.BookKeepers)
+	cxt.PrimaryIndex = cxt.Height % uint32(bookKeeperLen)
+	cxt.Transactions = nil
+	cxt.Signatures = make([][]byte, bookKeeperLen)
+	cxt.ExpectedView = make([]byte, bookKeeperLen)
+
+	for i := 0; i < bookKeeperLen; i++ {
 		ac, _ := client.GetDefaultAccount()
-		if ac.PublicKey.X.Cmp(cxt.Miners[i].X) == 0 {
-			cxt.MinerIndex = i
+		if ac.PublicKey.X.Cmp(cxt.BookKeepers[i].X) == 0 {
+			cxt.BookKeeperIndex = i
+			cxt.Owner = cxt.BookKeepers[i]
 			break
 		}
 	}

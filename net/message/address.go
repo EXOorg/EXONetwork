@@ -40,7 +40,7 @@ func newGetAddr() ([]byte, error) {
 	}
 
 	str := hex.EncodeToString(buf)
-	log.Info("The message get addr length is: ", len(buf), " ", str)
+	log.Debug("The message get addr length is: ", len(buf), " ", str)
 
 	return buf, err
 }
@@ -88,7 +88,7 @@ func (msg addrReq) Verify(buf []byte) error {
 }
 
 func (msg addrReq) Handle(node Noder) error {
-	log.Trace()
+	log.Debug()
 	// lock
 	var addrstr []NodeAddr
 	var count uint64
@@ -161,7 +161,7 @@ func (msg addr) Verify(buf []byte) error {
 }
 
 func (msg addr) Handle(node Noder) error {
-	log.Trace()
+	log.Debug()
 	for _, v := range msg.nodeAddrs {
 		var ip net.IP
 		ip = v.IpAddr[:]

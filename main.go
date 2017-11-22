@@ -1,109 +1,106 @@
 package main
 
 import (
-	. "DNA/client"
+	"DNA/account"
+	"DNA/common/config"
 	"DNA/common/log"
 	"DNA/consensus/dbft"
 	"DNA/core/ledger"
-	"DNA/core/store"
+	"DNA/core/store/ChainStore"
 	"DNA/core/transaction"
 	"DNA/crypto"
 	"DNA/net"
 	"DNA/net/httpjsonrpc"
-	"fmt"
+	"DNA/net/httprestful"
+	"DNA/net/protocol"
 	"os"
 	"runtime"
 	"time"
 )
 
 const (
-	// The number of the CPU cores for parallel optimization,TODO set from config file
-	NCPU = 4
+	DefaultMultiCoreNum = 4
 )
 
-var Version string
-
 func init() {
-	runtime.GOMAXPROCS(NCPU)
-	var path string = "./Log/"
-	log.CreatePrintLog(path)
-}
+	log.CreatePrintLog(log.Path)
 
-func fileExisted(filename string) bool {
-	_, err := os.Stat(filename)
-	return err == nil || os.IsExist(err)
-}
-
-func openLocalClient(name string) Client {
-	var c Client
-
-	if fileExisted(name) {
-		c = OpenClient(name, []byte("\x12\x34\x56"))
+	var coreNum int
+	if config.Parameters.MultiCoreNum > DefaultMultiCoreNum {
+		coreNum = int(config.Parameters.MultiCoreNum)
 	} else {
-		c = CreateClient(name, []byte("\x12\x34\x56"))
+		coreNum = DefaultMultiCoreNum
 	}
-
-	return c
+	log.Debug("The Core number is ", coreNum)
+	runtime.GOMAXPROCS(coreNum)
 }
 
 func main() {
-	fmt.Printf("Node version: %s\n", Version)
-	fmt.Println("//**************************************************************************")
-	fmt.Println("//*** 0. Client open                                                     ***")
-	fmt.Println("//**************************************************************************")
-	crypto.SetAlg(crypto.P256R1)
-	fmt.Println("  Client set completed. Test Start...")
-	fmt.Println("//**************************************************************************")
-	fmt.Println("//*** 1. Generate [Account]                                              ***")
-	fmt.Println("//**************************************************************************")
-	localclient := openLocalClient("wallet.txt")
-	if localclient == nil {
-		fmt.Println("Can't get local client.")
-		os.Exit(1)
-	}
-	account, err := localclient.GetDefaultAccount()
-	if err != nil {
-		fmt.Println("Can't get default account.")
-		os.Exit(1)
-	}
-	fmt.Println("//**************************************************************************")
-	fmt.Println("//*** 2. Ledger init                                                     ***")
-	fmt.Println("//**************************************************************************")
+	var acct *account.Account
+	var blockChain *ledger.Blockchain
+	var err error
+	var noder protocol.Noder
+	log.Trace("Node version: ", config.Version)
+
+	log.Info("0. Loading the Ledger")
 	ledger.DefaultLedger = new(ledger.Ledger)
-	ledger.DefaultLedger.Store = store.NewLedgerStore()
+	ledger.DefaultLedger.Store = ChainStore.NewLedgerStore()
 	ledger.DefaultLedger.Store.InitLedgerStore(ledger.DefaultLedger)
 	transaction.TxStore = ledger.DefaultLedger.Store
-	ledger.DefaultLedger.Blockchain = ledger.NewBlockchain()
+	crypto.SetAlg(config.Parameters.EncryptAlg)
 
-	fmt.Println("//**************************************************************************")
-	fmt.Println("//*** 3. Start Networking Services                                       ***")
-	fmt.Println("//**************************************************************************")
-	neter, noder := net.StartProtocol(account.PublicKey)
+	log.Info("1. Open the account")
+	client := account.GetClient()
+	if client == nil {
+		log.Error("Can't get local account.")
+		goto ERROR
+	}
+	acct, err = client.GetDefaultAccount()
+	if err != nil {
+		log.Error(err)
+		goto ERROR
+	}
+	log.Debug("The Node's PublicKey ", acct.PublicKey)
+	ledger.StandbyBookKeepers = account.GetBookKeepers()
+
+	log.Info("3. BlockChain init")
+	blockChain, err = ledger.NewBlockchainWithGenesisBlock(ledger.StandbyBookKeepers)
+	if err != nil {
+		log.Error(err, "  BlockChain generate failed")
+		goto ERROR
+	}
+	ledger.DefaultLedger.Blockchain = blockChain
+
+	log.Info("4. Start the P2P networks")
+	// Don't need two return value.
+	noder = net.StartProtocol(acct.PublicKey)
 	httpjsonrpc.RegistRpcNode(noder)
 	time.Sleep(20 * time.Second)
-	miners, _ := neter.GetMinersAddrs()
-	noder.LocalNode().SyncNodeHeight()
+	noder.SyncNodeHeight()
+	noder.WaitForFourPeersStart()
+	if protocol.SERVICENODENAME != config.Parameters.NodeType {
+		log.Info("5. Start DBFT Services")
+		dbftServices := dbft.NewDbftService(client, "logdbft", noder)
+		httpjsonrpc.RegistDbftService(dbftServices)
+		go dbftServices.Start()
+		time.Sleep(5 * time.Second)
+	}
 
-	ledger.CreateGenesisBlock(miners)
-
-	fmt.Println("//**************************************************************************")
-	fmt.Println("//*** 4. Start DBFT Services                                             ***")
-	fmt.Println("//**************************************************************************")
-	dbftServices := dbft.NewDbftService(localclient, "logdbft", neter)
-	httpjsonrpc.RegistDbftService(dbftServices)
-	go dbftServices.Start()
-	time.Sleep(5 * time.Second)
-	fmt.Println("DBFT Services start completed.")
-	fmt.Println("//**************************************************************************")
-	fmt.Println("//*** Init Complete                                                      ***")
-	fmt.Println("//**************************************************************************")
+	log.Info("--Start the RPC interface")
 	go httpjsonrpc.StartRPCServer()
 	go httpjsonrpc.StartLocalServer()
-
-	time.Sleep(2 * time.Second)
+	httprestful.StartServer(noder)
 
 	for {
-		log.Debug("ledger.DefaultLedger.Blockchain.BlockHeight= ", ledger.DefaultLedger.Blockchain.BlockHeight)
 		time.Sleep(dbft.GenBlockTime)
+		log.Trace("BlockHeight = ", ledger.DefaultLedger.Blockchain.BlockHeight)
+		isNeedNewFile := log.CheckIfNeedNewFile()
+		if isNeedNewFile == true {
+			log.ClosePrintLog()
+			log.CreatePrintLog(log.Path)
+		}
 	}
+
+ERROR:
+	os.Exit(1)
 }

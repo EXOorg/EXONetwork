@@ -2,7 +2,7 @@ package httpjsonrpc
 
 import (
 	"DNA/common/log"
-	. "DNA/config"
+	. "DNA/common/config"
 	"net/http"
 	"strconv"
 )
@@ -13,7 +13,7 @@ const (
 )
 
 func StartLocalServer() {
-	log.Trace()
+	log.Debug()
 	http.HandleFunc(LocalDir, Handle)
 
 	HandleFunc("getneighbor", getNeighbor)
@@ -21,6 +21,7 @@ func StartLocalServer() {
 	HandleFunc("startconsensus", startConsensus)
 	HandleFunc("stopconsensus", stopConsensus)
 	HandleFunc("sendsampletransaction", sendSampleTransaction)
+	HandleFunc("setdebuginfo", setDebugInfo)
 
 	// TODO: only listen to local host
 	err := http.ListenAndServe(":"+strconv.Itoa(Parameters.HttpLocalPort), nil)

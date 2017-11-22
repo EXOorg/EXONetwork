@@ -1,10 +1,10 @@
 package dbft
 
 import (
-	cl "DNA/client"
+	cl "DNA/account"
 	. "DNA/common"
+	"DNA/common/config"
 	"DNA/common/log"
-	"DNA/config"
 	con "DNA/consensus"
 	ct "DNA/core/contract"
 	"DNA/core/contract/program"
@@ -23,7 +23,12 @@ import (
 	"time"
 )
 
-var GenBlockTime = (2 * time.Second)
+const (
+	INVDELAYTIME    = 20 * time.Millisecond
+	MINGENBLOCKTIME = 6
+)
+
+var GenBlockTime = (MINGENBLOCKTIME * time.Second)
 
 type DbftService struct {
 	context           ConsensusContext
@@ -41,7 +46,7 @@ type DbftService struct {
 }
 
 func NewDbftService(client cl.Client, logDictionary string, localNet net.Neter) *DbftService {
-	log.Trace()
+	log.Debug()
 
 	ds := &DbftService{
 		Client:        client,
@@ -54,77 +59,20 @@ func NewDbftService(client cl.Client, logDictionary string, localNet net.Neter) 
 	if !ds.timer.Stop() {
 		<-ds.timer.C
 	}
-	log.Trace()
+	log.Debug()
 	go ds.timerRoutine()
 	return ds
 }
 
-func (ds *DbftService) AddTransaction(TX *tx.Transaction, needVerify bool) error {
-	log.Trace()
-
-	//check whether the new TX already exist in ledger
-	if ledger.DefaultLedger.Blockchain.ContainsTransaction(TX.Hash()) {
-		log.Warn(fmt.Sprintf("[AddTransaction] TX already Exist: %v", TX.Hash()))
-		ds.RequestChangeView()
-		return errors.New("TX already Exist.")
-	}
-
-	//verify the TX
-	if needVerify {
-		err := va.VerifyTransaction(TX, ledger.DefaultLedger, ds.context.GetTransactionList())
-		if err != nil {
-			log.Warn(fmt.Sprintf("[AddTransaction] TX Verfiy failed: %v", TX.Hash()))
-			ds.RequestChangeView()
-			return errors.New("TX Verfiy failed.")
-		}
-	}
-
-	//check the TX policy
-	//checkPolicy :=  ds.CheckPolicy(TX)
-
-	//set TX to current context
-	ds.context.Transactions[TX.Hash()] = TX
-
-	//if enough TXs already added to context, build block and sign/relay
-	if len(ds.context.TransactionHashes) == len(ds.context.Transactions) {
-
-		minerAddress, err := ledger.GetMinerAddress(ds.context.Miners)
-		if err != nil {
-			return NewDetailErr(err, ErrNoCode, "[DbftService] ,GetMinerAddress failed")
-		}
-
-		if minerAddress == ds.context.NextMiner {
-			log.Info("send prepare response")
-			ds.context.State |= SignatureSent
-			miner, err := ds.Client.GetAccount(ds.context.Miners[ds.context.MinerIndex])
-			if err != nil {
-				return NewDetailErr(err, ErrNoCode, "[DbftService] ,GetAccount failed.")
-			}
-			//sig.SignBySigner(ds.context.MakeHeader(), miner)
-			ds.context.Signatures[ds.context.MinerIndex], err = sig.SignBySigner(ds.context.MakeHeader(), miner)
-			if err != nil {
-				log.Error("[DbftService], SignBySigner failed.")
-				return NewDetailErr(err, ErrNoCode, "[DbftService], SignBySigner failed.")
-			}
-			payload := ds.context.MakePrepareResponse(ds.context.Signatures[ds.context.MinerIndex])
-			ds.SignAndRelay(payload)
-			err = ds.CheckSignatures()
-			if err != nil {
-				return NewDetailErr(err, ErrNoCode, "[DbftService] ,CheckSignatures failed.")
-			}
-		} else {
-			ds.RequestChangeView()
-			return errors.New("No valid Next Miner.")
-
-		}
-	}
-	return nil
-}
-
 func (ds *DbftService) BlockPersistCompleted(v interface{}) {
-	log.Trace()
+	log.Debug()
 	if block, ok := v.(*ledger.Block); ok {
 		log.Info(fmt.Sprintf("persist block: %d", block.Hash()))
+		err := ds.localNet.CleanSubmittedTransactions(block)
+		if err != nil {
+			log.Warn(err)
+		}
+		//log.Debug(fmt.Sprintf("persist block: %d with %d transactions\n", block.Hash(),len(trxHashToBeDelete)))
 	}
 
 	ds.blockReceivedTime = time.Now()
@@ -133,7 +81,10 @@ func (ds *DbftService) BlockPersistCompleted(v interface{}) {
 }
 
 func (ds *DbftService) CheckExpectedView(viewNumber byte) {
-	log.Trace()
+	log.Debug()
+	if ds.context.State.HasFlag(BlockSent) {
+		return
+	}
 	if ds.context.ViewNumber == viewNumber {
 		return
 	}
@@ -161,13 +112,13 @@ func (ds *DbftService) CheckPolicy(transaction *tx.Transaction) error {
 }
 
 func (ds *DbftService) CheckSignatures() error {
-	log.Trace()
+	log.Debug()
 
-	//check have enought signatures and all required TXs already in context
-	if ds.context.GetSignaturesCount() >= ds.context.M() && ds.context.CheckTxHashesExist() {
+	//check if get enough signatures
+	if ds.context.GetSignaturesCount() >= ds.context.M() {
 
 		//get current index's hash
-		ep, err := ds.context.Miners[ds.context.MinerIndex].EncodePoint(true)
+		ep, err := ds.context.BookKeepers[ds.context.BookKeeperIndex].EncodePoint(true)
 		if err != nil {
 			return NewDetailErr(err, ErrNoCode, "[DbftService] ,EncodePoint failed")
 		}
@@ -176,20 +127,20 @@ func (ds *DbftService) CheckSignatures() error {
 			return NewDetailErr(err, ErrNoCode, "[DbftService] ,ToCodeHash failed")
 		}
 
-		//create multi-sig contract with all miners
-		contract, err := ct.CreateMultiSigContract(codehash, ds.context.M(), ds.context.Miners)
+		//create multi-sig contract with all bookKeepers
+		contract, err := ct.CreateMultiSigContract(codehash, ds.context.M(), ds.context.BookKeepers)
 		if err != nil {
+			log.Error("CheckSignatures CreateMultiSigContract error: ", err)
 			return err
 		}
 
 		//build block
 		block := ds.context.MakeHeader()
-
-		//sign the block with all miners and add signed contract to context
+		//sign the block with all bookKeepers and add signed contract to context
 		cxt := ct.NewContractContext(block)
-		for i, j := 0, 0; i < len(ds.context.Miners) && j < ds.context.M(); i++ {
+		for i, j := 0, 0; i < len(ds.context.BookKeepers) && j < ds.context.M(); i++ {
 			if ds.context.Signatures[i] != nil {
-				err := cxt.AddContract(contract, ds.context.Miners[i], ds.context.Signatures[i])
+				err := cxt.AddContract(contract, ds.context.BookKeepers[i], ds.context.Signatures[i])
 				if err != nil {
 					log.Error("[CheckSignatures] Multi-sign add contract error:", err.Error())
 					return NewDetailErr(err, ErrNoCode, "[DbftService], CheckSignatures AddContract failed.")
@@ -197,21 +148,37 @@ func (ds *DbftService) CheckSignatures() error {
 				j++
 			}
 		}
+		//fill transactions
+		block.Transactions = ds.context.Transactions
 		//set signed program to the block
 		cxt.Data.SetPrograms(cxt.GetPrograms())
 
-		block.Transactions = ds.context.GetTXByHashes()
+		hash := block.Hash()
+		if !ledger.DefaultLedger.BlockInLedger(hash) {
+			// save block
+			if err := ledger.DefaultLedger.Blockchain.AddBlock(block); err != nil {
+				log.Error(fmt.Sprintf("[CheckSignatures] Xmit block Error: %s, blockHash: %d", err.Error(), block.Hash()))
+				return NewDetailErr(err, ErrNoCode, "[DbftService], CheckSignatures AddContract failed.")
+			}
 
-		if err := ds.localNet.Xmit(block); err != nil {
-			log.Info(fmt.Sprintf("[CheckSignatures] Xmit block Error: %s, blockHash: %d", err.Error(), block.Hash()))
+			// wait peers for saving block
+			t := time.NewTimer(INVDELAYTIME)
+			select {
+			case <-t.C:
+				// broadcast block hash
+				if err := ds.localNet.Xmit(hash); err != nil {
+					log.Warn("Block hash transmitting error: ", hash)
+					return err
+				}
+			}
+			ds.context.State |= BlockSent
 		}
-		ds.context.State |= BlockSent
 	}
 	return nil
 }
 
 func (ds *DbftService) CreateBookkeepingTransaction(nonce uint64) *tx.Transaction {
-	log.Trace()
+	log.Debug()
 
 	//TODO: sysfee
 
@@ -229,20 +196,20 @@ func (ds *DbftService) CreateBookkeepingTransaction(nonce uint64) *tx.Transactio
 }
 
 func (ds *DbftService) ChangeViewReceived(payload *msg.ConsensusPayload, message *ChangeView) {
-	log.Trace()
-	log.Info(fmt.Sprintf("Change View Received: height=%d View=%d index=%d nv=%d", payload.Height, message.ViewNumber(), payload.MinerIndex, message.NewViewNumber))
+	log.Debug()
+	log.Info(fmt.Sprintf("Change View Received: height=%d View=%d index=%d nv=%d", payload.Height, message.ViewNumber(), payload.BookKeeperIndex, message.NewViewNumber))
 
-	if message.NewViewNumber <= ds.context.ExpectedView[payload.MinerIndex] {
+	if message.NewViewNumber <= ds.context.ExpectedView[payload.BookKeeperIndex] {
 		return
 	}
 
-	ds.context.ExpectedView[payload.MinerIndex] = message.NewViewNumber
+	ds.context.ExpectedView[payload.BookKeeperIndex] = message.NewViewNumber
 
 	ds.CheckExpectedView(message.NewViewNumber)
 }
 
 func (ds *DbftService) Halt() error {
-	log.Trace()
+	log.Debug()
 	log.Info("DBFT Stop")
 	if ds.timer != nil {
 		ds.timer.Stop()
@@ -257,7 +224,7 @@ func (ds *DbftService) Halt() error {
 
 func (ds *DbftService) InitializeConsensus(viewNum byte) error {
 	log.Debug("[InitializeConsensus] Start InitializeConsensus.")
-	log.Trace()
+	log.Debug()
 	ds.context.contextMu.Lock()
 	defer ds.context.contextMu.Unlock()
 
@@ -266,18 +233,21 @@ func (ds *DbftService) InitializeConsensus(viewNum byte) error {
 	if viewNum == 0 {
 		ds.context.Reset(ds.Client, ds.localNet)
 	} else {
+		if ds.context.State.HasFlag(BlockSent) {
+			return nil
+		}
 		ds.context.ChangeView(viewNum)
 	}
 
-	if ds.context.MinerIndex < 0 {
-		log.Error("Miner Index incorrect ", ds.context.MinerIndex)
-		return NewDetailErr(errors.New("Miner Index incorrect"), ErrNoCode, "")
+	if ds.context.BookKeeperIndex < 0 {
+		log.Error("BookKeeper Index incorrect ", ds.context.BookKeeperIndex)
+		return NewDetailErr(errors.New("BookKeeper Index incorrect"), ErrNoCode, "")
 	}
 
-	if ds.context.MinerIndex == int(ds.context.PrimaryIndex) {
+	if ds.context.BookKeeperIndex == int(ds.context.PrimaryIndex) {
 
 		//primary peer
-		log.Trace()
+		log.Debug()
 		ds.context.State |= Primary
 		ds.timerHeight = ds.context.Height
 		ds.timeView = viewNum
@@ -305,17 +275,12 @@ func (ds *DbftService) InitializeConsensus(viewNum byte) error {
 }
 
 func (ds *DbftService) LocalNodeNewInventory(v interface{}) {
-	log.Trace()
+	log.Debug()
 	if inventory, ok := v.(Inventory); ok {
 		if inventory.Type() == CONSENSUS {
 			payload, ret := inventory.(*msg.ConsensusPayload)
 			if ret == true {
 				ds.NewConsensusPayload(payload)
-			}
-		} else if inventory.Type() == TRANSACTION {
-			transaction, isTransaction := inventory.(*tx.Transaction)
-			if isTransaction {
-				ds.NewTransactionPayload(transaction)
 			}
 		}
 	}
@@ -324,12 +289,12 @@ func (ds *DbftService) LocalNodeNewInventory(v interface{}) {
 //TODO: add invenory receiving
 
 func (ds *DbftService) NewConsensusPayload(payload *msg.ConsensusPayload) {
-	log.Trace()
+	log.Debug()
 	ds.context.contextMu.Lock()
 	defer ds.context.contextMu.Unlock()
 
 	//if payload from current peer, ignore it
-	if int(payload.MinerIndex) == ds.context.MinerIndex {
+	if int(payload.BookKeeperIndex) == ds.context.BookKeeperIndex {
 		return
 	}
 
@@ -338,7 +303,7 @@ func (ds *DbftService) NewConsensusPayload(payload *msg.ConsensusPayload) {
 		return
 	}
 
-	if int(payload.MinerIndex) >= len(ds.context.Miners) {
+	if int(payload.BookKeeperIndex) >= len(ds.context.BookKeepers) {
 		return
 	}
 
@@ -371,42 +336,50 @@ func (ds *DbftService) NewConsensusPayload(payload *msg.ConsensusPayload) {
 	}
 }
 
-func (ds *DbftService) NewTransactionPayload(transaction *tx.Transaction) error {
-	log.Trace()
-	ds.context.contextMu.Lock()
-	defer ds.context.contextMu.Unlock()
-
-	if !ds.context.State.HasFlag(Backup) || !ds.context.State.HasFlag(RequestReceived) || ds.context.State.HasFlag(SignatureSent) {
-		return NewDetailErr(errors.New("Consensus State is incorrect."), ErrNoCode, "")
+func (ds *DbftService) GetUnverifiedTxs(txs []*tx.Transaction) []*tx.Transaction {
+	if len(ds.context.Transactions) == 0 {
+		return nil
 	}
-
-	if _, hasTx := ds.context.Transactions[transaction.Hash()]; hasTx {
-		return NewDetailErr(errors.New("The transaction already exist."), ErrNoCode, "")
+	txpool := ds.localNet.GetTxnPool(false)
+	ret := []*tx.Transaction{}
+	for _, t := range txs {
+		if _, ok := txpool[t.Hash()]; !ok {
+			ret = append(ret, t)
+		}
 	}
+	return ret
+}
 
-	if !ds.context.HasTxHash(transaction.Hash()) {
-		return NewDetailErr(errors.New("The transaction hash is not exist."), ErrNoCode, "")
+func VerifyTxs(txs []*tx.Transaction) error {
+	for _, t := range txs {
+		//TODO verify tx with transaction pool
+		if err := va.VerifyTransaction(t); err != nil {
+			return errors.New("Transaction verification failed")
+		}
+		if err := va.VerifyTransactionWithLedger(t, ledger.DefaultLedger); err != nil {
+			return errors.New("Transaction verification with ledger failed")
+		}
 	}
-	return ds.AddTransaction(transaction, true)
+	return nil
 }
 
 func (ds *DbftService) PrepareRequestReceived(payload *msg.ConsensusPayload, message *PrepareRequest) {
-	log.Trace()
-	log.Info(fmt.Sprintf("Prepare Request Received: height=%d View=%d index=%d tx=%d", payload.Height, message.ViewNumber(), payload.MinerIndex, len(message.TransactionHashes)))
+	log.Debug()
+	log.Info(fmt.Sprintf("Prepare Request Received: height=%d View=%d index=%d tx=%d", payload.Height, message.ViewNumber(), payload.BookKeeperIndex, len(message.Transactions)))
 
 	if !ds.context.State.HasFlag(Backup) || ds.context.State.HasFlag(RequestReceived) {
 		return
 	}
 
-	if uint32(payload.MinerIndex) != ds.context.PrimaryIndex {
+	if uint32(payload.BookKeeperIndex) != ds.context.PrimaryIndex {
 		return
 	}
+
 	header, err := ledger.DefaultLedger.Blockchain.GetHeader(ds.context.PrevHash)
 	if err != nil {
 		log.Info("PrepareRequestReceived GetHeader failed with ds.context.PrevHash", ds.context.PrevHash)
 	}
 
-	log.Trace()
 	//TODO Add Error Catch
 	prevBlockTimestamp := header.Blockdata.Timestamp
 	if payload.Timestamp <= prevBlockTimestamp || payload.Timestamp > uint32(time.Now().Add(time.Minute*10).Unix()) {
@@ -414,56 +387,64 @@ func (ds *DbftService) PrepareRequestReceived(payload *msg.ConsensusPayload, mes
 		return
 	}
 
+	if ds.context.NextBookKeeper != message.NextBookKeeper {
+		log.Info("PrepareRequestReceived: Get mismatched NextBookKeeper, RequestChangeView")
+		ds.RequestChangeView()
+		return
+	}
+
 	ds.context.State |= RequestReceived
 	ds.context.Timestamp = payload.Timestamp
 	ds.context.Nonce = message.Nonce
-	ds.context.NextMiner = message.NextMiner
-	ds.context.TransactionHashes = message.TransactionHashes
-	ds.context.Transactions = make(map[Uint256]*tx.Transaction)
+	ds.context.Transactions = message.Transactions
 
-	_, err = va.VerifySignature(ds.context.MakeHeader(), ds.context.Miners[payload.MinerIndex], message.Signature)
+	//block header verification
+	_, err = va.VerifySignature(ds.context.MakeHeader(), ds.context.BookKeepers[payload.BookKeeperIndex], message.Signature)
 	if err != nil {
 		log.Warn("PrepareRequestReceived VerifySignature failed.", err)
 		return
 	}
 
-	ds.context.Signatures = make([][]byte, len(ds.context.Miners))
-	ds.context.Signatures[payload.MinerIndex] = message.Signature
+	ds.context.Signatures = make([][]byte, len(ds.context.BookKeepers))
+	ds.context.Signatures[payload.BookKeeperIndex] = message.Signature
 
-	mempool := ds.localNet.GetTxnPool(true)
-	for _, hash := range ds.context.TransactionHashes[1:] {
-		if transaction, ok := mempool[hash]; ok {
-			if err := ds.AddTransaction(transaction, false); err != nil {
-				log.Info("PrepareRequestReceived AddTransaction failed.")
-				return
-			}
-		}
-	}
-
-	if err := ds.AddTransaction(message.BookkeepingTransaction, true); err != nil {
-		log.Warn("PrepareRequestReceived AddTransaction failed", err)
+	//check if the transactions received are verified. If it already exists in transaction pool
+	//then no need to verify it again. Otherwise, verify it.
+	unverifyed := ds.GetUnverifiedTxs(ds.context.Transactions)
+	if err := VerifyTxs(unverifyed); err != nil {
+		log.Error("PrepareRequestReceived new transaction verification failed, will not sent Prepare Response", err)
 		return
 	}
 
-	//TODO: LocalNode allow hashes (add Except method)
-	//AllowHashes(ds.context.TransactionHashes)
-	log.Info("Prepare Requst finished")
-	if len(ds.context.Transactions) < len(ds.context.TransactionHashes) {
-		ds.localNet.SynchronizeTxnPool()
+	log.Info("send prepare response")
+	ds.context.State |= SignatureSent
+	bookKeeper, err := ds.Client.GetAccount(ds.context.BookKeepers[ds.context.BookKeeperIndex])
+	if err != nil {
+		log.Error("[DbftService] GetAccount failed")
+		return
 	}
+	ds.context.Signatures[ds.context.BookKeeperIndex], err = sig.SignBySigner(ds.context.MakeHeader(), bookKeeper)
+	if err != nil {
+		log.Error("[DbftService] SignBySigner failed")
+		return
+	}
+	payload = ds.context.MakePrepareResponse(ds.context.Signatures[ds.context.BookKeeperIndex])
+	ds.SignAndRelay(payload)
+
+	log.Info("Prepare Request finished")
 }
 
 func (ds *DbftService) PrepareResponseReceived(payload *msg.ConsensusPayload, message *PrepareResponse) {
-	log.Trace()
+	log.Debug()
 
-	log.Info(fmt.Sprintf("Prepare Response Received: height=%d View=%d index=%d", payload.Height, message.ViewNumber(), payload.MinerIndex))
+	log.Info(fmt.Sprintf("Prepare Response Received: height=%d View=%d index=%d", payload.Height, message.ViewNumber(), payload.BookKeeperIndex))
 
 	if ds.context.State.HasFlag(BlockSent) {
 		return
 	}
 
 	//if the signature already exist, needn't handle again
-	if ds.context.Signatures[payload.MinerIndex] != nil {
+	if ds.context.Signatures[payload.BookKeeperIndex] != nil {
 		return
 	}
 
@@ -471,35 +452,40 @@ func (ds *DbftService) PrepareResponseReceived(payload *msg.ConsensusPayload, me
 	if header == nil {
 		return
 	}
-	if _, err := va.VerifySignature(header, ds.context.Miners[payload.MinerIndex], message.Signature); err != nil {
+	if _, err := va.VerifySignature(header, ds.context.BookKeepers[payload.BookKeeperIndex], message.Signature); err != nil {
 		return
 	}
 
-	ds.context.Signatures[payload.MinerIndex] = message.Signature
-	ds.CheckSignatures()
+	ds.context.Signatures[payload.BookKeeperIndex] = message.Signature
+	err := ds.CheckSignatures()
+	if err != nil {
+		log.Error("CheckSignatures failed")
+		return
+	}
 	log.Info("Prepare Response finished")
 }
 
 func (ds *DbftService) RefreshPolicy() {
-	log.Trace()
+	log.Debug()
 	con.DefaultPolicy.Refresh()
 }
 
 func (ds *DbftService) RequestChangeView() {
-	log.Trace()
+	log.Debug()
 	// FIXME if there is no save block notifcation, when the timeout call this function it will crash
-	ds.context.ExpectedView[ds.context.MinerIndex] = ds.context.ExpectedView[ds.context.MinerIndex] + 1
-	log.Info(fmt.Sprintf("Request change view: height=%d View=%d nv=%d state=%s", ds.context.Height, ds.context.ViewNumber, ds.context.ExpectedView[ds.context.MinerIndex], ds.context.GetStateDetail()))
+	ds.context.ExpectedView[ds.context.BookKeeperIndex] = ds.context.ExpectedView[ds.context.BookKeeperIndex] + 1
+	log.Info(fmt.Sprintf("Request change view: height=%d View=%d nv=%d state=%s", ds.context.Height,
+		ds.context.ViewNumber, ds.context.ExpectedView[ds.context.BookKeeperIndex], ds.context.GetStateDetail()))
 
 	ds.timer.Stop()
-	ds.timer.Reset(GenBlockTime << (ds.context.ExpectedView[ds.context.MinerIndex] + 1))
+	ds.timer.Reset(GenBlockTime << (ds.context.ExpectedView[ds.context.BookKeeperIndex] + 1))
 
 	ds.SignAndRelay(ds.context.MakeChangeView())
-	ds.CheckExpectedView(ds.context.ExpectedView[ds.context.MinerIndex])
+	ds.CheckExpectedView(ds.context.ExpectedView[ds.context.BookKeeperIndex])
 }
 
 func (ds *DbftService) SignAndRelay(payload *msg.ConsensusPayload) {
-	log.Trace()
+	log.Debug()
 
 	prohash, err := payload.GetProgramHashes()
 	if err != nil {
@@ -523,11 +509,13 @@ func (ds *DbftService) SignAndRelay(payload *msg.ConsensusPayload) {
 }
 
 func (ds *DbftService) Start() error {
-	log.Trace()
+	log.Debug()
 	ds.started = true
 
-	if config.Parameters.GenBlockTime > 0 {
+	if config.Parameters.GenBlockTime > MINGENBLOCKTIME {
 		GenBlockTime = time.Duration(config.Parameters.GenBlockTime) * time.Second
+	} else {
+		log.Warn("The Generate block time should be longer than 6 seconds, so set it to be 6.")
 	}
 
 	ds.blockPersistCompletedSubscriber = ledger.DefaultLedger.Blockchain.BCEvents.Subscribe(events.EventBlockPersistCompleted, ds.BlockPersistCompleted)
@@ -538,7 +526,7 @@ func (ds *DbftService) Start() error {
 }
 
 func (ds *DbftService) Timeout() {
-	log.Trace()
+	log.Debug()
 	ds.context.contextMu.Lock()
 	defer ds.context.contextMu.Unlock()
 	if ds.timerHeight != ds.context.Height || ds.timeView != ds.context.ViewNumber {
@@ -547,20 +535,11 @@ func (ds *DbftService) Timeout() {
 
 	log.Info("Timeout: height: ", ds.timerHeight, " View: ", ds.timeView, " State: ", ds.context.GetStateDetail())
 
-	////temp change view number test
-	//if ledger.DefaultLedger.Blockchain.BlockHeight > 2 {
-	//	ds.RequestChangeView()
-	//	return
-	//}
-
 	if ds.context.State.HasFlag(Primary) && !ds.context.State.HasFlag(RequestSent) {
-
-		//parimary peer send the prepare request
+		//primary node send the prepare request
 		log.Info("Send prepare request: height: ", ds.timerHeight, " View: ", ds.timeView, " State: ", ds.context.GetStateDetail())
 		ds.context.State |= RequestSent
 		if !ds.context.State.HasFlag(SignatureSent) {
-
-			//do signature
 			now := uint32(time.Now().Unix())
 			header, _ := ledger.DefaultLedger.Blockchain.GetHeader(ds.context.PrevHash)
 
@@ -573,40 +552,21 @@ func (ds *DbftService) Timeout() {
 			}
 
 			ds.context.Nonce = GetNonce()
-			transactionsPool := ds.localNet.GetTxnPool(true) //TODO: add policy
-
+			transactionsPool := ds.localNet.GetTxnPool(false)
+			//TODO: add policy
 			//TODO: add max TX limitation
 
-			//convert txPool to tx list
-			transactions := []*tx.Transaction{}
-
-			//add new book keeping TX first
 			txBookkeeping := ds.CreateBookkeepingTransaction(ds.context.Nonce)
-			transactions = append(transactions, txBookkeeping)
-
-			//add TXs from mem pool
+			//add book keeping transaction first
+			ds.context.Transactions = append(ds.context.Transactions, txBookkeeping)
+			//add transactions from transaction pool
 			for _, tx := range transactionsPool {
-				transactions = append(transactions, tx)
+				ds.context.Transactions = append(ds.context.Transactions, tx)
 			}
-
-			//add Transaction hashes
-			trxhashes := []Uint256{}
-			txMap := make(map[Uint256]*tx.Transaction)
-			for _, tx := range transactions {
-				txHash := tx.Hash()
-				trxhashes = append(trxhashes, txHash)
-				txMap[txHash] = tx
-			}
-
-			ds.context.TransactionHashes = trxhashes
-			ds.context.Transactions = txMap
-
 			//build block and sign
-			ds.context.NextMiner, _ = ledger.GetMinerAddress(ds.context.Miners)
 			block := ds.context.MakeHeader()
-			account, _ := ds.Client.GetAccount(ds.context.Miners[ds.context.MinerIndex]) //TODO: handle error
-			ds.context.Signatures[ds.context.MinerIndex], _ = sig.SignBySigner(block, account)
-
+			account, _ := ds.Client.GetAccount(ds.context.BookKeepers[ds.context.BookKeeperIndex]) //TODO: handle error
+			ds.context.Signatures[ds.context.BookKeeperIndex], _ = sig.SignBySigner(block, account)
 		}
 		payload := ds.context.MakePrepareRequest()
 		ds.SignAndRelay(payload)
@@ -619,7 +579,7 @@ func (ds *DbftService) Timeout() {
 }
 
 func (ds *DbftService) timerRoutine() {
-	log.Trace()
+	log.Debug()
 	for {
 		select {
 		case <-ds.timer.C:
