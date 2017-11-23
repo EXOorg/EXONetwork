@@ -21,26 +21,27 @@ import (
 type TransactionType byte
 
 const (
-	BookKeeping   TransactionType = 0x00
-	BookKeeper    TransactionType = 0x02
-	RegisterAsset TransactionType = 0x40
-	IssueAsset    TransactionType = 0x01
-	TransferAsset TransactionType = 0x10
-	Record        TransactionType = 0x11
-	DeployCode    TransactionType = 0xd0
+	BookKeeping    TransactionType = 0x00
+	IssueAsset     TransactionType = 0x01
+	BookKeeper     TransactionType = 0x02
 	PrivacyPayload TransactionType = 0x20
+	RegisterAsset  TransactionType = 0x40
+	TransferAsset  TransactionType = 0x80
+	Record         TransactionType = 0x81
+	DeployCode     TransactionType = 0xd0
+	DataFile       TransactionType = 0x12
 )
 
 //Payload define the func for loading the payload data
 //base on payload type which have different struture
 type Payload interface {
 	//  Get payload data
-	Data() []byte
+	Data(version byte) []byte
 
 	//Serialize payload data
-	Serialize(w io.Writer) error
+	Serialize(w io.Writer, version byte) error
 
-	Deserialize(r io.Reader) error
+	Deserialize(r io.Reader, version byte) error
 }
 
 //Transaction is used for carry information or action to Ledger
@@ -52,7 +53,6 @@ type Transaction struct {
 	TxType         TransactionType
 	PayloadVersion byte
 	Payload        Payload
-	Nonce          uint64
 	Attributes     []*TxAttribute
 	UTXOInputs     []*UTXOTxInput
 	BalanceInputs  []*BalanceTxInput
@@ -101,9 +101,7 @@ func (tx *Transaction) SerializeUnsigned(w io.Writer) error {
 	if tx.Payload == nil {
 		return errors.New("Transaction Payload is nil.")
 	}
-	tx.Payload.Serialize(w)
-	//nonce
-	serialization.WriteVarUint(w, tx.Nonce)
+	tx.Payload.Serialize(w, tx.PayloadVersion)
 	//[]*txAttribute
 	err := serialization.WriteVarUint(w, uint64(len(tx.Attributes)))
 	if err != nil {
@@ -142,10 +140,16 @@ func (tx *Transaction) SerializeUnsigned(w io.Writer) error {
 //deserialize the Transaction
 func (tx *Transaction) Deserialize(r io.Reader) error {
 	// tx deserialize
-	tx.DeserializeUnsigned(r)
+	err := tx.DeserializeUnsigned(r)
+	if err != nil {
+		return NewDetailErr(err, ErrNoCode, "transaction Deserialize error")
+	}
 
 	// tx program
-	lens, _ := serialization.ReadVarUint(r, 0)
+	lens, err := serialization.ReadVarUint(r, 0)
+	if err != nil {
+		return NewDetailErr(err, ErrNoCode, "transaction tx program Deserialize error")
+	}
 
 	programHashes := []*program.Program{}
 	if lens > 0 {
@@ -179,34 +183,31 @@ func (tx *Transaction) DeserializeUnsignedWithoutType(r io.Reader) error {
 
 	//payload
 	//tx.Payload.Deserialize(r)
-	if tx.TxType == RegisterAsset {
-		// Asset Registration
+	switch tx.TxType {
+	case RegisterAsset:
 		tx.Payload = new(payload.RegisterAsset)
-	} else if tx.TxType == IssueAsset {
-		// Issue Asset
+	case IssueAsset:
 		tx.Payload = new(payload.IssueAsset)
-	} else if tx.TxType == TransferAsset {
-		// Transfer Asset
+	case TransferAsset:
 		tx.Payload = new(payload.TransferAsset)
-	} else if tx.TxType == BookKeeping {
+	case BookKeeping:
 		tx.Payload = new(payload.BookKeeping)
-	} else if tx.TxType == Record {
+	case Record:
 		tx.Payload = new(payload.Record)
-	} else if tx.TxType == BookKeeper {
+	case BookKeeper:
 		tx.Payload = new(payload.BookKeeper)
-	} else if tx.TxType == PrivacyPayload {
+	case PrivacyPayload:
 		tx.Payload = new(payload.PrivacyPayload)
+	case DataFile:
+		tx.Payload = new(payload.DataFile)
+	default:
+		return errors.New("[Transaction],invalide transaction type.")
 	}
-
-	tx.Payload.Deserialize(r)
-	//attributes
-
-	nonce, err := serialization.ReadVarUint(r, 0)
+	err = tx.Payload.Deserialize(r, tx.PayloadVersion)
 	if err != nil {
-		return errors.New("Parse nonce error")
+		return NewDetailErr(err, ErrNoCode, "Payload Parse error")
 	}
-	tx.Nonce = nonce
-
+	//attributes
 	Len, err := serialization.ReadVarUint(r, 0)
 	if err != nil {
 		return err
@@ -295,22 +296,34 @@ func (tx *Transaction) GetProgramHashes() ([]Uint160, error) {
 		if err != nil {
 			return nil, NewDetailErr(err, ErrNoCode, "[Transaction], GetTransactionResults failed.")
 		}
-		for k, _ := range result {
+		for k := range result {
 			tx, err := TxStore.GetTransaction(k)
 			if err != nil {
 				return nil, NewDetailErr(err, ErrNoCode, fmt.Sprintf("[Transaction], GetTransaction failed With AssetID:=%x", k))
 			}
 			if tx.TxType != RegisterAsset {
-				return nil, NewDetailErr(err, ErrNoCode, fmt.Sprintf("[Transaction], Transaction Type ileage With AssetID:=%x", k))
+				return nil, NewDetailErr(errors.New("[Transaction] error"), ErrNoCode, fmt.Sprintf("[Transaction], Transaction Type ileage With AssetID:=%x", k))
 			}
 
 			switch v1 := tx.Payload.(type) {
 			case *payload.RegisterAsset:
 				hashs = append(hashs, v1.Controller)
 			default:
-				return nil, NewDetailErr(err, ErrNoCode, fmt.Sprintf("[Transaction], payload is illegal", k))
+				return nil, NewDetailErr(errors.New("[Transaction] error"), ErrNoCode, fmt.Sprintf("[Transaction], payload is illegal", k))
 			}
 		}
+	case DataFile:
+		issuer := tx.Payload.(*payload.DataFile).Issuer
+		signatureRedeemScript, err := contract.CreateSignatureRedeemScript(issuer)
+		if err != nil {
+			return nil, NewDetailErr(err, ErrNoCode, "[Transaction], GetProgramHashes CreateSignatureRedeemScript failed.")
+		}
+
+		astHash, err := ToCodeHash(signatureRedeemScript)
+		if err != nil {
+			return nil, NewDetailErr(err, ErrNoCode, "[Transaction], GetProgramHashes ToCodeHash failed.")
+		}
+		hashs = append(hashs, astHash)
 	case TransferAsset:
 	case Record:
 	case BookKeeper:
@@ -333,7 +346,7 @@ func (tx *Transaction) GetProgramHashes() ([]Uint160, error) {
 	for _, v := range hashs {
 		uniq[v] = true
 	}
-	for k, _ := range uniq {
+	for k := range uniq {
 		uniqHashes = append(uniqHashes, k)
 	}
 	sort.Sort(byProgramHashes(uniqHashes))
@@ -359,7 +372,7 @@ func (tx *Transaction) GenerateAssetMaps() {
 }
 
 func (tx *Transaction) GetMessage() []byte {
-	return sig.GetHashForSigning(tx)
+	return sig.GetHashData(tx)
 }
 
 func (tx *Transaction) Hash() Uint256 {
@@ -403,7 +416,7 @@ func (tx *Transaction) GetReference() (map[*UTXOTxInput]*TxOutput, error) {
 	return reference, nil
 }
 func (tx *Transaction) GetTransactionResults() (TransactionResult, error) {
-	var result TransactionResult
+	result := make(map[Uint256]Fixed64)
 	outputResult := tx.GetMergedAssetIDValueFromOutputs()
 	InputResult, err := tx.GetMergedAssetIDValueFromReference()
 	if err != nil {
@@ -414,7 +427,12 @@ func (tx *Transaction) GetTransactionResults() (TransactionResult, error) {
 		if inputValue, ok := InputResult[outputAssetid]; ok {
 			result[outputAssetid] = inputValue - outputValue
 		} else {
-			result[outputAssetid] = outputValue * Fixed64(-1)
+			result[outputAssetid] -= outputValue
+		}
+	}
+	for inputAssetid, inputValue := range InputResult {
+		if _, exist := result[inputAssetid]; !exist {
+			result[inputAssetid] += inputValue
 		}
 	}
 	return result, nil

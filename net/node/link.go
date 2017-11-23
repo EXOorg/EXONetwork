@@ -4,11 +4,10 @@ import (
 	. "DNA/common/config"
 	"DNA/common/log"
 	"DNA/events"
-	. "DNA/net/message"
+	msg "DNA/net/message"
 	. "DNA/net/protocol"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -38,21 +37,36 @@ type link struct {
 func unpackNodeBuf(node *node, buf []byte) {
 	var msgLen int
 	var msgBuf []byte
-	if node.rxBuf.p == nil {
-		if len(buf) < MSGHDRLEN {
-			log.Warn("Unexpected size of received message")
-			errors.New("Unexpected size of received message")
-			return
-		}
-		// FIXME Check the payload < 0 error case
-		msgLen = PayloadLen(buf) + MSGHDRLEN
-	} else {
-		msgLen = node.rxBuf.len
+
+	if len(buf) == 0 {
+		return
 	}
 
+	if node.rxBuf.len == 0 {
+		length := MSGHDRLEN - len(node.rxBuf.p)
+		if length > len(buf) {
+			length = len(buf)
+			node.rxBuf.p = append(node.rxBuf.p, buf[0:length]...)
+			return
+		}
+
+		node.rxBuf.p = append(node.rxBuf.p, buf[0:length]...)
+		if msg.ValidMsgHdr(node.rxBuf.p) == false {
+			node.rxBuf.p = nil
+			node.rxBuf.len = 0
+			log.Warn("Get error message header, TODO: relocate the msg header")
+			// TODO Relocate the message header
+			return
+		}
+
+		node.rxBuf.len = msg.PayloadLen(node.rxBuf.p)
+		buf = buf[length:]
+	}
+
+	msgLen = node.rxBuf.len
 	if len(buf) == msgLen {
 		msgBuf = append(node.rxBuf.p, buf[:]...)
-		go HandleNodeMsg(node, msgBuf, len(msgBuf))
+		go msg.HandleNodeMsg(node, msgBuf, len(msgBuf))
 		node.rxBuf.p = nil
 		node.rxBuf.len = 0
 	} else if len(buf) < msgLen {
@@ -60,7 +74,7 @@ func unpackNodeBuf(node *node, buf []byte) {
 		node.rxBuf.len = msgLen - len(buf)
 	} else {
 		msgBuf = append(node.rxBuf.p, buf[0:msgLen]...)
-		go HandleNodeMsg(node, msgBuf, len(msgBuf))
+		go msg.HandleNodeMsg(node, msgBuf, len(msgBuf))
 		node.rxBuf.p = nil
 		node.rxBuf.len = 0
 
@@ -79,9 +93,8 @@ func (node *node) rx() {
 			t := time.Now()
 			node.UpdateRXTime(t)
 			unpackNodeBuf(node, buf[0:len])
-			break
 		case io.EOF:
-			log.Error("Rx io.EOF ", err)
+			log.Error("Rx io.EOF: ", err, ", node id is ", node.GetID())
 			goto DISCONNECT
 		default:
 			log.Error("Read connection error ", err)
@@ -203,24 +216,34 @@ func parseIPaddr(s string) (string, error) {
 
 func (node *node) Connect(nodeAddr string) error {
 	log.Debug()
+
+	if node.IsAddrInNbrList(nodeAddr) == true {
+		return nil
+	}
+	if added := node.SetAddrInConnectingList(nodeAddr); added == false {
+		return errors.New("node exist in connecting list, cancel")
+	}
+
 	isTls := Parameters.IsTLS
 	var conn net.Conn
 	var err error
+
 	if isTls {
 		conn, err = TLSDial(nodeAddr)
 		if err != nil {
+			node.RemoveAddrInConnectingList(nodeAddr)
 			log.Error("TLS connect failed: ", err)
-			return nil
+			return err
 		}
 	} else {
 		conn, err = NonTLSDial(nodeAddr)
 		if err != nil {
+			node.RemoveAddrInConnectingList(nodeAddr)
 			log.Error("non TLS connect failed: ", err)
-			return nil
+			return err
 		}
 	}
 	node.link.connCnt++
-
 	n := NewNode()
 	n.conn = conn
 	n.addr, err = parseIPaddr(conn.RemoteAddr().String())
@@ -232,7 +255,7 @@ func (node *node) Connect(nodeAddr string) error {
 	go n.rx()
 
 	n.SetState(HAND)
-	buf, _ := NewVersion(node)
+	buf, _ := msg.NewVersion(node)
 	n.Tx(buf)
 
 	return nil
@@ -240,7 +263,7 @@ func (node *node) Connect(nodeAddr string) error {
 
 func NonTLSDial(nodeAddr string) (net.Conn, error) {
 	log.Debug()
-	conn, err := net.Dial("tcp", nodeAddr)
+	conn, err := net.DialTimeout("tcp", nodeAddr, time.Second*DIALTIMEOUT)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +293,9 @@ func TLSDial(nodeAddr string) (net.Conn, error) {
 		Certificates: []tls.Certificate{cert},
 	}
 
-	conn, err := tls.Dial("tcp", nodeAddr, conf)
+	var dialer net.Dialer
+	dialer.Timeout = time.Second * DIALTIMEOUT
+	conn, err := tls.DialWithDialer(&dialer, "tcp", nodeAddr, conf)
 	if err != nil {
 		return nil, err
 	}
@@ -278,9 +303,7 @@ func TLSDial(nodeAddr string) (net.Conn, error) {
 }
 
 func (node *node) Tx(buf []byte) {
-	log.Debug()
-	str := hex.EncodeToString(buf)
-	log.Debug(fmt.Sprintf("TX buf length: %d\n%s", len(buf), str))
+	log.Debugf("TX buf length: %d\n%x", len(buf), buf)
 
 	_, err := node.conn.Write(buf)
 	if err != nil {

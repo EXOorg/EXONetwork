@@ -48,11 +48,14 @@ func VerifyBlock(block *ledger.Block, ld *ledger.Ledger, completely bool) error 
 		*/
 		for _, txVerify := range block.Transactions {
 			if err := VerifyTransaction(txVerify); err != nil {
-				return errors.New(fmt.Sprintf("VerifyTransaction error when verifiy block"))
+				return errors.New(fmt.Sprintf("VerifyTransaction failed when verifiy block"))
 			}
 			if err := VerifyTransactionWithLedger(txVerify, ledger.DefaultLedger); err != nil {
-				return errors.New(fmt.Sprintf("VerifyTransactionWithLedger error when verifiy block"))
+				return errors.New(fmt.Sprintf("VerifyTransactionWithLedger failed when verifiy block"))
 			}
+		}
+		if err := VerifyTransactionWithBlock(block.Transactions); err != nil {
+			return errors.New(fmt.Sprintf("VerifyTransactionWithBlock failed when verifiy block"))
 		}
 	}
 
@@ -73,15 +76,15 @@ func VerifyBlockData(bd *ledger.Blockdata, ledger *ledger.Ledger) error {
 		return NewDetailErr(err, ErrNoCode, "[BlockValidator], Cannnot find prevHeader..")
 	}
 	if prevHeader == nil {
-		return NewDetailErr(err, ErrNoCode, "[BlockValidator], Cannnot find previous block.")
+		return NewDetailErr(errors.New("[BlockValidator] error"), ErrNoCode, "[BlockValidator], Cannnot find previous block.")
 	}
 
 	if prevHeader.Blockdata.Height+1 != bd.Height {
-		return NewDetailErr(err, ErrNoCode, "[BlockValidator], block height is incorrect.")
+		return NewDetailErr(errors.New("[BlockValidator] error"), ErrNoCode, "[BlockValidator], block height is incorrect.")
 	}
 
 	if prevHeader.Blockdata.Timestamp >= bd.Timestamp {
-		return NewDetailErr(err, ErrNoCode, "[BlockValidator], block timestamp is incorrect.")
+		return NewDetailErr(errors.New("[BlockValidator] error"), ErrNoCode, "[BlockValidator], block timestamp is incorrect.")
 	}
 
 	return nil

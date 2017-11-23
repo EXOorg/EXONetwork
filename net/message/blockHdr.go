@@ -10,6 +10,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"math/rand"
+	"time"
 )
 
 type headersReq struct {
@@ -32,7 +34,7 @@ func NewHeadersReq() ([]byte, error) {
 
 	h.p.len = 1
 	buf := ledger.DefaultLedger.Store.GetCurrentHeaderHash()
-	copy(h.p.hashEnd[:], reverse(buf[:]))
+	copy(h.p.hashEnd[:], buf[:])
 
 	p := new(bytes.Buffer)
 	err := binary.Write(p, binary.LittleEndian, &(h.p))
@@ -61,9 +63,21 @@ func (msg blkHeader) Verify(buf []byte) error {
 }
 
 func (msg headersReq) Serialization() ([]byte, error) {
-	var buf bytes.Buffer
+	hdrBuf, err := msg.hdr.Serialization()
+	if err != nil {
+		return nil, err
+	}
+	buf := bytes.NewBuffer(hdrBuf)
+	err = binary.Write(buf, binary.LittleEndian, msg.p.len)
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Write(buf, binary.LittleEndian, msg.p.hashStart)
+	if err != nil {
+		return nil, err
+	}
 
-	err := binary.Write(&buf, binary.LittleEndian, msg)
+	err = binary.Write(buf, binary.LittleEndian, msg.p.hashEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +87,22 @@ func (msg headersReq) Serialization() ([]byte, error) {
 
 func (msg *headersReq) Deserialization(p []byte) error {
 	buf := bytes.NewBuffer(p)
-	err := binary.Read(buf, binary.LittleEndian, &msg)
+	err := binary.Read(buf, binary.LittleEndian, &(msg.hdr))
+	if err != nil {
+		return err
+	}
+
+	err = binary.Read(buf, binary.LittleEndian, &(msg.p.len))
+	if err != nil {
+		return err
+	}
+
+	err = binary.Read(buf, binary.LittleEndian, &(msg.p.hashStart))
+	if err != nil {
+		return err
+	}
+
+	err = binary.Read(buf, binary.LittleEndian, &(msg.p.hashEnd))
 	return err
 }
 
@@ -83,7 +112,10 @@ func (msg blkHeader) Serialization() ([]byte, error) {
 		return nil, err
 	}
 	buf := bytes.NewBuffer(hdrBuf)
-	binary.Write(buf, binary.LittleEndian, msg.cnt)
+	err = binary.Write(buf, binary.LittleEndian, msg.cnt)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, header := range msg.blkHdr {
 		header.Serialize(buf)
@@ -142,21 +174,23 @@ func SendMsgSyncHeaders(node Noder) {
 	if err != nil {
 		log.Error("failed build a new headersReq")
 	} else {
-		node.LocalNode().SetSyncHeaders(true)
-		node.SetSyncHeaders(true)
 		go node.Tx(buf)
 	}
 }
 
 func ReqBlkHdrFromOthers(node Noder) {
-	node.SetSyncFailed()
 	noders := node.LocalNode().GetNeighborNoder()
-	for _, noder := range noders {
-		if noder.IsSyncFailed() != true {
-			SendMsgSyncHeaders(noder)
-			break
-		}
+	if len(noders) == 0 {
+		return
 	}
+	rand.Seed(time.Now().UnixNano())
+	index := rand.Intn(len(noders))
+	if noders[index].GetID() == node.GetID() {
+		index = (index + 1) % len(noders)
+	}
+	n := noders[index]
+	SendMsgSyncHeaders(n)
+
 }
 
 func (msg blkHeader) Handle(node Noder) error {
@@ -190,24 +224,24 @@ func GetHeadersFromHash(startHash common.Uint256, stopHash common.Uint256) ([]le
 				count = curHeight
 			}
 		} else {
-			bkstop, err := ledger.DefaultLedger.GetBlockWithHash(stopHash)
+			bkstop, err := ledger.DefaultLedger.Store.GetHeader(stopHash)
 			if err != nil {
 				return nil, 0, err
 			}
 			stopHeight = bkstop.Blockdata.Height
 			count = curHeight - stopHeight
-			if curHeight > MAXBLKHDRCNT {
+			if count > MAXBLKHDRCNT {
 				count = MAXBLKHDRCNT
 			}
 		}
 	} else {
-		bkstart, err := ledger.DefaultLedger.GetBlockWithHash(startHash)
+		bkstart, err := ledger.DefaultLedger.Store.GetHeader(startHash)
 		if err != nil {
 			return nil, 0, err
 		}
 		startHeight = bkstart.Blockdata.Height
 		if stopHash != empty {
-			bkstop, err := ledger.DefaultLedger.GetBlockWithHash(stopHash)
+			bkstop, err := ledger.DefaultLedger.Store.GetHeader(stopHash)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -215,7 +249,7 @@ func GetHeadersFromHash(startHash common.Uint256, stopHash common.Uint256) ([]le
 			count = startHeight - stopHeight
 			if count >= MAXBLKHDRCNT {
 				count = MAXBLKHDRCNT
-				stopHeight = startHeight + MAXBLKHDRCNT
+				stopHeight = startHeight - MAXBLKHDRCNT
 			}
 		} else {
 

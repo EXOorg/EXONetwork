@@ -2,6 +2,7 @@ package ledger
 
 import (
 	. "DNA/common"
+	"DNA/core/account"
 	. "DNA/core/asset"
 	tx "DNA/core/transaction"
 	"DNA/crypto"
@@ -26,6 +27,8 @@ type ILedgerStore interface {
 	SaveAsset(assetid Uint256, asset *Asset) error
 	GetAsset(hash Uint256) (*Asset, error)
 
+	GetAccount(programHash Uint160) (*account.AccountState, error)
+
 	GetCurrentBlockHash() Uint256
 	GetCurrentHeaderHash() Uint256
 	GetHeaderHeight() uint32
@@ -39,4 +42,11 @@ type ILedgerStore interface {
 
 	GetUnspent(txid Uint256, index uint16) (*tx.TxOutput, error)
 	ContainsUnspent(txid Uint256, index uint16) (bool, error)
+	GetUnspentFromProgramHash(programHash Uint160, assetid Uint256) ([]*tx.UTXOUnspent, error)
+	GetUnspentsFromProgramHash(programHash Uint160) (map[Uint256][]*tx.UTXOUnspent, error)
+	GetAssets() map[Uint256]*Asset
+
+	IsTxHashDuplicate(txhash Uint256) bool
+	IsBlockInStore(hash Uint256) bool
+	Close()
 }

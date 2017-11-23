@@ -17,6 +17,9 @@ import (
 	"math/rand"
 	"net"
 	"runtime"
+	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -44,12 +47,23 @@ type node struct {
 	/*
 	 * |--|--|--|--|--|--|isSyncFailed|isSyncHeaders|
 	 */
-	syncFlag                 uint8
 	TxNotifyChan             chan int
 	flightHeights            []uint32
 	lastContact              time.Time
 	nodeDisconnectSubscriber events.Subscriber
 	tryTimes                 uint32
+	ConnectingNodes
+	RetryConnAddrs
+}
+
+type RetryConnAddrs struct {
+	sync.RWMutex
+	RetryAddrs map[string]int
+}
+
+type ConnectingNodes struct {
+	sync.RWMutex
+	ConnectingAddrs []string
 }
 
 func (node *node) DumpInfo() {
@@ -65,6 +79,46 @@ func (node *node) DumpInfo() {
 	log.Info("\t relay = ", node.relay)
 	log.Info("\t height = ", node.height)
 	log.Info("\t conn cnt = ", node.link.connCnt)
+}
+
+func (node *node) IsAddrInNbrList(addr string) bool {
+	node.nbrNodes.RLock()
+	defer node.nbrNodes.RUnlock()
+	for _, n := range node.nbrNodes.List {
+		if n.GetState() == HAND || n.GetState() == HANDSHAKE || n.GetState() == ESTABLISH {
+			addr := n.GetAddr()
+			port := n.GetPort()
+			na := addr + ":" + strconv.Itoa(int(port))
+			if strings.Compare(na, addr) == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (node *node) SetAddrInConnectingList(addr string) (added bool) {
+	node.ConnectingNodes.Lock()
+	defer node.ConnectingNodes.Unlock()
+	for _, a := range node.ConnectingAddrs {
+		if strings.Compare(a, addr) == 0 {
+			return false
+		}
+	}
+	node.ConnectingAddrs = append(node.ConnectingAddrs, addr)
+	return true
+}
+
+func (node *node) RemoveAddrInConnectingList(addr string) {
+	node.ConnectingNodes.Lock()
+	defer node.ConnectingNodes.Unlock()
+	addrs := []string{}
+	for i, a := range node.ConnectingAddrs {
+		if strings.Compare(a, addr) == 0 {
+			addrs = append(node.ConnectingAddrs[:i], node.ConnectingAddrs[i+1:]...)
+		}
+	}
+	node.ConnectingAddrs = addrs
 }
 
 func (node *node) UpdateInfo(t time.Time, version uint32, services uint64,
@@ -122,6 +176,7 @@ func InitNode(pubKey *crypto.PubKey) Noder {
 	n.eventQueue.init()
 	n.nodeDisconnectSubscriber = n.eventQueue.GetEvent("disconnect").Subscribe(events.EventNodeDisconnect, n.NodeDisconnect)
 	go n.initConnection()
+	go n.updateConnection()
 	go n.updateNodeInfo()
 
 	return n
@@ -318,6 +373,17 @@ func (node *node) SyncNodeHeight() {
 	}
 }
 
+func (node *node) WaitForSyncBlkFinish() {
+	for {
+		headerHeight := ledger.DefaultLedger.Store.GetHeaderHeight()
+		currentBlkHeight := ledger.DefaultLedger.Blockchain.BlockHeight
+		log.Info("WaitForSyncBlkFinish... current block height is ", currentBlkHeight, " ,current header height is ", headerHeight)
+		if currentBlkHeight >= headerHeight {
+			break
+		}
+		<-time.After(2 * time.Second)
+	}
+}
 func (node *node) WaitForFourPeersStart() {
 	for {
 		log.Debug("WaitForFourPeersStart...")
@@ -329,36 +395,8 @@ func (node *node) WaitForFourPeersStart() {
 	}
 }
 
-func (node *node) IsSyncHeaders() bool {
-	if (node.syncFlag & 0x01) == 0x01 {
-		return true
-	} else {
-		return false
-	}
-}
-
-func (node *node) SetSyncHeaders(b bool) {
-	if b == true {
-		node.syncFlag = node.syncFlag | 0x01
-	} else {
-		node.syncFlag = node.syncFlag & 0xFE
-	}
-}
-
-func (node *node) IsSyncFailed() bool {
-	if (node.syncFlag & 0x02) == 0x02 {
-		return true
-	} else {
-		return false
-	}
-}
-
-func (node *node) SetSyncFailed() {
-	node.syncFlag = node.syncFlag | 0x02
-}
-
 func (node *node) StartRetryTimer() {
-	t := time.NewTimer(time.Second * 2)
+	t := time.NewTimer(time.Second * PERIODUPDATETIME)
 	node.TxNotifyChan = make(chan int, 1)
 	go func() {
 		select {
@@ -380,6 +418,9 @@ func (node *node) StoreFlightHeight(height uint32) {
 
 func (node *node) GetFlightHeightCnt() int {
 	return len(node.flightHeights)
+}
+func (node *node) GetFlightHeights() []uint32 {
+	return node.flightHeights
 }
 
 func (node *node) RemoveFlightHeightLessThan(h uint32) {
@@ -411,4 +452,31 @@ func (node *node) RemoveFlightHeight(height uint32) {
 
 func (node *node) GetLastRXTime() time.Time {
 	return node.time
+}
+
+func (node *node) AddInRetryList(addr string) {
+	node.RetryConnAddrs.Lock()
+	defer node.RetryConnAddrs.Unlock()
+	if node.RetryAddrs == nil {
+		node.RetryAddrs = make(map[string]int)
+	}
+	if _, ok := node.RetryAddrs[addr]; ok {
+		delete(node.RetryAddrs, addr)
+		log.Debug("remove exsit addr from retry list", addr)
+	}
+	//alway set retry to 0
+	node.RetryAddrs[addr] = 0
+	log.Debug("add addr to retry list", addr)
+}
+
+func (node *node) RemoveFromRetryList(addr string) {
+	node.RetryConnAddrs.Lock()
+	defer node.RetryConnAddrs.Unlock()
+	if len(node.RetryAddrs) > 0 {
+		if _, ok := node.RetryAddrs[addr]; ok {
+			delete(node.RetryAddrs, addr)
+			log.Debug("remove addr from retry list", addr)
+		}
+	}
+
 }

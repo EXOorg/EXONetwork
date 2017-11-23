@@ -136,7 +136,7 @@ func (msg Inv) Handle(node Noder) error {
 			if !ledger.DefaultLedger.Store.BlockInCache(id) &&
 				!ledger.DefaultLedger.BlockInLedger(id) {
 				// send the block request
-				log.Info("inv request block hash: ", id)
+				log.Infof("inv request block hash: %x", id)
 				ReqBlkData(node, id)
 			}
 
@@ -204,7 +204,7 @@ func GetInvFromBlockHash(starthash Uint256, stophash Uint256) (*InvPayload, erro
 				count = curHeight
 			}
 		} else {
-			bkstop, err := ledger.DefaultLedger.GetBlockWithHash(stophash)
+			bkstop, err := ledger.DefaultLedger.Store.GetHeader(stophash)
 			if err != nil {
 				return nil, err
 			}
@@ -215,13 +215,13 @@ func GetInvFromBlockHash(starthash Uint256, stophash Uint256) (*InvPayload, erro
 			}
 		}
 	} else {
-		bkstart, err := ledger.DefaultLedger.GetBlockWithHash(starthash)
+		bkstart, err := ledger.DefaultLedger.Store.GetHeader(starthash)
 		if err != nil {
 			return nil, err
 		}
 		startheight = bkstart.Blockdata.Height
 		if stophash != empty {
-			bkstop, err := ledger.DefaultLedger.GetBlockWithHash(stophash)
+			bkstop, err := ledger.DefaultLedger.Store.GetHeader(stophash)
 			if err != nil {
 				return nil, err
 			}

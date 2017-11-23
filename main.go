@@ -12,6 +12,7 @@ import (
 	"DNA/net"
 	"DNA/net/httpjsonrpc"
 	"DNA/net/httprestful"
+	"DNA/net/httpwebsocket"
 	"DNA/net/protocol"
 	"os"
 	"runtime"
@@ -23,8 +24,7 @@ const (
 )
 
 func init() {
-	log.CreatePrintLog(log.Path)
-
+	log.Init(log.Path, log.Stdout)
 	var coreNum int
 	if config.Parameters.MultiCoreNum > DefaultMultiCoreNum {
 		coreNum = int(config.Parameters.MultiCoreNum)
@@ -42,9 +42,19 @@ func main() {
 	var noder protocol.Noder
 	log.Trace("Node version: ", config.Version)
 
+	if len(config.Parameters.BookKeepers) < account.DefaultBookKeeperCount {
+		log.Fatal("At least ", account.DefaultBookKeeperCount, " BookKeepers should be set at config.json")
+		os.Exit(1)
+	}
+
 	log.Info("0. Loading the Ledger")
 	ledger.DefaultLedger = new(ledger.Ledger)
-	ledger.DefaultLedger.Store = ChainStore.NewLedgerStore()
+	ledger.DefaultLedger.Store, err = ChainStore.NewLedgerStore()
+	defer ledger.DefaultLedger.Store.Close()
+	if err != nil {
+		log.Fatal("open LedgerStore err:", err)
+		os.Exit(1)
+	}
 	ledger.DefaultLedger.Store.InitLedgerStore(ledger.DefaultLedger)
 	transaction.TxStore = ledger.DefaultLedger.Store
 	crypto.SetAlg(config.Parameters.EncryptAlg)
@@ -52,12 +62,12 @@ func main() {
 	log.Info("1. Open the account")
 	client := account.GetClient()
 	if client == nil {
-		log.Error("Can't get local account.")
+		log.Fatal("Can't get local account.")
 		goto ERROR
 	}
 	acct, err = client.GetDefaultAccount()
 	if err != nil {
-		log.Error(err)
+		log.Fatal(err)
 		goto ERROR
 	}
 	log.Debug("The Node's PublicKey ", acct.PublicKey)
@@ -66,7 +76,7 @@ func main() {
 	log.Info("3. BlockChain init")
 	blockChain, err = ledger.NewBlockchainWithGenesisBlock(ledger.StandbyBookKeepers)
 	if err != nil {
-		log.Error(err, "  BlockChain generate failed")
+		log.Fatal(err, "  BlockChain generate failed")
 		goto ERROR
 	}
 	ledger.DefaultLedger.Blockchain = blockChain
@@ -78,6 +88,7 @@ func main() {
 	time.Sleep(20 * time.Second)
 	noder.SyncNodeHeight()
 	noder.WaitForFourPeersStart()
+	noder.WaitForSyncBlkFinish()
 	if protocol.SERVICENODENAME != config.Parameters.NodeType {
 		log.Info("5. Start DBFT Services")
 		dbftServices := dbft.NewDbftService(client, "logdbft", noder)
@@ -89,7 +100,8 @@ func main() {
 	log.Info("--Start the RPC interface")
 	go httpjsonrpc.StartRPCServer()
 	go httpjsonrpc.StartLocalServer()
-	httprestful.StartServer(noder)
+	go httprestful.StartServer(noder)
+	go httpwebsocket.StartServer(noder)
 
 	for {
 		time.Sleep(dbft.GenBlockTime)
@@ -97,7 +109,7 @@ func main() {
 		isNeedNewFile := log.CheckIfNeedNewFile()
 		if isNeedNewFile == true {
 			log.ClosePrintLog()
-			log.CreatePrintLog(log.Path)
+			log.Init(log.Path, os.Stdout)
 		}
 	}
 

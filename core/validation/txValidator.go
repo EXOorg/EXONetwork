@@ -3,6 +3,7 @@ package validation
 import (
 	"DNA/common"
 	"DNA/common/log"
+	"DNA/core/asset"
 	"DNA/core/ledger"
 	tx "DNA/core/transaction"
 	"DNA/core/transaction/payload"
@@ -41,96 +42,93 @@ func VerifyTransaction(Tx *tx.Transaction) error {
 	return nil
 }
 
-// VerifyTransactionWithTxPool verifys a transaction with current transaction pool in memory
-func VerifyTransactionWithTxPool(Tx *tx.Transaction, TxPool []*tx.Transaction) error {
-	if err := CheckDuplicateInputInTxPool(Tx, TxPool); err != nil {
-		return err
+// VerifyTransactionWithBlock verifys a transaction with current transaction pool in memory
+func VerifyTransactionWithBlock(TxPool []*tx.Transaction) error {
+	//initial
+	txnlist := make(map[common.Uint256]*tx.Transaction, 0)
+	var txPoolInputs []string
+	//sum all inputs in TxPool
+	for _, Tx := range TxPool {
+		for _, UTXOinput := range Tx.UTXOInputs {
+			txPoolInputs = append(txPoolInputs, UTXOinput.ToString())
+		}
 	}
-
-	//check by payload.
-	switch Tx.TxType {
-	case tx.IssueAsset:
-		results := Tx.GetMergedAssetIDValueFromOutputs()
-		for k, _ := range results {
-			//Get the Asset amount when RegisterAsseted.
-			trx, err := tx.TxStore.GetTransaction(k)
-			if trx.TxType != tx.RegisterAsset {
-				return errors.New("[VerifyTransaction], TxType is illegal.")
-			}
-			AssetReg := trx.Payload.(*payload.RegisterAsset)
-
-			//Get the amount has been issued of this assetID
-			var quantity_issued common.Fixed64
-			if AssetReg.Amount < common.Fixed64(0) {
-				continue
-			} else {
-				quantity_issued, err = tx.TxStore.GetQuantityIssued(k)
-				if err != nil {
-					return errors.New("[VerifyTransaction], GetQuantityIssued failed.")
+	//start check
+	for _, txn := range TxPool {
+		//1.check weather have duplicate transaction.
+		if _, exist := txnlist[txn.Hash()]; exist {
+			return errors.New("[VerifyTransactionWithBlock], duplicate transaction exist in block.")
+		} else {
+			txnlist[txn.Hash()] = txn
+		}
+		//2.check Duplicate Utxo input
+		if err := CheckDuplicateUtxoInBlock(txn, txPoolInputs); err != nil {
+			return err
+		}
+		//3.check issue amount
+		switch txn.TxType {
+		case tx.IssueAsset:
+			//TODO: use delta mode to improve performance
+			results := txn.GetMergedAssetIDValueFromOutputs()
+			for k, _ := range results {
+				//Get the Asset amount when RegisterAsseted.
+				trx, err := tx.TxStore.GetTransaction(k)
+				if trx.TxType != tx.RegisterAsset {
+					return errors.New("[VerifyTransaction], TxType is illegal.")
 				}
-			}
+				AssetReg := trx.Payload.(*payload.RegisterAsset)
 
-			//calc the amounts in txPool which are also IssueAsset
-			var txPoolAmounts common.Fixed64
-			for _, t := range TxPool {
-				if t.TxType == tx.IssueAsset {
-					outputResult := t.GetMergedAssetIDValueFromOutputs()
-					for txidInPool, txValueInPool := range outputResult {
-						if txidInPool == k {
-							txPoolAmounts = txPoolAmounts + txValueInPool
+				//Get the amount has been issued of this assetID
+				var quantity_issued common.Fixed64
+				if AssetReg.Amount < common.Fixed64(0) {
+					continue
+				} else {
+					quantity_issued, err = tx.TxStore.GetQuantityIssued(k)
+					if err != nil {
+						return errors.New("[VerifyTransaction], GetQuantityIssued failed.")
+					}
+				}
+
+				//calc the amounts in txPool which are also IssueAsset
+				var txPoolAmounts common.Fixed64
+				for _, t := range TxPool {
+					if t.TxType == tx.IssueAsset {
+						outputResult := t.GetMergedAssetIDValueFromOutputs()
+						for txidInPool, txValueInPool := range outputResult {
+							if txidInPool == k {
+								txPoolAmounts = txPoolAmounts + txValueInPool
+							}
 						}
 					}
 				}
-			}
 
-			//calc weather out off the amount when Registed.
-			//AssetReg.Amount : amount when RegisterAsset of this assedID
-			//quantity_issued : amount has been issued of this assedID
-			//txPoolAmounts   : amount in transactionPool of this assedID of issue transaction.
-			if AssetReg.Amount-quantity_issued < txPoolAmounts {
-				return errors.New("[VerifyTransaction], Amount check error.")
+				//calc weather out off the amount when Registed.
+				//AssetReg.Amount : amount when RegisterAsset of this assedID
+				//quantity_issued : amount has been issued of this assedID
+				//txPoolAmounts   : amount in transactionPool of this assedID of issue transaction.
+				if AssetReg.Amount-quantity_issued < txPoolAmounts {
+					return errors.New("[VerifyTransaction], Amount check error.")
+				}
 			}
 		}
-	case tx.TransferAsset:
-		results, err := Tx.GetTransactionResults()
-		if err != nil {
-			return err
-		}
-		for k, v := range results {
-			if v != 0 {
-				log.Debug(fmt.Sprintf("AssetID %x in Transfer transactions %x , Input/output UTXO not equal.", k, Tx.Hash()))
-				return errors.New(fmt.Sprintf("AssetID %x in Transfer transactions %x , Input/output UTXO not equal.", k, Tx.Hash()))
-			}
-		}
-	default:
+
 	}
+
 	return nil
 }
 
 // VerifyTransactionWithLedger verifys a transaction with history transaction in ledger
 func VerifyTransactionWithLedger(Tx *tx.Transaction, ledger *ledger.Ledger) error {
 	if IsDoubleSpend(Tx, ledger) {
-		return errors.New("[IsDoubleSpend] faild.")
+		return errors.New("[VerifyTransactionWithLedger] IsDoubleSpend check faild.")
+	}
+	if exist := ledger.Store.IsTxHashDuplicate(Tx.Hash()); exist {
+		return errors.New("[VerifyTransactionWithLedger] duplicate transaction check faild.")
 	}
 	return nil
 }
 
-func CheckMemPool(tx *tx.Transaction, TxPool []*tx.Transaction) error {
-	if len(tx.UTXOInputs) == 0 {
-		return nil
-	}
-	for _, poolTx := range TxPool {
-		for _, poolInput := range poolTx.UTXOInputs {
-			for _, txInput := range tx.UTXOInputs {
-				if poolInput.Equals(txInput) {
-					return errors.New("There is duplicated Tx Input with Tx Pool.")
-				}
-			}
-		}
-	}
-	return nil
-}
-
+//validate the transaction of duplicate UTXO input
 func CheckDuplicateInput(tx *tx.Transaction) error {
 	if len(tx.UTXOInputs) == 0 {
 		return nil
@@ -145,16 +143,10 @@ func CheckDuplicateInput(tx *tx.Transaction) error {
 	return nil
 }
 
-func CheckDuplicateInputInTxPool(tx *tx.Transaction, txPool []*tx.Transaction) error {
-	// TODO: Optimize performance with incremental checking and deal with the duplicated tx
-	var txInputs, txPoolInputs []string
+func CheckDuplicateUtxoInBlock(tx *tx.Transaction, txPoolInputs []string) error {
+	var txInputs []string
 	for _, t := range tx.UTXOInputs {
 		txInputs = append(txInputs, t.ToString())
-	}
-	for _, t := range txPool {
-		for _, u := range t.UTXOInputs {
-			txPoolInputs = append(txPoolInputs, u.ToString())
-		}
 	}
 	for _, i := range txInputs {
 		for _, j := range txPoolInputs {
@@ -171,14 +163,22 @@ func IsDoubleSpend(tx *tx.Transaction, ledger *ledger.Ledger) bool {
 }
 
 func CheckAssetPrecision(Tx *tx.Transaction) error {
-	for k, outputs := range Tx.AssetOutputs {
+	if len(Tx.Outputs) == 0 {
+		return nil
+	}
+	assetOutputs := make(map[common.Uint256][]*tx.TxOutput, len(Tx.Outputs))
+
+	for _, v := range Tx.Outputs {
+		assetOutputs[v.AssetID] = append(assetOutputs[v.AssetID], v)
+	}
+	for k, outputs := range assetOutputs {
 		asset, err := ledger.DefaultLedger.GetAsset(k)
 		if err != nil {
 			return errors.New("The asset not exist in local blockchain.")
 		}
 		precision := asset.Precision
 		for _, output := range outputs {
-			if output.Value.GetData()%int64(math.Pow(10, 8-float64(precision))) != 0 {
+			if checkAmountPrecise(output.Value, precision) {
 				return errors.New("The precision of asset is incorrect.")
 			}
 		}
@@ -187,13 +187,25 @@ func CheckAssetPrecision(Tx *tx.Transaction) error {
 }
 
 func CheckTransactionBalance(Tx *tx.Transaction) error {
-	if len(Tx.AssetInputAmount) != len(Tx.AssetOutputAmount) {
-		return errors.New("The number of asset is not same between inputs and outputs.")
+	for _, v := range Tx.Outputs {
+		if v.Value <= common.Fixed64(0) {
+			return errors.New("Invalide transaction UTXO output.")
+		}
 	}
-
-	for k, v := range Tx.AssetInputAmount {
-		if v != Tx.AssetOutputAmount[k] {
-			return errors.New("The amount of asset is not same between inputs and outputs.")
+	if Tx.TxType == tx.IssueAsset {
+		if len(Tx.UTXOInputs) > 0 {
+			return errors.New("Invalide Issue transaction.")
+		}
+		return nil
+	}
+	results, err := Tx.GetTransactionResults()
+	if err != nil {
+		return err
+	}
+	for k, v := range results {
+		if v != 0 {
+			log.Debug(fmt.Sprintf("AssetID %x in Transfer transactions %x , Input/output UTXO not equal.", k, Tx.Hash()))
+			return errors.New(fmt.Sprintf("AssetID %x in Transfer transactions %x , Input/output UTXO not equal.", k, Tx.Hash()))
 		}
 	}
 	return nil
@@ -213,6 +225,10 @@ func CheckTransactionContracts(Tx *tx.Transaction) error {
 	}
 }
 
+func checkAmountPrecise(amount common.Fixed64, precision byte) bool {
+	return amount.GetData()%int64(math.Pow(10, 8-float64(precision))) != 0
+}
+
 func CheckTransactionPayload(Tx *tx.Transaction) error {
 
 	switch pld := Tx.Payload.(type) {
@@ -220,8 +236,22 @@ func CheckTransactionPayload(Tx *tx.Transaction) error {
 		//Todo: validate bookKeeper Cert
 		_ = pld.Cert
 		return nil
+	case *payload.RegisterAsset:
+		if pld.Asset.Precision < asset.MinPrecision || pld.Asset.Precision > asset.MaxPrecision {
+			return errors.New("Invalide asset Precision.")
+		}
+		if checkAmountPrecise(pld.Amount, pld.Asset.Precision) {
+			return errors.New("Invalide asset value,out of precise.")
+		}
+	case *payload.IssueAsset:
+	case *payload.TransferAsset:
+	case *payload.BookKeeping:
+	case *payload.PrivacyPayload:
+	case *payload.Record:
+	case *payload.DeployCode:
+	case *payload.DataFile:
 	default:
-		return nil
+		return errors.New("[txValidator],invalidate transaction payload type.")
 	}
-
+	return nil
 }

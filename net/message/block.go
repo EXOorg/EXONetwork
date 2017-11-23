@@ -28,11 +28,12 @@ func (msg block) Handle(node Noder) error {
 	log.Debug("RX block message")
 	hash := msg.blk.Hash()
 	if ledger.DefaultLedger.BlockInLedger(hash) {
-		log.Warn("Receive duplicated block: ", hash)
-		return errors.New("Received duplicate block")
+		ReceiveDuplicateBlockCnt++
+		log.Debug("Receive ", ReceiveDuplicateBlockCnt, " duplicated block.")
+		return nil
 	}
 	if err := ledger.DefaultLedger.Blockchain.AddBlock(&msg.blk); err != nil {
-		log.Error("Block adding error: ", hash)
+		log.Warn("Block add failed: ", err, " ,block hash is ", hash)
 		return err
 	}
 	node.RemoveFlightHeight(msg.blk.Blockdata.Height)
@@ -48,7 +49,7 @@ func (msg dataReq) Handle(node Noder) error {
 	case common.BLOCK:
 		block, err := NewBlockFromHash(hash)
 		if err != nil {
-			log.Error("Can't get block from hash: ", hash, " ,send not found message")
+			log.Debug("Can't get block from hash: ", hash, " ,send not found message")
 			//call notfound message
 			b, err := NewNotFound(hash)
 			node.Tx(b)
@@ -78,7 +79,7 @@ func (msg dataReq) Handle(node Noder) error {
 func NewBlockFromHash(hash common.Uint256) (*ledger.Block, error) {
 	bk, err := ledger.DefaultLedger.Store.GetBlock(hash)
 	if err != nil {
-		log.Error("Get Block error: ", err.Error())
+		log.Errorf("Get Block error: %s, block hash: %x", err.Error(), hash)
 		return nil, err
 	}
 	return bk, nil

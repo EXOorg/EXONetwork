@@ -1,6 +1,14 @@
 package asset
 
 import (
+	"DNA/account"
+	. "DNA/cli/common"
+	. "DNA/common"
+	. "DNA/core/asset"
+	"DNA/core/contract"
+	"DNA/core/signature"
+	"DNA/core/transaction"
+	"DNA/net/httpjsonrpc"
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
@@ -9,14 +17,6 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
-	. "DNA/cli/common"
-	"DNA/account"
-	. "DNA/common"
-	. "DNA/core/asset"
-	"DNA/core/contract"
-	"DNA/core/signature"
-	"DNA/core/transaction"
-	"DNA/net/httpjsonrpc"
 
 	"github.com/urfave/cli"
 )
@@ -90,15 +90,17 @@ func signTransaction(signer *account.Account, tx *transaction.Transaction) error
 	return nil
 }
 
-func makeRegTransaction(admin, issuer *account.Account, name string, value Fixed64) (string, error) {
-	asset := &Asset{name, byte(0x00), AssetType(Share), UTXO}
+func makeRegTransaction(admin, issuer *account.Account, name string, description string, value Fixed64) (string, error) {
+	asset := &Asset{name, description, byte(MaxPrecision), AssetType(Share), UTXO}
 	transactionContract, err := contract.CreateSignatureContract(admin.PubKey())
 	if err != nil {
 		fmt.Println("CreateSignatureContract failed")
 		return "", err
 	}
 	tx, _ := transaction.NewRegisterAssetTransaction(asset, value, issuer.PubKey(), transactionContract.ProgramHash)
-	tx.Nonce = uint64(rand.Int63())
+	txAttr := transaction.NewTxAttribute(transaction.Nonce, []byte(strconv.FormatInt(rand.Int63(), 10)))
+	tx.Attributes = make([]*transaction.TxAttribute, 0)
+	tx.Attributes = append(tx.Attributes, &txAttr)
 	if err := signTransaction(issuer, tx); err != nil {
 		fmt.Println("sign regist transaction failed")
 		return "", err
@@ -123,7 +125,9 @@ func makeIssueTransaction(issuer *account.Account, programHashStr, assetHashStr 
 	}
 	outputs := []*transaction.TxOutput{issueTxOutput}
 	tx, _ := transaction.NewIssueAssetTransaction(outputs)
-	tx.Nonce = uint64(rand.Int63())
+	txAttr := transaction.NewTxAttribute(transaction.Nonce, []byte(strconv.FormatInt(rand.Int63(), 10)))
+	tx.Attributes = make([]*transaction.TxAttribute, 0)
+	tx.Attributes = append(tx.Attributes, &txAttr)
 	if err := signTransaction(issuer, tx); err != nil {
 		fmt.Println("sign issue transaction failed")
 		return "", err
@@ -214,7 +218,9 @@ func makeTransferTransaction(signer *account.Account, programHashStr, assetHashS
 		return "", errors.New("transfer failed, ammount is not enough")
 	}
 	tx, _ := transaction.NewTransferAssetTransaction(inputs, outputs)
-	tx.Nonce = uint64(rand.Int63())
+	txAttr := transaction.NewTxAttribute(transaction.Nonce, []byte(strconv.FormatInt(rand.Int63(), 10)))
+	tx.Attributes = make([]*transaction.TxAttribute, 0)
+	tx.Attributes = append(tx.Attributes, &txAttr)
 	if err := signTransaction(signer, tx); err != nil {
 		fmt.Println("sign transfer transaction failed")
 		return "", err
@@ -240,7 +246,7 @@ func assetAction(c *cli.Context) error {
 		return nil
 	}
 
-	wallet := openWallet(c.String("wallet"), []byte(c.String("password")))
+	wallet := openWallet(c.String("wallet"), WalletPassword(c.String("password")))
 	admin, _ := wallet.GetDefaultAccount()
 	value := c.Int64("value")
 	if value == 0 {
@@ -258,7 +264,8 @@ func assetAction(c *cli.Context) error {
 			name = "DNA-" + ToHexString(rbuf)
 		}
 		issuer := admin
-		txHex, err = makeRegTransaction(admin, issuer, name, Fixed64(value))
+		description := "description"
+		txHex, err = makeRegTransaction(admin, issuer, name, description, Fixed64(value))
 	} else {
 		asset := c.String("asset")
 		to := c.String("to")
@@ -313,7 +320,6 @@ func NewCommand() *cli.Command {
 			cli.StringFlag{
 				Name:  "password, p",
 				Usage: "wallet password",
-				Value: account.DefaultPin,
 			},
 			cli.StringFlag{
 				Name:  "asset, a",

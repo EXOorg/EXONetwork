@@ -143,8 +143,9 @@ func AllocMsg(t string, length int) Messager {
 		log.Warn("Not supported message type - merkleblock")
 		return nil
 	case "notfound":
-		log.Warn("Not supported message type - notfound")
-		return nil
+		var msg notFound
+		copy(msg.msgHdr.CMD[0:len(t)], t)
+		return &msg
 	case "ping":
 		var msg ping
 		copy(msg.msgHdr.CMD[0:len(t)], t)
@@ -196,8 +197,7 @@ func HandleNodeMsg(node Noder, buf []byte, len int) error {
 		return errors.New("Unexpected size of received message")
 	}
 
-	str := hex.EncodeToString(buf[:len])
-	log.Debug("Received data len: ", len, "\n", str)
+	log.Debugf("Received data len:  %d\n%x", len, buf[:len])
 
 	s, err := MsgType(buf)
 	if err != nil {
@@ -225,10 +225,29 @@ func magicVerify(magic uint32) bool {
 	return true
 }
 
-func PayloadLen(buf []byte) int {
+func ValidMsgHdr(buf []byte) bool {
+	var h msgHdr
+	h.Deserialization(buf)
+	//TODO: verify hdr checksum
+	return magicVerify(h.Magic)
+}
+
+func PayloadLen(buf []byte) (int) {
 	var h msgHdr
 	h.Deserialization(buf)
 	return int(h.Length)
+}
+
+func LocateMsgHdr(buf []byte) []byte {
+	var h msgHdr
+	for i := 0; i <= len(buf)-MSGHDRLEN; i++ {
+		if magicVerify(binary.LittleEndian.Uint32(buf[i:])) {
+			buf = append(buf[:0], buf[i:]...)
+			h.Deserialization(buf)
+			return buf
+		}
+	}
+	return nil
 }
 
 func checkSum(p []byte) []byte {

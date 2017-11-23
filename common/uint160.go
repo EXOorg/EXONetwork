@@ -1,14 +1,16 @@
 package common
 
 import (
+	"DNA/common/log"
 	. "DNA/errors"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"github.com/tv42/base58"
 	"io"
 	"math/big"
+
+	"github.com/itchyny/base58-go"
 )
 
 const UINT160SIZE int = 20
@@ -39,7 +41,13 @@ func (u *Uint160) ToArray() []byte {
 
 	return x
 }
-
+func (u *Uint160) ToArrayReverse() []byte {
+	var x []byte = make([]byte, UINT160SIZE)
+	for i, j := 0, UINT160SIZE-1; i < j; i, j = i+1, j-1 {
+		x[i], x[j] = byte(u[j]), byte(u[i])
+	}
+	return x
+}
 func (u *Uint160) Serialize(w io.Writer) (int, error) {
 	b_buf := bytes.NewBuffer([]byte{})
 	binary.Write(b_buf, binary.LittleEndian, u)
@@ -67,18 +75,19 @@ func (f *Uint160) Deserialize(r io.Reader) error {
 	return nil
 }
 
-func (f *Uint160) ToAddress() string {
+func (f *Uint160) ToAddress() (string, error) {
 	data := append([]byte{23}, f.ToArray()...)
 	temp := sha256.Sum256(data)
 	temps := sha256.Sum256(temp[:])
 	data = append(data, temps[0:4]...)
 
-	bi := new(big.Int)
-	bi.SetBytes(data)
-	var dst []byte
-	dst = base58.EncodeBig(dst, bi)
-
-	return string(dst[:])
+	bi := new(big.Int).SetBytes(data).String()
+	encoding := base58.BitcoinEncoding
+	encoded, err := encoding.Encode([]byte(bi))
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func Uint160ParseFromBytes(f []byte) (Uint160, error) {
@@ -91,4 +100,35 @@ func Uint160ParseFromBytes(f []byte) (Uint160, error) {
 		hash[i] = f[i]
 	}
 	return Uint160(hash), nil
+}
+func ToScriptHash(address string) (Uint160, error) {
+	encoding := base58.BitcoinEncoding
+
+	decoded, err := encoding.Decode([]byte(address))
+	if err != nil {
+		return Uint160{}, err
+	}
+
+	x, _ := new(big.Int).SetString(string(decoded), 10)
+	log.Tracef("[ToAddress] x: ", x.Bytes())
+
+	ph, err := Uint160ParseFromBytes(x.Bytes()[1:21])
+	if err != nil {
+		return Uint160{}, err
+	}
+
+	log.Tracef("[AddressToProgramHash] programhash: %x", ph.ToArray())
+
+	addr, err := ph.ToAddress()
+	if err != nil {
+		return Uint160{}, err
+	}
+
+	log.Tracef("[AddressToProgramHash] address: %s", addr)
+
+	if addr != address {
+		return Uint160{}, errors.New("[AddressToProgramHash]: decode address verify failed.")
+	}
+
+	return ph, nil
 }

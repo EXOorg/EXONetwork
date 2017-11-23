@@ -19,6 +19,7 @@ import (
 
 	. "github.com/bitly/go-simplejson"
 	"github.com/urfave/cli"
+	"strconv"
 )
 
 func makePrivacyTx(admin *account.Account, toPubkeyStr string, pload string) (string, error) {
@@ -27,7 +28,9 @@ func makePrivacyTx(admin *account.Account, toPubkeyStr string, pload string) (st
 	toPubkey, _ := crypto.DecodePoint(toPk)
 
 	tx, _ := transaction.NewPrivacyPayloadTransaction(admin.PrivateKey, admin.PublicKey, toPubkey, payload.RawPayload, data)
-	tx.Nonce = uint64(rand.Int63())
+	txAttr := transaction.NewTxAttribute(transaction.Nonce, []byte(strconv.FormatInt(rand.Int63(), 10)))
+	tx.Attributes = make([]*transaction.TxAttribute, 0)
+	tx.Attributes = append(tx.Attributes, &txAttr)
 	if err := signTransaction(admin, tx); err != nil {
 		fmt.Println("sign regist transaction failed")
 		return "", err
@@ -77,15 +80,13 @@ func privpayloadAction(c *cli.Context) error {
 		cli.ShowSubcommandHelp(c)
 		return nil
 	}
-
+	wallet := account.Open(c.String("wallet"), WalletPassword(c.String("password")))
+	if wallet == nil {
+		fmt.Println("Failed to open wallet: ", c.String("wallet"))
+		os.Exit(1)
+	}
+	admin, _ := wallet.GetDefaultAccount()
 	if enc {
-		wallet := account.Open(c.String("name"), []byte(c.String("password")))
-		if wallet == nil {
-			fmt.Println("Failed to open wallet: ", c.String("name"))
-			os.Exit(1)
-		}
-
-		admin, _ := wallet.GetDefaultAccount()
 		data := c.String("data")
 		to := c.String("to")
 
@@ -99,14 +100,6 @@ func privpayloadAction(c *cli.Context) error {
 	}
 
 	if dec {
-		wallet := account.Open(c.String("name"), []byte(c.String("password")))
-		if wallet == nil {
-			fmt.Println("Failed to open wallet: ", c.String("name"))
-			os.Exit(1)
-		}
-
-		admin, _ := wallet.GetDefaultAccount()
-
 		txhash := c.String("txhash")
 		resp, err := httpjsonrpc.Call(Address(), "getrawtransaction", 0, []interface{}{txhash})
 		if err != nil {
@@ -132,6 +125,10 @@ func privpayloadAction(c *cli.Context) error {
 			encryptAttr := new(payload.EcdhAes256)
 			encryptAttr.Deserialize(bytesBuffer)
 
+			if admin.PublicKey.X.Cmp(encryptAttr.ToPubkey.X) != 0 {
+				fmt.Println("The wallet is wrong")
+				return errors.New("The wallet is wrong")
+			}
 			privkey := admin.PrivateKey
 			data, _ := encryptAttr.Decrypt(plData, privkey)
 
@@ -149,9 +146,9 @@ func privpayloadAction(c *cli.Context) error {
 
 func NewCommand() *cli.Command {
 	return &cli.Command{
-		Name:        "privpayload",
+		Name:        "privacy",
 		Usage:       "support encryption for payloads",
-		Description: "With nodectl privpayload, you could create privacy payload.",
+		Description: "With nodectl privacy, you could create privacy payload.",
 		ArgsUsage:   "[args]",
 		Flags: []cli.Flag{
 			cli.BoolFlag{
@@ -171,8 +168,9 @@ func NewCommand() *cli.Command {
 				Usage: "data to be encrypted",
 			},
 			cli.StringFlag{
-				Name:  "name, n",
+				Name:  "wallet, w",
 				Usage: "wallet name",
+				Value: account.WalletFileName,
 			},
 			cli.StringFlag{
 				Name:  "password, p",

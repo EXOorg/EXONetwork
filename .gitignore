@@ -4,6 +4,8 @@ idea/*
 temp/*
 temp/
 idea/
+build/
+*.patch
 .idea/
 GoOnchain.iml
 .log
@@ -18,3 +20,4 @@ Chain/*
 /config/*
 node
 nodectl
+cscope*
