@@ -8,14 +8,13 @@ import (
 	"DNA/cli/asset"
 	"DNA/cli/bookkeeper"
 	. "DNA/cli/common"
-	"DNA/cli/consensus"
 	"DNA/cli/data"
 	"DNA/cli/debug"
 	"DNA/cli/info"
 	"DNA/cli/privpayload"
+	"DNA/cli/smartcontract"
 	"DNA/cli/test"
 	"DNA/cli/wallet"
-
 	"github.com/urfave/cli"
 )
 
@@ -37,7 +36,6 @@ func main() {
 	}
 	//commands
 	app.Commands = []cli.Command{
-		*consensus.NewCommand(),
 		*debug.NewCommand(),
 		*info.NewCommand(),
 		*test.NewCommand(),
@@ -46,6 +44,7 @@ func main() {
 		*privpayload.NewCommand(),
 		*data.NewCommand(),
 		*bookkeeper.NewCommand(),
+		*smartcontract.NewCommand(),
 	}
 	sort.Sort(cli.CommandsByName(app.Commands))
 	sort.Sort(cli.FlagsByName(app.Flags))

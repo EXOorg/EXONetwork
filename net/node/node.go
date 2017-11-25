@@ -24,11 +24,20 @@ import (
 	"time"
 )
 
+type Semaphore chan struct{}
+
+func MakeSemaphore(n int) Semaphore {
+	return make(chan struct{}, n)
+}
+
+func (s Semaphore) acquire() { s <- struct{}{} }
+func (s Semaphore) release() { <-s }
+
 type node struct {
 	//sync.RWMutex	//The Lock not be used as expected to use function channel instead of lock
 	state     uint32 // node state
 	id        uint64 // The nodes's id
-	cap       uint32 // The node capability set
+	cap       [32]byte // The node capability set
 	version   uint32 // The network protocol the node used
 	services  uint64 // The services the node supplied
 	relay     bool   // The relay capability of the node (merge into capbility flag)
@@ -47,13 +56,13 @@ type node struct {
 	/*
 	 * |--|--|--|--|--|--|isSyncFailed|isSyncHeaders|
 	 */
-	TxNotifyChan             chan int
 	flightHeights            []uint32
 	lastContact              time.Time
 	nodeDisconnectSubscriber events.Subscriber
 	tryTimes                 uint32
 	ConnectingNodes
 	RetryConnAddrs
+	SyncReqSem Semaphore
 }
 
 type RetryConnAddrs struct {
@@ -155,6 +164,13 @@ func InitNode(pubKey *crypto.PubKey) Noder {
 	} else if Parameters.NodeType == VERIFYNODENAME {
 		n.services = uint64(VERIFYNODE)
 	}
+
+	if Parameters.MaxHdrSyncReqs <= 0 {
+		n.SyncReqSem = MakeSemaphore(MAXSYNCHDRREQ)
+	} else {
+		n.SyncReqSem = MakeSemaphore(Parameters.MaxHdrSyncReqs)
+	}
+
 	n.link.port = uint16(Parameters.NodePort)
 	n.relay = true
 	// TODO is it neccessary to init the rand seed here?
@@ -217,6 +233,30 @@ func (node *node) GetPort() uint16 {
 	return node.port
 }
 
+func (node *node) GetHttpInfoPort() (int) {
+	return int(node.httpInfoPort)
+}
+
+func (node *node) SetHttpInfoPort(nodeInfoPort uint16) {
+	node.httpInfoPort = nodeInfoPort
+}
+
+func (node *node) GetHttpInfoState() bool{
+	if node.cap[HTTPINFOFLAG] == 0x01 {
+		return true
+	} else {
+		return false
+	}
+}
+
+func (node *node) SetHttpInfoState(nodeInfo bool){
+	if nodeInfo{
+		node.cap[HTTPINFOFLAG] = 0x01
+	} else {
+		node.cap[HTTPINFOFLAG] = 0x00
+	}
+}
+
 func (node *node) GetRelay() bool {
 	return node.relay
 }
@@ -243,6 +283,10 @@ func (node *node) GetRxTxnCnt() uint64 {
 
 func (node *node) SetState(state uint32) {
 	atomic.StoreUint32(&(node.state), state)
+}
+
+func (node *node) GetPubKey() *crypto.PubKey{
+	return node.publicKey
 }
 
 func (node *node) CompareAndSetState(old, new uint32) bool {
@@ -395,23 +439,6 @@ func (node *node) WaitForFourPeersStart() {
 	}
 }
 
-func (node *node) StartRetryTimer() {
-	t := time.NewTimer(time.Second * PERIODUPDATETIME)
-	node.TxNotifyChan = make(chan int, 1)
-	go func() {
-		select {
-		case <-t.C:
-			ReqBlkHdrFromOthers(node)
-		case <-node.TxNotifyChan:
-			t.Stop()
-		}
-	}()
-}
-
-func (node *node) StopRetryTimer() {
-	node.TxNotifyChan <- 1
-}
-
 func (node *node) StoreFlightHeight(height uint32) {
 	node.flightHeights = append(node.flightHeights, height)
 }
@@ -479,4 +506,11 @@ func (node *node) RemoveFromRetryList(addr string) {
 		}
 	}
 
+}
+func (node *node) AcqSyncReqSem() {
+	node.SyncReqSem.acquire()
+}
+
+func (node *node) RelSyncReqSem() {
+	node.SyncReqSem.release()
 }

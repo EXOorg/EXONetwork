@@ -4,6 +4,7 @@ import (
 	. "DNA/common"
 	"DNA/core/ledger"
 	tx "DNA/core/transaction"
+	. "DNA/errors"
 	. "DNA/net/httpjsonrpc"
 	Err "DNA/net/httprestful/error"
 	. "DNA/net/protocol"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"DNA/smartcontract/states"
 )
 
 var node Noder
@@ -62,6 +64,34 @@ func GetBlockHash(cmd map[string]interface{}) map[string]interface{} {
 	resp["Result"] = ToHexString(hash.ToArrayReverse())
 	return resp
 }
+func GetTotalIssued(cmd map[string]interface{}) map[string]interface{} {
+	resp := ResponsePack(Err.SUCCESS)
+	assetid, ok := cmd["Assetid"].(string)
+	if !ok {
+		resp["Error"] = Err.INVALID_PARAMS
+		return resp
+	}
+	var assetHash Uint256
+
+	bys, err := HexToBytesReverse(assetid)
+	if err != nil {
+		resp["Error"] = Err.INVALID_PARAMS
+		return resp
+	}
+	if err := assetHash.Deserialize(bytes.NewReader(bys)); err != nil {
+		resp["Error"] = Err.INVALID_PARAMS
+		return resp
+	}
+	amount, err := ledger.DefaultLedger.Store.GetQuantityIssued(assetHash)
+	if err != nil {
+		resp["Error"] = Err.INVALID_PARAMS
+		return resp
+	}
+	val := float64(amount) / math.Pow(10, 8)
+	//valStr := strconv.FormatFloat(val, 'f', -1, 64)
+	resp["Result"] = val
+	return resp
+}
 func GetBlockInfo(block *ledger.Block) BlockInfo {
 	hash := block.Hash()
 	blockHead := &BlockHead{
@@ -87,6 +117,25 @@ func GetBlockInfo(block *ledger.Block) BlockInfo {
 	b := BlockInfo{
 		Hash:         ToHexString(hash.ToArrayReverse()),
 		BlockData:    blockHead,
+		Transactions: trans,
+	}
+	return b
+}
+func GetBlockTransactions(block *ledger.Block) interface{} {
+	trans := make([]string, len(block.Transactions))
+	for i := 0; i < len(block.Transactions); i++ {
+		h := block.Transactions[i].Hash()
+		trans[i] = ToHexString(h.ToArrayReverse())
+	}
+	hash := block.Hash()
+	type BlockTransactions struct {
+		Hash         string
+		Height       uint32
+		Transactions []string
+	}
+	b := BlockTransactions{
+		Hash:         ToHexString(hash.ToArrayReverse()),
+		Height:       block.Blockdata.Height,
 		Transactions: trans,
 	}
 	return b
@@ -127,6 +176,33 @@ func GetBlockByHash(cmd map[string]interface{}) map[string]interface{} {
 
 	resp["Result"], resp["Error"] = getBlock(hash, getTxBytes)
 
+	return resp
+}
+func GetBlockTxsByHeight(cmd map[string]interface{}) map[string]interface{} {
+	resp := ResponsePack(Err.SUCCESS)
+
+	param := cmd["Height"].(string)
+	if len(param) == 0 {
+		resp["Error"] = Err.INVALID_PARAMS
+		return resp
+	}
+	height, err := strconv.ParseInt(param, 10, 64)
+	if err != nil {
+		resp["Error"] = Err.INVALID_PARAMS
+		return resp
+	}
+	index := uint32(height)
+	hash, err := ledger.DefaultLedger.Store.GetBlockHash(index)
+	if err != nil {
+		resp["Error"] = Err.UNKNOWN_BLOCK
+		return resp
+	}
+	block, err := ledger.DefaultLedger.Store.GetBlock(hash)
+	if err != nil {
+		resp["Error"] = Err.UNKNOWN_BLOCK
+		return resp
+	}
+	resp["Result"] = GetBlockTransactions(block)
 	return resp
 }
 func GetBlockByHeight(cmd map[string]interface{}) map[string]interface{} {
@@ -382,8 +458,8 @@ func SendRawTransaction(cmd map[string]interface{}) map[string]interface{} {
 	}
 	var hash Uint256
 	hash = txn.Hash()
-	if err := VerifyAndSendTx(&txn); err != nil {
-		resp["Error"] = Err.INTERNAL_ERROR
+	if errCode := VerifyAndSendTx(&txn); errCode != ErrNoError {
+		resp["Error"] = int64(errCode)
 		return resp
 	}
 	resp["Result"] = ToHexString(hash.ToArrayReverse())
@@ -439,11 +515,38 @@ func GetContract(cmd map[string]interface{}) map[string]interface{} {
 		return resp
 	}
 	//TODO GetContract from store
-	//contract, err := ledger.DefaultLedger.Store.GetContract(hash)
-	//if err != nil {
-	//	resp["Error"] = Err.INVALID_PARAMS
-	//	return resp
-	//}
-	//resp["Result"] = string(contract)
+	contract, err := ledger.DefaultLedger.Store.GetContract(hash)
+	if err != nil {
+		resp["Error"] = Err.INVALID_PARAMS
+		return resp
+	}
+	c := new(states.ContractState)
+	b := bytes.NewBuffer(contract)
+	c.Deserialize(b)
+	var params []int
+	for _, v := range c.Code.ParameterTypes {
+		params = append(params, int(v))
+	}
+	codehash := c.Code.CodeHash()
+	funcCode := &FunctionCodeInfo{
+		Code:           ToHexString(c.Code.Code),
+		ParameterTypes: params,
+		ReturnType:     int(c.Code.ReturnType),
+		CodeHash:       ToHexString(codehash.ToArrayReverse()),
+	}
+	programHash := c.ProgramHash
+	result := DeployCodeInfo{
+		Name:        c.Name,
+		Author:      c.Author,
+		Email:       c.Email,
+		Version: c.Version,
+		Description: c.Description,
+		Language:    int(c.Language),
+		Code:        new(FunctionCodeInfo),
+		ProgramHash: ToHexString(programHash.ToArrayReverse()),
+	}
+
+	result.Code = funcCode
+	resp["Result"] = result
 	return resp
 }

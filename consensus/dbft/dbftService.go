@@ -23,11 +23,7 @@ import (
 	"time"
 )
 
-const (
-	MINGENBLOCKTIME = 6
-)
-
-var GenBlockTime = (MINGENBLOCKTIME * time.Second)
+var GenBlockTime = (config.DEFAULTGENBLOCKTIME * time.Second)
 
 type DbftService struct {
 	context           ConsensusContext
@@ -345,7 +341,7 @@ func (ds *DbftService) GetUnverifiedTxs(txs []*tx.Transaction) []*tx.Transaction
 
 func (ds *DbftService) VerifyTxs(txs []*tx.Transaction) error {
 	for _, t := range txs {
-		if ok := ds.localNet.AppendTxnPool(t); !ok {
+		if errCode := ds.localNet.AppendTxnPool(t); errCode != ErrNoError {
 			return errors.New("[dbftService] VerifyTxs failed when AppendTxnPool.")
 		}
 	}
@@ -463,7 +459,11 @@ func (ds *DbftService) RefreshPolicy() {
 func (ds *DbftService) RequestChangeView() {
 	log.Debug()
 	// FIXME if there is no save block notifcation, when the timeout call this function it will crash
-	ds.context.ExpectedView[ds.context.BookKeeperIndex] = ds.context.ExpectedView[ds.context.BookKeeperIndex] + 1
+	if ds.context.ViewNumber > ds.context.ExpectedView[ds.context.BookKeeperIndex] {
+		ds.context.ExpectedView[ds.context.BookKeeperIndex] = ds.context.ViewNumber + 1
+	} else {
+		ds.context.ExpectedView[ds.context.BookKeeperIndex] += 1
+	}
 	log.Info(fmt.Sprintf("Request change view: height=%d View=%d nv=%d state=%s", ds.context.Height,
 		ds.context.ViewNumber, ds.context.ExpectedView[ds.context.BookKeeperIndex], ds.context.GetStateDetail()))
 
@@ -502,10 +502,10 @@ func (ds *DbftService) Start() error {
 	log.Debug()
 	ds.started = true
 
-	if config.Parameters.GenBlockTime > MINGENBLOCKTIME {
+	if config.Parameters.GenBlockTime > config.MINGENBLOCKTIME {
 		GenBlockTime = time.Duration(config.Parameters.GenBlockTime) * time.Second
 	} else {
-		log.Warn("The Generate block time should be longer than 6 seconds, so set it to be 6.")
+		log.Warn("The Generate block time should be longer than 2 seconds, so set it to be default 6 seconds.")
 	}
 
 	ds.blockPersistCompletedSubscriber = ledger.DefaultLedger.Blockchain.BCEvents.Subscribe(events.EventBlockPersistCompleted, ds.BlockPersistCompleted)

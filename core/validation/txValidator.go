@@ -7,39 +7,47 @@ import (
 	"DNA/core/ledger"
 	tx "DNA/core/transaction"
 	"DNA/core/transaction/payload"
+	"DNA/crypto"
+	. "DNA/errors"
 	"errors"
 	"fmt"
 	"math"
 )
 
 // VerifyTransaction verifys received single transaction
-func VerifyTransaction(Tx *tx.Transaction) error {
+func VerifyTransaction(Tx *tx.Transaction) ErrCode {
 
 	if err := CheckDuplicateInput(Tx); err != nil {
-		return err
+		log.Warn("[VerifyTransaction],", err)
+		return ErrDuplicateInput
 	}
 
 	if err := CheckAssetPrecision(Tx); err != nil {
-		return err
+		log.Warn("[VerifyTransaction],", err)
+		return ErrAssetPrecision
 	}
 
 	if err := CheckTransactionBalance(Tx); err != nil {
-		return err
+		log.Warn("[VerifyTransaction],", err)
+		return ErrTransactionBalance
 	}
 
 	if err := CheckAttributeProgram(Tx); err != nil {
-		return err
+		log.Warn("[VerifyTransaction],", err)
+		return ErrAttributeProgram
 	}
 
 	if err := CheckTransactionContracts(Tx); err != nil {
-		return err
+		log.Warn("[VerifyTransaction],", err)
+		return ErrTransactionContracts
 	}
 
 	if err := CheckTransactionPayload(Tx); err != nil {
-		return err
+		log.Warn("[VerifyTransaction],", err)
+		return ErrTransactionPayload
 	}
 
-	return nil
+	return ErrNoError
 }
 
 // VerifyTransactionWithBlock verifys a transaction with current transaction pool in memory
@@ -118,14 +126,16 @@ func VerifyTransactionWithBlock(TxPool []*tx.Transaction) error {
 }
 
 // VerifyTransactionWithLedger verifys a transaction with history transaction in ledger
-func VerifyTransactionWithLedger(Tx *tx.Transaction, ledger *ledger.Ledger) error {
+func VerifyTransactionWithLedger(Tx *tx.Transaction, ledger *ledger.Ledger) ErrCode {
 	if IsDoubleSpend(Tx, ledger) {
-		return errors.New("[VerifyTransactionWithLedger] IsDoubleSpend check faild.")
+		log.Info("[VerifyTransactionWithLedger] IsDoubleSpend check faild.")
+		return ErrDoubleSpend
 	}
 	if exist := ledger.Store.IsTxHashDuplicate(Tx.Hash()); exist {
-		return errors.New("[VerifyTransactionWithLedger] duplicate transaction check faild.")
+		log.Info("[VerifyTransactionWithLedger] duplicate transaction check faild.")
+		return ErrTxHashDuplicate
 	}
-	return nil
+	return ErrNoError
 }
 
 //validate the transaction of duplicate UTXO input
@@ -229,12 +239,29 @@ func checkAmountPrecise(amount common.Fixed64, precision byte) bool {
 	return amount.GetData()%int64(math.Pow(10, 8-float64(precision))) != 0
 }
 
+func checkIssuerInBookkeeperList(issuer *crypto.PubKey, bookKeepers []*crypto.PubKey) bool {
+	for _, bk := range bookKeepers {
+		r := crypto.Equal(issuer, bk)
+		if r == true {
+			log.Debug("issuer is in bookkeeperlist")
+			return true
+		}
+	}
+	log.Debug("issuer is NOT in bookkeeperlist")
+	return false
+}
+
 func CheckTransactionPayload(Tx *tx.Transaction) error {
 
 	switch pld := Tx.Payload.(type) {
 	case *payload.BookKeeper:
 		//Todo: validate bookKeeper Cert
 		_ = pld.Cert
+		bookKeepers, _, _ := ledger.DefaultLedger.Store.GetBookKeeperList()
+		r := checkIssuerInBookkeeperList(pld.Issuer, bookKeepers)
+		if r == false {
+			return errors.New("The issuer isn't bookekeeper, can't add other in bookkeepers list.")
+		}
 		return nil
 	case *payload.RegisterAsset:
 		if pld.Asset.Precision < asset.MinPrecision || pld.Asset.Precision > asset.MaxPrecision {
@@ -249,6 +276,7 @@ func CheckTransactionPayload(Tx *tx.Transaction) error {
 	case *payload.PrivacyPayload:
 	case *payload.Record:
 	case *payload.DeployCode:
+	case *payload.InvokeCode:
 	case *payload.DataFile:
 	default:
 		return errors.New("[txValidator],invalidate transaction payload type.")

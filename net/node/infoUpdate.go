@@ -20,14 +20,24 @@ func (node *node) GetBlkHdrs() {
 	if node.local.GetNbrNodeCnt() < MINCONNCNT {
 		return
 	}
-	rand.Seed(time.Now().UnixNano())
 	noders := node.local.GetNeighborNoder()
-
-	index := rand.Intn(len(noders))
-	n := noders[index]
+	if len(noders) == 0 {
+		return
+	}
+	nodelist := []Noder{}
+	for _, v := range noders {
+		if uint64(ledger.DefaultLedger.Store.GetHeaderHeight()) < v.GetHeight() {
+			nodelist = append(nodelist, v)
+		}
+	}
+	ncout := len(nodelist)
+	if ncout == 0 {
+		return
+	}
+	rand.Seed(time.Now().UnixNano())
+	index := rand.Intn(ncout)
+	n := nodelist[index]
 	SendMsgSyncHeaders(n)
-	n.StartRetryTimer()
-
 }
 
 func (node *node) SyncBlk() {
@@ -87,10 +97,16 @@ func (node *node) SendPingToNbr() {
 
 func (node *node) HeartBeatMonitor() {
 	noders := node.local.GetNeighborNoder()
+	var periodUpdateTime uint
+	if config.Parameters.GenBlockTime > config.MINGENBLOCKTIME {
+		periodUpdateTime = config.Parameters.GenBlockTime / TIMESOFUPDATETIME
+	} else {
+		periodUpdateTime = config.DEFAULTGENBLOCKTIME / TIMESOFUPDATETIME
+	}
 	for _, n := range noders {
 		if n.GetState() == ESTABLISH {
 			t := n.GetLastRXTime()
-			if time.Since(t).Seconds() > (PERIODUPDATETIME * KEEPALIVETIMEOUT) {
+			if t.Before(time.Now().Add(-1 * time.Second * time.Duration(periodUpdateTime) * KEEPALIVETIMEOUT)) {
 				log.Warn("keepalive timeout!!!")
 				n.SetState(INACTIVITY)
 				n.CloseConn()
@@ -199,7 +215,13 @@ func (n *node) fetchRetryNodeFromNeiborList() int {
 // a node map method
 // Fixme the Nodes should be a parameter
 func (node *node) updateNodeInfo() {
-	ticker := time.NewTicker(time.Second * PERIODUPDATETIME)
+	var periodUpdateTime uint
+	if config.Parameters.GenBlockTime > config.MINGENBLOCKTIME {
+		periodUpdateTime = config.Parameters.GenBlockTime / TIMESOFUPDATETIME
+	} else {
+		periodUpdateTime = config.DEFAULTGENBLOCKTIME / TIMESOFUPDATETIME
+	}
+	ticker := time.NewTicker(time.Second * (time.Duration(periodUpdateTime)))
 	quit := make(chan struct{})
 	for {
 		select {

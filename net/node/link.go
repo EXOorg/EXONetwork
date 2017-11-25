@@ -21,11 +21,12 @@ import (
 
 type link struct {
 	//Todo Add lock here
-	addr  string    // The address of the node
-	conn  net.Conn  // Connect socket with the peer node
-	port  uint16    // The server port of the node
-	time  time.Time // The latest time the node activity
-	rxBuf struct {  // The RX buffer of this node to solve mutliple packets problem
+	addr         string    // The address of the node
+	conn         net.Conn  // Connect socket with the peer node
+	port         uint16    // The server port of the node
+	httpInfoPort uint16    // The node information server port of the node
+	time         time.Time // The latest time the node activity
+	rxBuf        struct {  // The RX buffer of this node to solve mutliple packets problem
 		p   []byte
 		len int
 	}
@@ -305,8 +306,12 @@ func TLSDial(nodeAddr string) (net.Conn, error) {
 func (node *node) Tx(buf []byte) {
 	log.Debugf("TX buf length: %d\n%x", len(buf), buf)
 
+	if node.GetState() == INACTIVITY {
+		return
+	}
 	_, err := node.conn.Write(buf)
 	if err != nil {
 		log.Error("Error sending messge to peer node ", err.Error())
+		node.local.eventQueue.GetEvent("disconnect").Notify(events.EventNodeDisconnect, node)
 	}
 }

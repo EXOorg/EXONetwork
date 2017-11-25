@@ -3,9 +3,11 @@ package transaction
 import (
 	"DNA/common"
 	"DNA/core/asset"
+	"DNA/core/code"
 	"DNA/core/contract/program"
 	"DNA/core/transaction/payload"
 	"DNA/crypto"
+	"DNA/smartcontract/types"
 )
 
 //initial a new transaction with asset registration payload
@@ -33,12 +35,13 @@ func NewRegisterAssetTransaction(asset *asset.Asset, amount common.Fixed64, issu
 }
 
 //initial a new transaction with asset registration payload
-func NewBookKeeperTransaction(pubKey *crypto.PubKey, isAdd bool, cert []byte) (*Transaction, error) {
+func NewBookKeeperTransaction(pubKey *crypto.PubKey, isAdd bool, cert []byte, issuer *crypto.PubKey) (*Transaction, error) {
 
 	bookKeeperPayload := &payload.BookKeeper{
 		PubKey: pubKey,
 		Action: payload.BookKeeperAction_SUB,
 		Cert:   cert,
+		Issuer: issuer,
 	}
 
 	if isAdd {
@@ -136,6 +139,49 @@ func NewDataFileTransaction(path string, fileName string, note string, issuer *c
 	return &Transaction{
 		TxType:        DataFile,
 		Payload:       DataFilePayload,
+		Attributes:    []*TxAttribute{},
+		UTXOInputs:    []*UTXOTxInput{},
+		BalanceInputs: []*BalanceTxInput{},
+		Programs:      []*program.Program{},
+	}, nil
+}
+
+//initial a new transaction with publish payload
+func NewDeployTransaction(fc *code.FunctionCode, programHash common.Uint160, name, codeversion, author, email, desp string, language types.LangType) (*Transaction, error) {
+	//TODO: check arguments
+	DeployCodePayload := &payload.DeployCode{
+		Code:        fc,
+		Name:        name,
+		CodeVersion: codeversion,
+		Author:      author,
+		Email:       email,
+		Description: desp,
+		Language:    language,
+		ProgramHash: programHash,
+	}
+
+	return &Transaction{
+		TxType:        DeployCode,
+		Payload:       DeployCodePayload,
+		Attributes:    []*TxAttribute{},
+		UTXOInputs:    []*UTXOTxInput{},
+		BalanceInputs: []*BalanceTxInput{},
+		Programs:      []*program.Program{},
+	}, nil
+}
+
+//initial a new transaction with invoke payload
+func NewInvokeTransaction(fc []byte, codeHash common.Uint160, programhash common.Uint160) (*Transaction, error) {
+	//TODO: check arguments
+	InvokeCodePayload := &payload.InvokeCode{
+		Code:        fc,
+		CodeHash:    codeHash,
+		ProgramHash: programhash,
+	}
+
+	return &Transaction{
+		TxType:        InvokeCode,
+		Payload:       InvokeCodePayload,
 		Attributes:    []*TxAttribute{},
 		UTXOInputs:    []*UTXOTxInput{},
 		BalanceInputs: []*BalanceTxInput{},

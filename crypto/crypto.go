@@ -87,11 +87,11 @@ func Sign(privateKey []byte, data []byte) ([]byte, error) {
 	return signature, nil
 }
 
-func Verify(publicKey PubKey, data []byte, signature []byte) (bool, error) {
+func Verify(publicKey PubKey, data []byte, signature []byte) error {
 	len := len(signature)
 	if len != util.SIGNATURELEN {
 		fmt.Printf("Unknown signature length %d\n", len)
-		return false, errors.New("Unknown signature length")
+		return errors.New("Unknown signature length")
 	}
 
 	r := new(big.Int).SetBytes(signature[:len/2])
@@ -168,4 +168,16 @@ func Sha256(value []byte) []byte {
 	digest := sha256.Sum256(value)
 	copy(data, digest[0:32])
 	return data
+}
+
+func Equal(e1 *PubKey, e2 *PubKey) bool {
+	r := e1.X.Cmp(e2.X)
+	if r != 0 {
+		return false
+	}
+	r = e1.Y.Cmp(e2.Y)
+	if r == 0 {
+		return true
+	}
+	return false
 }
