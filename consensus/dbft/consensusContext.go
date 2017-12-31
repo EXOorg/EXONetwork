@@ -1,15 +1,15 @@
 package dbft
 
 import (
-	cl "DNA/account"
-	. "DNA/common"
-	"DNA/common/log"
-	ser "DNA/common/serialization"
-	"DNA/core/ledger"
-	tx "DNA/core/transaction"
-	"DNA/crypto"
-	"DNA/net"
-	msg "DNA/net/message"
+	cl "nkn-core/wallet"
+	. "nkn-core/common"
+	"nkn-core/common/log"
+	ser "nkn-core/common/serialization"
+	"nkn-core/core/ledger"
+	tx "nkn-core/core/transaction"
+	"nkn-core/crypto"
+	"nkn-core/net"
+	msg "nkn-core/net/message"
 	"fmt"
 	"sync"
 )
@@ -91,17 +91,16 @@ func (cxt *ConsensusContext) MakeHeader() *ledger.Block {
 		if err != nil {
 			return nil
 		}
-		blockData := &ledger.Blockdata{
-			Version:          ContextVersion,
-			PrevBlockHash:    cxt.PrevHash,
-			TransactionsRoot: txRoot,
-			Timestamp:        cxt.Timestamp,
-			Height:           cxt.Height,
-			ConsensusData:    cxt.Nonce,
-			NextBookKeeper:   cxt.NextBookKeeper,
-		}
 		cxt.header = &ledger.Block{
-			Blockdata:    blockData,
+			Header:    &ledger.Header{
+				Version:          ContextVersion,
+				PrevBlockHash:    cxt.PrevHash,
+				TransactionsRoot: txRoot,
+				Timestamp:        cxt.Timestamp,
+				Height:           cxt.Height,
+				ConsensusData:    cxt.Nonce,
+				NextBookKeeper:   cxt.NextBookKeeper,
+			},
 			Transactions: []*tx.Transaction{},
 		}
 	}
@@ -167,7 +166,7 @@ func (cxt *ConsensusContext) GetStateDetail() string {
 
 }
 
-func (cxt *ConsensusContext) Reset(client cl.Client, localNode net.Neter) {
+func (cxt *ConsensusContext) Reset(client cl.Wallet, localNode net.Neter) {
 	log.Debug()
 	cxt.State = Initial
 	cxt.PrevHash = ledger.DefaultLedger.Blockchain.CurrentBlockHash()

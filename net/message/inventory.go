@@ -1,11 +1,11 @@
 package message
 
 import (
-	. "DNA/common"
-	"DNA/common/log"
-	"DNA/common/serialization"
-	"DNA/core/ledger"
-	. "DNA/net/protocol"
+	. "nkn-core/common"
+	"nkn-core/common/log"
+	"nkn-core/common/serialization"
+	"nkn-core/core/ledger"
+	. "nkn-core/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -212,7 +212,7 @@ func GetInvFromBlockHash(starthash Uint256, stophash Uint256) (*InvPayload, erro
 			if err != nil {
 				return nil, err
 			}
-			stopheight = bkstop.Blockdata.Height
+			stopheight = bkstop.Height
 			count = curHeight - stopheight
 			if curHeight > MAXINVHDRCNT {
 				count = MAXINVHDRCNT
@@ -223,13 +223,13 @@ func GetInvFromBlockHash(starthash Uint256, stophash Uint256) (*InvPayload, erro
 		if err != nil {
 			return nil, err
 		}
-		startheight = bkstart.Blockdata.Height
+		startheight = bkstart.Height
 		if stophash != empty {
 			bkstop, err := ledger.DefaultLedger.Store.GetHeader(stophash)
 			if err != nil {
 				return nil, err
 			}
-			stopheight = bkstop.Blockdata.Height
+			stopheight = bkstop.Height
 			count = startheight - stopheight
 			if count >= MAXINVHDRCNT {
 				count = MAXINVHDRCNT

@@ -1,12 +1,12 @@
 package contract
 
 import (
-	. "DNA/common"
-	"DNA/common/log"
-	pg "DNA/core/contract/program"
-	sig "DNA/core/signature"
-	"DNA/crypto"
-	_ "DNA/errors"
+	. "nkn-core/common"
+	"nkn-core/common/log"
+	pg "nkn-core/core/contract/program"
+	sig "nkn-core/core/signature"
+	"nkn-core/crypto"
+	_ "nkn-core/errors"
 	"errors"
 	"math/big"
 	"sort"
@@ -138,8 +138,8 @@ func (cxt *ContractContext) AddSignatureToMultiList(contractIndex int, contract 
 	}
 
 	pubkeyPara := PubkeyParameter{
-		PubKey:    ToHexString(pk),
-		Parameter: ToHexString(parameter),
+		PubKey:    BytesToHexString(pk),
+		Parameter: BytesToHexString(parameter),
 	}
 	cxt.MultiPubkeyPara[contractIndex] = append(cxt.MultiPubkeyPara[contractIndex], pubkeyPara)
 
@@ -154,7 +154,7 @@ func (cxt *ContractContext) AddMultiSignatures(index int, contract *Contract, pu
 
 	paraIndexs := []ParameterIndex{}
 	for _, pubkeyPara := range cxt.MultiPubkeyPara[index] {
-		pubKeyBytes, err := HexToBytes(pubkeyPara.Parameter)
+		pubKeyBytes, err := HexStringToBytes(pubkeyPara.Parameter)
 		if err != nil {
 			return errors.New("Contract AddContract pubKeyBytes HexToBytes failed.")
 		}
@@ -204,7 +204,7 @@ func (cxt *ContractContext) ParseContractPubKeys(contract *Contract) (map[string
 		//}
 
 		//add to parameter index
-		pubkeyIndex[ToHexString(contract.Code[i:33])] = Index
+		pubkeyIndex[BytesToHexString(contract.Code[i:33])] = Index
 
 		i += 33
 		Index++

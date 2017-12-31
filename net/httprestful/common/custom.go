@@ -1,11 +1,11 @@
 package common
 
 import (
-	. "DNA/common"
-	tx "DNA/core/transaction"
-	. "DNA/errors"
-	. "DNA/net/httpjsonrpc"
-	Err "DNA/net/httprestful/error"
+	. "nkn-core/common"
+	tx "nkn-core/core/transaction"
+	. "nkn-core/errors"
+	. "nkn-core/net/httpjsonrpc"
+	Err "nkn-core/net/httprestful/error"
 	"bytes"
 	"encoding/json"
 	"time"
@@ -20,7 +20,7 @@ func getRecordData(cmd map[string]interface{}) ([]byte, int64) {
 		if !ok {
 			return nil, Err.INVALID_PARAMS
 		}
-		bys, err := HexToBytes(str)
+		bys, err := HexStringToBytes(str)
 		if err != nil {
 			return nil, Err.INVALID_PARAMS
 		}
@@ -112,25 +112,6 @@ func SendRecord(cmd map[string]interface{}) map[string]interface{} {
 		return resp
 	}
 	hash := transferTx.Hash()
-	resp["Result"] = ToHexString(hash.ToArrayReverse())
-	return resp
-}
-
-func SendRecordTransaction(cmd map[string]interface{}) map[string]interface{} {
-	resp := ResponsePack(Err.SUCCESS)
-	var recordData []byte
-	recordData, resp["Error"] = getRecordData(cmd)
-	if recordData == nil {
-		return resp
-	}
-	recordType := "record"
-	recordTx, _ := tx.NewRecordTransaction(recordType, recordData)
-
-	hash := recordTx.Hash()
-	resp["Result"] = ToHexString(hash.ToArrayReverse())
-	if errCode := VerifyAndSendTx(recordTx); errCode != ErrNoError {
-		resp["Error"] = int64(errCode)
-		return resp
-	}
+	resp["Result"] = BytesToHexString(hash.ToArrayReverse())
 	return resp
 }

@@ -7,8 +7,8 @@ import (
 	"os"
 	"strconv"
 
-	"DNA/common/config"
-	"DNA/common/password"
+	"nkn-core/common/config"
+	"nkn-core/common/password"
 
 	"github.com/urfave/cli"
 )
@@ -31,7 +31,7 @@ func NewPortFlag() cli.Flag {
 	return cli.StringFlag{
 		Name:        "port",
 		Usage:       "node's RPC port",
-		Value:       strconv.Itoa(config.Parameters.HttpLocalPort),
+		Value:       strconv.Itoa(config.Parameters.HttpJsonPort),
 		Destination: &Port,
 	}
 }

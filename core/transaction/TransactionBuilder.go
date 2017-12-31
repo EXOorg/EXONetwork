@@ -1,17 +1,17 @@
 package transaction
 
 import (
-	"DNA/common"
-	"DNA/core/asset"
-	"DNA/core/code"
-	"DNA/core/contract/program"
-	"DNA/core/transaction/payload"
-	"DNA/crypto"
-	"DNA/smartcontract/types"
+	. "nkn-core/common"
+	"nkn-core/core/asset"
+	"nkn-core/core/code"
+	"nkn-core/core/contract/program"
+	"nkn-core/core/transaction/payload"
+	"nkn-core/crypto"
+	"nkn-core/smartcontract/types"
 )
 
 //initial a new transaction with asset registration payload
-func NewRegisterAssetTransaction(asset *asset.Asset, amount common.Fixed64, issuer *crypto.PubKey, conroller common.Uint160) (*Transaction, error) {
+func NewRegisterAssetTransaction(asset *asset.Asset, amount Fixed64, issuer *crypto.PubKey, conroller Uint160) (*Transaction, error) {
 
 	//TODO: check arguments
 
@@ -25,12 +25,11 @@ func NewRegisterAssetTransaction(asset *asset.Asset, amount common.Fixed64, issu
 
 	return &Transaction{
 		//nonce uint64 //TODO: genenrate nonce
-		UTXOInputs:    []*UTXOTxInput{},
-		BalanceInputs: []*BalanceTxInput{},
-		Attributes:    []*TxAttribute{},
-		TxType:        RegisterAsset,
-		Payload:       assetRegPayload,
-		Programs:      []*program.Program{},
+		UTXOInputs: []*UTXOTxInput{},
+		Attributes: []*TxAttribute{},
+		TxType:     RegisterAsset,
+		Payload:    assetRegPayload,
+		Programs:   []*program.Program{},
 	}, nil
 }
 
@@ -49,12 +48,11 @@ func NewBookKeeperTransaction(pubKey *crypto.PubKey, isAdd bool, cert []byte, is
 	}
 
 	return &Transaction{
-		TxType:        BookKeeper,
-		Payload:       bookKeeperPayload,
-		UTXOInputs:    []*UTXOTxInput{},
-		BalanceInputs: []*BalanceTxInput{},
-		Attributes:    []*TxAttribute{},
-		Programs:      []*program.Program{},
+		TxType:     BookKeeper,
+		Payload:    bookKeeperPayload,
+		UTXOInputs: []*UTXOTxInput{},
+		Attributes: []*TxAttribute{},
+		Programs:   []*program.Program{},
 	}, nil
 }
 
@@ -63,12 +61,11 @@ func NewIssueAssetTransaction(outputs []*TxOutput) (*Transaction, error) {
 	assetRegPayload := &payload.IssueAsset{}
 
 	return &Transaction{
-		TxType:        IssueAsset,
-		Payload:       assetRegPayload,
-		Attributes:    []*TxAttribute{},
-		BalanceInputs: []*BalanceTxInput{},
-		Outputs:       outputs,
-		Programs:      []*program.Program{},
+		TxType:     IssueAsset,
+		Payload:    assetRegPayload,
+		Attributes: []*TxAttribute{},
+		Outputs:    outputs,
+		Programs:   []*program.Program{},
 	}, nil
 }
 
@@ -79,75 +76,59 @@ func NewTransferAssetTransaction(inputs []*UTXOTxInput, outputs []*TxOutput) (*T
 	assetRegPayload := &payload.TransferAsset{}
 
 	return &Transaction{
-		TxType:        TransferAsset,
-		Payload:       assetRegPayload,
-		Attributes:    []*TxAttribute{},
-		UTXOInputs:    inputs,
-		BalanceInputs: []*BalanceTxInput{},
-		Outputs:       outputs,
-		Programs:      []*program.Program{},
+		TxType:     TransferAsset,
+		Payload:    assetRegPayload,
+		Attributes: []*TxAttribute{},
+		UTXOInputs: inputs,
+		Outputs:    outputs,
+		Programs:   []*program.Program{},
 	}, nil
 }
 
-//initial a new transaction with record payload
-func NewRecordTransaction(recordType string, recordData []byte) (*Transaction, error) {
-	//TODO: check arguments
-	recordPayload := &payload.Record{
-		RecordType: recordType,
-		RecordData: recordData,
+func NewPrepaidTransaction(inputs []*UTXOTxInput, changes *TxOutput, assetID Uint256, amount, rates string) (*Transaction, error) {
+	a, err := StringToFixed64(amount)
+	if err != nil {
+		return nil, err
+	}
+	r, err := StringToFixed64(rates)
+	if err != nil {
+		return nil, err
+	}
+	prepaidPayload := &payload.Prepaid{
+		Asset:  assetID,
+		Amount: a,
+		Rates:  r,
 	}
 
 	return &Transaction{
-		TxType:        Record,
-		Payload:       recordPayload,
-		Attributes:    []*TxAttribute{},
-		UTXOInputs:    []*UTXOTxInput{},
-		BalanceInputs: []*BalanceTxInput{},
-		Programs:      []*program.Program{},
+		TxType:     Prepaid,
+		Payload:    prepaidPayload,
+		Attributes: []*TxAttribute{},
+		UTXOInputs: inputs,
+		Outputs:    []*TxOutput{changes},
+		Programs:   []*program.Program{},
 	}, nil
 }
 
-func NewPrivacyPayloadTransaction(fromPrivKey []byte, fromPubkey *crypto.PubKey, toPubkey *crypto.PubKey, payloadType payload.EncryptedPayloadType, data []byte) (*Transaction, error) {
-	privacyPayload := &payload.PrivacyPayload{
-		PayloadType: payloadType,
-		EncryptType: payload.ECDH_AES256,
-		EncryptAttr: &payload.EcdhAes256{
-			FromPubkey: fromPubkey,
-			ToPubkey:   toPubkey,
-		},
-	}
-	privacyPayload.Payload, _ = privacyPayload.EncryptAttr.Encrypt(data, fromPrivKey)
-
-	return &Transaction{
-		TxType:        PrivacyPayload,
-		Payload:       privacyPayload,
-		Attributes:    []*TxAttribute{},
-		UTXOInputs:    []*UTXOTxInput{},
-		BalanceInputs: []*BalanceTxInput{},
-		Programs:      []*program.Program{},
-	}, nil
-}
-func NewDataFileTransaction(path string, fileName string, note string, issuer *crypto.PubKey) (*Transaction, error) {
-	//TODO: check arguments
-	DataFilePayload := &payload.DataFile{
-		IPFSPath: path,
-		Filename: fileName,
-		Note:     note,
-		Issuer:   issuer,
+func NewWithdrawTransaction(output *TxOutput) (*Transaction, error) {
+	withdrawPayload := &payload.Withdraw{
+		// TODO programhash should be passed in then
+		// user could withdraw asset to another address
+		ProgramHash: output.ProgramHash,
 	}
 
 	return &Transaction{
-		TxType:        DataFile,
-		Payload:       DataFilePayload,
-		Attributes:    []*TxAttribute{},
-		UTXOInputs:    []*UTXOTxInput{},
-		BalanceInputs: []*BalanceTxInput{},
-		Programs:      []*program.Program{},
+		TxType:     Withdraw,
+		Payload:    withdrawPayload,
+		Attributes: []*TxAttribute{},
+		UTXOInputs: nil,
+		Outputs:    []*TxOutput{output},
+		Programs:   []*program.Program{},
 	}, nil
 }
 
 //initial a new transaction with publish payload
-func NewDeployTransaction(fc *code.FunctionCode, programHash common.Uint160, name, codeversion, author, email, desp string, language types.LangType) (*Transaction, error) {
+func NewDeployTransaction(fc *code.FunctionCode, programHash Uint160, name, codeversion, author, email, desp string, language types.LangType) (*Transaction, error) {
 	//TODO: check arguments
 	DeployCodePayload := &payload.DeployCode{
 		Code:        fc,
@@ -161,17 +142,16 @@ func NewDeployTransaction(fc *code.FunctionCode, programHash common.Uint160, nam
 	}
 
 	return &Transaction{
-		TxType:        DeployCode,
-		Payload:       DeployCodePayload,
-		Attributes:    []*TxAttribute{},
-		UTXOInputs:    []*UTXOTxInput{},
-		BalanceInputs: []*BalanceTxInput{},
-		Programs:      []*program.Program{},
+		TxType:     DeployCode,
+		Payload:    DeployCodePayload,
+		Attributes: []*TxAttribute{},
+		UTXOInputs: []*UTXOTxInput{},
+		Programs:   []*program.Program{},
 	}, nil
 }
 
 //initial a new transaction with invoke payload
-func NewInvokeTransaction(fc []byte, codeHash common.Uint160, programhash common.Uint160) (*Transaction, error) {
+func NewInvokeTransaction(fc []byte, codeHash Uint160, programhash Uint160) (*Transaction, error) {
 	//TODO: check arguments
 	InvokeCodePayload := &payload.InvokeCode{
 		Code:        fc,
@@ -180,11 +160,10 @@ func NewInvokeTransaction(fc []byte, codeHash common.Uint160, programhash common
 	}
 
 	return &Transaction{
-		TxType:        InvokeCode,
-		Payload:       InvokeCodePayload,
-		Attributes:    []*TxAttribute{},
-		UTXOInputs:    []*UTXOTxInput{},
-		BalanceInputs: []*BalanceTxInput{},
-		Programs:      []*program.Program{},
+		TxType:     InvokeCode,
+		Payload:    InvokeCodePayload,
+		Attributes: []*TxAttribute{},
+		UTXOInputs: []*UTXOTxInput{},
+		Programs:   []*program.Program{},
 	}, nil
 }

@@ -1,20 +1,20 @@
 package main
 
 import (
-	"DNA/account"
-	"DNA/common/config"
-	"DNA/common/log"
-	"DNA/consensus/dbft"
-	"DNA/core/ledger"
-	"DNA/core/store/ChainStore"
-	"DNA/core/transaction"
-	"DNA/crypto"
-	"DNA/net"
-	"DNA/net/httpjsonrpc"
-	"DNA/net/httprestful"
-	"DNA/net/httpwebsocket"
-	"DNA/net/httpnodeinfo"
-	"DNA/net/protocol"
+	"nkn-core/wallet"
+	"nkn-core/common/config"
+	"nkn-core/common/log"
+	"nkn-core/consensus/dbft"
+	"nkn-core/core/ledger"
+	"nkn-core/core/store/ChainStore"
+	"nkn-core/core/transaction"
+	"nkn-core/crypto"
+	"nkn-core/net"
+	"nkn-core/net/httpjsonrpc"
+	"nkn-core/net/httprestful"
+	"nkn-core/net/httpwebsocket"
+	"nkn-core/net/httpnodeinfo"
+	"nkn-core/net/protocol"
 	"os"
 	"runtime"
 	"time"
@@ -37,14 +37,14 @@ func init() {
 }
 
 func main() {
-	var acct *account.Account
+	var acct *wallet.Account
 	var blockChain *ledger.Blockchain
 	var err error
 	var noder protocol.Noder
 	log.Trace("Node version: ", config.Version)
 
-	if len(config.Parameters.BookKeepers) < account.DefaultBookKeeperCount {
-		log.Fatal("At least ", account.DefaultBookKeeperCount, " BookKeepers should be set at config.json")
+	if len(config.Parameters.BookKeepers) < wallet.DefaultBookKeeperCount {
+		log.Fatal("At least ", wallet.DefaultBookKeeperCount, " BookKeepers should be set at config.json")
 		os.Exit(1)
 	}
 
@@ -59,9 +59,17 @@ func main() {
 	ledger.DefaultLedger.Store.InitLedgerStore(ledger.DefaultLedger)
 	transaction.TxStore = ledger.DefaultLedger.Store
 	crypto.SetAlg(config.Parameters.EncryptAlg)
+	ledger.StandbyBookKeepers = wallet.GetBookKeepers()
 
-	log.Info("1. Open the account")
-	client := account.GetClient()
+	log.Info("2. BlockChain init")
+	blockChain, err = ledger.NewBlockchainWithGenesisBlock(ledger.StandbyBookKeepers)
+	if err != nil {
+		log.Fatal(err, "  BlockChain generate failed")
+	}
+	ledger.DefaultLedger.Blockchain = blockChain
+
+	log.Info("3. Start the P2P networks")
+	client := wallet.GetClient()
 	if client == nil {
 		log.Fatal("Can't get local account.")
 		goto ERROR
@@ -71,19 +79,6 @@ func main() {
 		log.Fatal(err)
 		goto ERROR
 	}
-	log.Debug("The Node's PublicKey ", acct.PublicKey)
-	ledger.StandbyBookKeepers = account.GetBookKeepers()
-
-	log.Info("3. BlockChain init")
-	blockChain, err = ledger.NewBlockchainWithGenesisBlock(ledger.StandbyBookKeepers)
-	if err != nil {
-		log.Fatal(err, "  BlockChain generate failed")
-		goto ERROR
-	}
-	ledger.DefaultLedger.Blockchain = blockChain
-
-	log.Info("4. Start the P2P networks")
-	// Don't need two return value.
 	noder = net.StartProtocol(acct.PublicKey)
 	httpjsonrpc.RegistRpcNode(noder)
 	time.Sleep(20 * time.Second)
@@ -97,10 +92,9 @@ func main() {
 		go dbftServices.Start()
 		time.Sleep(5 * time.Second)
 	}
-
+	httpjsonrpc.Wallet = client
 	log.Info("--Start the RPC interface")
 	go httpjsonrpc.StartRPCServer()
-	go httpjsonrpc.StartLocalServer()
 	go httprestful.StartServer(noder)
 	go httpwebsocket.StartServer(noder)
 	if config.Parameters.HttpInfoStart {

@@ -1,14 +1,14 @@
 package httpwebsocket
 
 import (
-	. "DNA/common"
-	. "DNA/common/config"
-	"DNA/core/ledger"
-	"DNA/events"
-	"DNA/net/httprestful/common"
-	Err "DNA/net/httprestful/error"
-	"DNA/net/httpwebsocket/websocket"
-	. "DNA/net/protocol"
+	. "nkn-core/common"
+	. "nkn-core/common/config"
+	"nkn-core/core/ledger"
+	"nkn-core/events"
+	"nkn-core/net/httprestful/common"
+	Err "nkn-core/net/httprestful/error"
+	"nkn-core/net/httpwebsocket/websocket"
+	. "nkn-core/net/protocol"
 	"bytes"
 )
 
@@ -23,7 +23,7 @@ func StartServer(n Noder) {
 	common.SetNode(n)
 	ledger.DefaultLedger.Blockchain.BCEvents.Subscribe(events.EventBlockPersistCompleted, SendBlock2WSclient)
 	go func() {
-		ws = websocket.InitWsServer(common.CheckAccessToken)
+		ws = websocket.InitWsServer()
 		ws.Start()
 	}()
 }
@@ -47,7 +47,7 @@ func Stop() {
 }
 func ReStartServer() {
 	if ws == nil {
-		ws = websocket.InitWsServer(common.CheckAccessToken)
+		ws = websocket.InitWsServer()
 		ws.Start()
 		return
 	}
@@ -85,7 +85,7 @@ func PushResult(txHash Uint256, errcode int64, action string, result interface{}
 		resp["Error"] = errcode
 		resp["Action"] = action
 		resp["Desc"] = Err.ErrMap[resp["Error"].(int64)]
-		ws.PushTxResult(ToHexString(txHash.ToArrayReverse()), resp)
+		ws.PushTxResult(BytesToHexString(txHash.ToArrayReverse()), resp)
 	}
 }
 
@@ -95,7 +95,7 @@ func PushSmartCodeInvokeResult(txHash Uint256, errcode int64, result interface{}
 	}
 	resp := common.ResponsePack(Err.SUCCESS)
 	var Result = make(map[string]interface{})
-	txHashStr := ToHexString(txHash.ToArray())
+	txHashStr := BytesToHexString(txHash.ToArray())
 	Result["TxHash"] = txHashStr
 	Result["ExecResult"] = result
 
@@ -114,7 +114,7 @@ func PushBlock(v interface{}) {
 		if pushRawBlockFlag {
 			w := bytes.NewBuffer(nil)
 			block.Serialize(w)
-			resp["Result"] = ToHexString(w.Bytes())
+			resp["Result"] = BytesToHexString(w.Bytes())
 		} else {
 			resp["Result"] = common.GetBlockInfo(block)
 		}

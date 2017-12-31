@@ -1,11 +1,10 @@
 package httpjsonrpc
 
 import (
-	. "DNA/common"
-	"DNA/core/asset"
-	. "DNA/core/transaction"
-	"DNA/core/transaction/payload"
-	"bytes"
+	. "nkn-core/common"
+	"nkn-core/core/asset"
+	. "nkn-core/core/transaction"
+	"nkn-core/core/transaction/payload"
 )
 
 type PayloadInfo interface{}
@@ -55,9 +54,10 @@ type RegisterAssetInfo struct {
 type TransferAssetInfo struct {
 }
 
-type RecordInfo struct {
-	RecordType string
-	RecordData string
+//implement PayloadInfo define BookKeepingInfo
+type PrepaidInfo struct {
+	Amount string
+	Rates string
 }
 
 type BookkeeperInfo struct {
@@ -67,19 +67,6 @@ type BookkeeperInfo struct {
 	Controller string
 }
 
-type DataFileInfo struct {
-	IPFSPath string
-	Filename string
-	Note     string
-	Issuer   IssuerInfo
-}
-
-type PrivacyPayloadInfo struct {
-	PayloadType uint8
-	Payload     string
-	EncryptType uint8
-	EncryptAttr string
-}
 
 func TransPayloadToHex(p Payload) PayloadInfo {
 	switch object := p.(type) {
@@ -90,7 +77,7 @@ func TransPayloadToHex(p Payload) PayloadInfo {
 	case *payload.BookKeeper:
 		obj := new(BookkeeperInfo)
 		encodedPubKey, _ := object.PubKey.EncodePoint(true)
-		obj.PubKey = ToHexString(encodedPubKey)
+		obj.PubKey = BytesToHexString(encodedPubKey)
 		if object.Action == payload.BookKeeperAction_ADD {
 			obj.Action = "add"
 		} else if object.Action == payload.BookKeeperAction_SUB {
@@ -104,10 +91,15 @@ func TransPayloadToHex(p Payload) PayloadInfo {
 		return obj
 	case *payload.IssueAsset:
 	case *payload.TransferAsset:
+	case *payload.Prepaid:
+		obj := new(PrepaidInfo)
+		obj.Amount = object.Amount.String()
+		obj.Rates = object.Rates.String()
+		return obj
 	case *payload.DeployCode:
 		obj := new(DeployCodeInfo)
 		obj.Code = new(FunctionCodeInfo)
-		obj.Code.Code = ToHexString(object.Code.Code)
+		obj.Code.Code = BytesToHexString(object.Code.Code)
 		var params []int
 		for _, v := range object.Code.ParameterTypes {
 			params = append(params, int(v))
@@ -115,14 +107,14 @@ func TransPayloadToHex(p Payload) PayloadInfo {
 		obj.Code.ParameterTypes = params
 		obj.Code.ReturnType = int(object.Code.ReturnType)
 		codeHash := object.Code.CodeHash()
-		obj.Code.CodeHash = ToHexString(codeHash.ToArrayReverse())
+		obj.Code.CodeHash = BytesToHexString(codeHash.ToArrayReverse())
 		obj.Name = object.Name
 		obj.Version = object.CodeVersion
 		obj.Author = object.Author
 		obj.Email = object.Email
 		obj.Description = object.Description
 		obj.Language = int(object.Language)
-		obj.ProgramHash = ToHexString(object.ProgramHash.ToArrayReverse())
+		obj.ProgramHash = BytesToHexString(object.ProgramHash.ToArrayReverse())
 		return obj
 	case *payload.RegisterAsset:
 		obj := new(RegisterAssetInfo)
@@ -130,29 +122,7 @@ func TransPayloadToHex(p Payload) PayloadInfo {
 		obj.Amount = object.Amount
 		obj.Issuer.X = object.Issuer.X.String()
 		obj.Issuer.Y = object.Issuer.Y.String()
-		obj.Controller = ToHexString(object.Controller.ToArray())
-		return obj
-	case *payload.Record:
-		obj := new(RecordInfo)
-		obj.RecordType = object.RecordType
-		obj.RecordData = ToHexString(object.RecordData)
-		return obj
-	case *payload.PrivacyPayload:
-		obj := new(PrivacyPayloadInfo)
-		obj.PayloadType = uint8(object.PayloadType)
-		obj.Payload = ToHexString(object.Payload)
-		obj.EncryptType = uint8(object.EncryptType)
-		bytesBuffer := bytes.NewBuffer([]byte{})
-		object.EncryptAttr.Serialize(bytesBuffer)
-		obj.EncryptAttr = ToHexString(bytesBuffer.Bytes())
-		return obj
-	case *payload.DataFile:
-		obj := new(DataFileInfo)
-		obj.IPFSPath = object.IPFSPath
-		obj.Filename = object.Filename
-		obj.Note = object.Note
-		obj.Issuer.X = object.Issuer.X.String()
-		obj.Issuer.Y = object.Issuer.Y.String()
+		obj.Controller = BytesToHexString(object.Controller.ToArray())
 		return obj
 	}
 	return nil

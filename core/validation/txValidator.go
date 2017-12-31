@@ -1,14 +1,14 @@
 package validation
 
 import (
-	"DNA/common"
-	"DNA/common/log"
-	"DNA/core/asset"
-	"DNA/core/ledger"
-	tx "DNA/core/transaction"
-	"DNA/core/transaction/payload"
-	"DNA/crypto"
-	. "DNA/errors"
+	"nkn-core/common"
+	"nkn-core/common/log"
+	"nkn-core/core/asset"
+	"nkn-core/core/ledger"
+	tx "nkn-core/core/transaction"
+	"nkn-core/core/transaction/payload"
+	"nkn-core/crypto"
+	. "nkn-core/errors"
 	"errors"
 	"fmt"
 	"math"
@@ -196,26 +196,29 @@ func CheckAssetPrecision(Tx *tx.Transaction) error {
 	return nil
 }
 
-func CheckTransactionBalance(Tx *tx.Transaction) error {
-	for _, v := range Tx.Outputs {
+func CheckTransactionBalance(txn *tx.Transaction) error {
+	if txn.TxType == tx.Prepaid || txn.TxType == tx.Withdraw{
+		return nil
+	}
+	for _, v := range txn.Outputs {
 		if v.Value <= common.Fixed64(0) {
 			return errors.New("Invalide transaction UTXO output.")
 		}
 	}
-	if Tx.TxType == tx.IssueAsset {
-		if len(Tx.UTXOInputs) > 0 {
+	if txn.TxType == tx.IssueAsset {
+		if len(txn.UTXOInputs) > 0 {
 			return errors.New("Invalide Issue transaction.")
 		}
 		return nil
 	}
-	results, err := Tx.GetTransactionResults()
+	results, err := txn.GetTransactionResults()
 	if err != nil {
 		return err
 	}
 	for k, v := range results {
 		if v != 0 {
-			log.Debug(fmt.Sprintf("AssetID %x in Transfer transactions %x , Input/output UTXO not equal.", k, Tx.Hash()))
-			return errors.New(fmt.Sprintf("AssetID %x in Transfer transactions %x , Input/output UTXO not equal.", k, Tx.Hash()))
+			log.Debug(fmt.Sprintf("AssetID %x in Transfer transactions %x , Input/output UTXO not equal.", k, txn.Hash()))
+			return errors.New(fmt.Sprintf("AssetID %x in Transfer transactions %x , Input/output UTXO not equal.", k, txn.Hash()))
 		}
 	}
 	return nil
@@ -251,9 +254,9 @@ func checkIssuerInBookkeeperList(issuer *crypto.PubKey, bookKeepers []*crypto.Pu
 	return false
 }
 
-func CheckTransactionPayload(Tx *tx.Transaction) error {
+func CheckTransactionPayload(txn *tx.Transaction) error {
 
-	switch pld := Tx.Payload.(type) {
+	switch pld := txn.Payload.(type) {
 	case *payload.BookKeeper:
 		//Todo: validate bookKeeper Cert
 		_ = pld.Cert
@@ -273,11 +276,37 @@ func CheckTransactionPayload(Tx *tx.Transaction) error {
 	case *payload.IssueAsset:
 	case *payload.TransferAsset:
 	case *payload.BookKeeping:
-	case *payload.PrivacyPayload:
-	case *payload.Record:
+	case *payload.Prepaid:
+		var inputAmount, outputAmount common.Fixed64
+		for _, input := range txn.UTXOInputs {
+			reftxn, err := tx.TxStore.GetTransaction(input.ReferTxID)
+			if err != nil {
+				return err
+			}
+			inputAmount += reftxn.Outputs[input.ReferTxOutputIndex].Value
+		}
+		for _, output := range txn.Outputs {
+			outputAmount += output.Value
+		}
+		if inputAmount - outputAmount != pld.Amount {
+			return errors.New("prepaid transaction balance unmatched")
+		}
+	case *payload.Withdraw:
+		var outputAmount common.Fixed64
+
+		for _, output := range txn.Outputs {
+			outputAmount += output.Value
+		}
+		prepaidAmount, _, err := ledger.DefaultLedger.Store.GetPrepaidInfo(pld.ProgramHash)
+		if err != nil {
+			return err
+		}
+		if outputAmount > *prepaidAmount {
+			return errors.New("asset is not enough")
+		}
+
 	case *payload.DeployCode:
 	case *payload.InvokeCode:
-	case *payload.DataFile:
 	default:
 		return errors.New("[txValidator],invalidate transaction payload type.")
 	}

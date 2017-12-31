@@ -1,12 +1,12 @@
 package ledger
 
 import (
-	. "DNA/common"
-	"DNA/core/account"
-	. "DNA/core/asset"
-	tx "DNA/core/transaction"
-	"DNA/crypto"
-	"DNA/smartcontract/states"
+	. "nkn-core/common"
+	"nkn-core/core/account"
+	. "nkn-core/core/asset"
+	tx "nkn-core/core/transaction"
+	"nkn-core/crypto"
+	"nkn-core/smartcontract/states"
 )
 
 // ILedgerStore provides func with store package.
@@ -48,6 +48,8 @@ type ILedgerStore interface {
 	ContainsUnspent(txid Uint256, index uint16) (bool, error)
 	GetUnspentFromProgramHash(programHash Uint160, assetid Uint256) ([]*tx.UTXOUnspent, error)
 	GetUnspentsFromProgramHash(programHash Uint160) (map[Uint256][]*tx.UTXOUnspent, error)
+	GetPrepaidInfo(programHash Uint160) (*Fixed64, *Fixed64, error)
+
 	GetAssets() map[Uint256]*Asset
 
 	IsTxHashDuplicate(txhash Uint256) bool

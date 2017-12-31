@@ -1,17 +1,17 @@
 package message
 
 import (
-	"DNA/common"
-	"DNA/common/log"
-	"DNA/common/serialization"
-	"DNA/core/contract"
-	"DNA/core/contract/program"
-	"DNA/core/ledger"
-	sig "DNA/core/signature"
-	"DNA/crypto"
-	. "DNA/errors"
-	"DNA/events"
-	. "DNA/net/protocol"
+	"nkn-core/common"
+	"nkn-core/common/log"
+	"nkn-core/common/serialization"
+	"nkn-core/core/contract"
+	"nkn-core/core/contract/program"
+	"nkn-core/core/ledger"
+	sig "nkn-core/core/signature"
+	"nkn-core/crypto"
+	. "nkn-core/errors"
+	"nkn-core/events"
+	. "nkn-core/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -225,8 +225,8 @@ func (cp *ConsensusPayload) Deserialize(r io.Reader) error {
 	pg := new(program.Program)
 	err = pg.Deserialize(r)
 	if err != nil {
-		log.Error("Blockdata item Program Deserialize failed")
-		return NewDetailErr(err, ErrNoCode, "Blockdata item Program Deserialize failed.")
+		log.Error("Header item Program Deserialize failed")
+		return NewDetailErr(err, ErrNoCode, "Header item Program Deserialize failed.")
 	}
 	cp.Program = pg
 	return err

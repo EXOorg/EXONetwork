@@ -1,16 +1,16 @@
 package smartcontract
 
 import (
-	"DNA/account"
-	. "DNA/cli/common"
-	"DNA/common"
-	"DNA/common/password"
-	"DNA/core/code"
-	"DNA/core/contract"
-	"DNA/core/signature"
-	"DNA/core/transaction"
-	httpjsonrpc "DNA/net/httpjsonrpc"
-	"DNA/smartcontract/types"
+	"nkn-core/wallet"
+	. "nkn-core/cli/common"
+	"nkn-core/common"
+	"nkn-core/common/password"
+	"nkn-core/core/code"
+	"nkn-core/core/contract"
+	"nkn-core/core/signature"
+	"nkn-core/core/transaction"
+	httpjsonrpc "nkn-core/net/httpjsonrpc"
+	"nkn-core/smartcontract/types"
 	"bytes"
 	"encoding/hex"
 	"fmt"
@@ -29,10 +29,10 @@ func newContractContextWithoutProgramHashes(data signature.SignableData) *contra
 	}
 }
 
-func openWallet(name string, passwd string) account.Client {
+func openWallet(name string, passwd string) wallet.Wallet {
 	if name == "" {
-		name = account.WalletFileName
-		fmt.Println("Using default wallet: ", account.WalletFileName)
+		name = wallet.WalletFileName
+		fmt.Println("Using default wallet: ", wallet.WalletFileName)
 	}
 	pwd := []byte(passwd)
 	var err error
@@ -43,14 +43,14 @@ func openWallet(name string, passwd string) account.Client {
 			os.Exit(1)
 		}
 	}
-	wallet := account.Open(name, pwd)
-	if wallet == nil {
+	wallet, err := wallet.Open(name, pwd)
+	if err != nil {
 		fmt.Println("Failed to open wallet: ", name)
 		os.Exit(1)
 	}
 	return wallet
 }
-func signTransaction(signer *account.Account, tx *transaction.Transaction) error {
+func signTransaction(signer *wallet.Account, tx *transaction.Transaction) error {
 	signature, err := signature.SignBySigner(tx, signer)
 	if err != nil {
 		fmt.Println("SignBySigner failed")
@@ -69,8 +69,8 @@ func signTransaction(signer *account.Account, tx *transaction.Transaction) error
 	tx.SetPrograms(transactionContractContext.GetPrograms())
 	return nil
 }
-func makeDeployContractTransaction(signer *account.Account, codeStr string, language int) (string, error) {
-	c, _ := common.HexToBytes(codeStr)
+func makeDeployContractTransaction(signer *wallet.Account, codeStr string, language int) (string, error) {
+	c, _ := common.HexStringToBytes(codeStr)
 	fc := &code.FunctionCode{
 		Code:           c,
 		ParameterTypes: []contract.ContractParameterType{contract.ByteArray, contract.ByteArray},
@@ -78,7 +78,7 @@ func makeDeployContractTransaction(signer *account.Account, codeStr string, lang
 	}
 	fc.CodeHash()
 
-	tx, err := transaction.NewDeployTransaction(fc, signer.ProgramHash, "DNA", "1.0", "DNA user", "user@onchain.com", "test uint", types.LangType(byte(language)))
+	tx, err := transaction.NewDeployTransaction(fc, signer.ProgramHash, "TEST", "1.0", "user", "user@example.com", "test uint", types.LangType(byte(language)))
 	if err != nil {
 		return "Deploy smartcontract fail!", err
 	}
@@ -94,9 +94,9 @@ func makeDeployContractTransaction(signer *account.Account, codeStr string, lang
 	return hex.EncodeToString(buffer.Bytes()), nil
 }
 
-func makeInvokeTransaction(signer *account.Account, paramsStr, codeHashStr string) (string, error) {
-	p, _ := common.HexToBytes(paramsStr)
-	hash, _ := common.HexToBytesReverse(codeHashStr)
+func makeInvokeTransaction(signer *wallet.Account, paramsStr, codeHashStr string) (string, error) {
+	p, _ := common.HexStringToBytes(paramsStr)
+	hash, _ := common.HexStringToBytesReverse(codeHashStr)
 	p = append(p, 0x69)
 	p = append(p, hash...)
 	codeHash := common.BytesToUint160(hash)
@@ -162,7 +162,7 @@ func contractAction(c *cli.Context) error {
 				fmt.Println("read avm file err")
 				return nil
 			}
-			codeStr = common.ToHexString(bytes)
+			codeStr = common.BytesToHexString(bytes)
 		}
 		txHex, err = makeDeployContractTransaction(admin, codeStr, language)
 		if err != nil {

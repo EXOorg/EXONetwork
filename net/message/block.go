@@ -1,11 +1,11 @@
 package message
 
 import (
-	"DNA/common"
-	"DNA/common/log"
-	"DNA/core/ledger"
-	"DNA/events"
-	. "DNA/net/protocol"
+	"nkn-core/common"
+	"nkn-core/common/log"
+	"nkn-core/core/ledger"
+	"nkn-core/events"
+	. "nkn-core/net/protocol"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -36,7 +36,7 @@ func (msg block) Handle(node Noder) error {
 		log.Warn("Block add failed: ", err, " ,block hash is ", hash)
 		return err
 	}
-	node.RemoveFlightHeight(msg.blk.Blockdata.Height)
+	node.RemoveFlightHeight(msg.blk.Header.Height)
 	node.LocalNode().GetEvent("block").Notify(events.EventNewInventory, &msg.blk)
 	return nil
 }
@@ -55,7 +55,7 @@ func (msg dataReq) Handle(node Noder) error {
 			node.Tx(b)
 			return err
 		}
-		log.Debug("block height is ", block.Blockdata.Height, " ,hash is ", hash)
+		log.Debug("block height is ", block.Header.Height, " ,hash is ", hash)
 		buf, err := NewBlock(block)
 		if err != nil {
 			return err

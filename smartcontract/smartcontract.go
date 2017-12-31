@@ -1,23 +1,21 @@
 package smartcontract
 
 import (
-	"DNA/common"
-	"DNA/common/serialization"
-	"DNA/core/asset"
-	"DNA/core/contract"
-	"DNA/core/ledger"
-	sig "DNA/core/signature"
-	"DNA/core/transaction"
-	"DNA/errors"
-	"DNA/smartcontract/service"
-	"DNA/smartcontract/states"
-	"DNA/smartcontract/storage"
-	"DNA/smartcontract/types"
-	"DNA/vm/avm"
-	"DNA/vm/avm/interfaces"
-	. "DNA/vm/avm/types"
-	"DNA/vm/evm"
-	"DNA/vm/evm/abi"
+	"nkn-core/common"
+	"nkn-core/common/serialization"
+	"nkn-core/core/asset"
+	"nkn-core/core/contract"
+	"nkn-core/core/ledger"
+	sig "nkn-core/core/signature"
+	"nkn-core/core/transaction"
+	"nkn-core/errors"
+	"nkn-core/smartcontract/service"
+	"nkn-core/smartcontract/states"
+	"nkn-core/smartcontract/storage"
+	"nkn-core/smartcontract/types"
+	"nkn-core/vm/avm"
+	"nkn-core/vm/avm/interfaces"
+	. "nkn-core/vm/avm/types"
 	"bytes"
 	"math/big"
 	"strconv"
@@ -28,7 +26,7 @@ type SmartContract struct {
 	Code           []byte
 	Input          []byte
 	ParameterTypes []contract.ContractParameterType
-	ABI            abi.ABI
+	//ABI            abi.ABI
 	Caller         common.Uint160
 	CodeHash       common.Uint160
 	VMType         types.VmType
@@ -69,8 +67,8 @@ func NewSmartContract(context *Context) (*SmartContract, error) {
 				context.StateMachine,
 				context.Gas,
 			)
-		case types.EVM:
-			e = evm.NewExecutionEngine(context.DBCache, context.Time, context.BlockNumber, context.Gas)
+		//case types.EVM:
+		//	e = evm.NewExecutionEngine(context.DBCache, context.Time, context.BlockNumber, context.Gas)
 		}
 
 		return &SmartContract{
@@ -121,9 +119,9 @@ func (sc *SmartContract) InvokeResult() (interface{}, error) {
 			case contract.String:
 				return string(avm.PopByteArray(engine)), nil
 			case contract.Hash160, contract.Hash256:
-				return common.ToHexString(common.ToArrayReverse(avm.PopByteArray(engine))), nil
+				return common.BytesToHexString(common.ToArrayReverse(avm.PopByteArray(engine))), nil
 			case contract.PublicKey:
-				return common.ToHexString(avm.PopByteArray(engine)), nil
+				return common.BytesToHexString(avm.PopByteArray(engine)), nil
 			case contract.Object:
 				data := avm.PeekStackItem(engine)
 				switch data.(type) {

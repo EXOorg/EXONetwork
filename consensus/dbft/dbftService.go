@@ -1,23 +1,22 @@
 package dbft
 
 import (
-	cl "DNA/account"
-	. "DNA/common"
-	"DNA/common/config"
-	"DNA/common/log"
-	con "DNA/consensus"
-	ct "DNA/core/contract"
-	"DNA/core/contract/program"
-	"DNA/core/ledger"
-	_ "DNA/core/signature"
-	sig "DNA/core/signature"
-	tx "DNA/core/transaction"
-	"DNA/core/transaction/payload"
-	va "DNA/core/validation"
-	. "DNA/errors"
-	"DNA/events"
-	"DNA/net"
-	msg "DNA/net/message"
+	cl "nkn-core/wallet"
+	. "nkn-core/common"
+	"nkn-core/common/config"
+	"nkn-core/common/log"
+	ct "nkn-core/core/contract"
+	"nkn-core/core/contract/program"
+	"nkn-core/core/ledger"
+	_ "nkn-core/core/signature"
+	sig "nkn-core/core/signature"
+	tx "nkn-core/core/transaction"
+	"nkn-core/core/transaction/payload"
+	va "nkn-core/core/validation"
+	. "nkn-core/errors"
+	"nkn-core/events"
+	"nkn-core/net"
+	msg "nkn-core/net/message"
 	"errors"
 	"fmt"
 	"time"
@@ -27,7 +26,7 @@ var GenBlockTime = (config.DEFAULTGENBLOCKTIME * time.Second)
 
 type DbftService struct {
 	context           ConsensusContext
-	Client            cl.Client
+	Client            cl.Wallet
 	timer             *time.Timer
 	timerHeight       uint32
 	timeView          byte
@@ -40,7 +39,7 @@ type DbftService struct {
 	blockPersistCompletedSubscriber events.Subscriber
 }
 
-func NewDbftService(client cl.Client, logDictionary string, localNet net.Neter) *DbftService {
+func NewDbftService(client cl.Wallet, logDictionary string, localNet net.Neter) *DbftService {
 	log.Debug()
 
 	ds := &DbftService{
@@ -176,7 +175,6 @@ func (ds *DbftService) CreateBookkeepingTransaction(nonce uint64) *tx.Transactio
 		Payload:        bookKeepingPayload,
 		Attributes:     []*tx.TxAttribute{},
 		UTXOInputs:     []*tx.UTXOTxInput{},
-		BalanceInputs:  []*tx.BalanceTxInput{},
 		Outputs:        []*tx.TxOutput{},
 		Programs:       []*program.Program{},
 	}
@@ -366,7 +364,7 @@ func (ds *DbftService) PrepareRequestReceived(payload *msg.ConsensusPayload, mes
 	}
 
 	//TODO Add Error Catch
-	prevBlockTimestamp := header.Blockdata.Timestamp
+	prevBlockTimestamp := header.Timestamp
 	if payload.Timestamp <= prevBlockTimestamp || payload.Timestamp > uint32(time.Now().Add(time.Minute*10).Unix()) {
 		log.Info(fmt.Sprintf("Prepare Reques tReceived: Timestamp incorrect: %d", payload.Timestamp))
 		return
@@ -451,11 +449,6 @@ func (ds *DbftService) PrepareResponseReceived(payload *msg.ConsensusPayload, me
 	log.Info("Prepare Response finished")
 }
 
-func (ds *DbftService) RefreshPolicy() {
-	log.Debug()
-	con.DefaultPolicy.Refresh()
-}
-
 func (ds *DbftService) RequestChangeView() {
 	log.Debug()
 	// FIXME if there is no save block notifcation, when the timeout call this function it will crash
@@ -486,8 +479,8 @@ func (ds *DbftService) SignAndRelay(payload *msg.ConsensusPayload) {
 
 	ctCxt := ct.NewContractContext(payload)
 
-	ret := ds.Client.Sign(ctCxt)
-	if ret == false {
+	err = ds.Client.Sign(ctCxt)
+	if err != nil {
 		log.Warn("[SignAndRelay] Sign contract failure")
 	}
 	prog := ctCxt.GetPrograms()
@@ -534,7 +527,7 @@ func (ds *DbftService) Timeout() {
 			header, _ := ledger.DefaultLedger.Blockchain.GetHeader(ds.context.PrevHash)
 
 			//set context Timestamp
-			blockTime := header.Blockdata.Timestamp + 1
+			blockTime := header.Timestamp + 1
 			if blockTime > now {
 				ds.context.Timestamp = blockTime
 			} else {

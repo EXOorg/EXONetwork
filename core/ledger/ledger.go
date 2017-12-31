@@ -1,20 +1,19 @@
 package ledger
 
 import (
-	"DNA/common"
-	. "DNA/common"
-	"DNA/core/asset"
-	"DNA/core/contract"
-	tx "DNA/core/transaction"
-	"DNA/crypto"
-	. "DNA/errors"
+	"nkn-core/common"
+	. "nkn-core/common"
+	"nkn-core/core/asset"
+	"nkn-core/core/contract"
+	tx "nkn-core/core/transaction"
+	"nkn-core/crypto"
+	. "nkn-core/errors"
 	"errors"
 )
 
 var DefaultLedger *Ledger
 var StandbyBookKeepers []*crypto.PubKey
 
-// Ledger - the struct for onchainDNA ledger
 type Ledger struct {
 	Blockchain *Blockchain
 	State      *State
