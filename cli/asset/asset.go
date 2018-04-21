@@ -2,14 +2,14 @@ package asset
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 
 	"nkn-core/wallet"
 	. "nkn-core/cli/common"
 	. "nkn-core/common"
-	"nkn-core/net/httpjsonrpc"
+	"nkn-core/rpc/httpjson"
 	"github.com/urfave/cli"
+	"nkn-core/crypto/util"
 )
 
 const (
@@ -19,9 +19,7 @@ const (
 func parseAssetName(c *cli.Context) string {
 	name := c.String("name")
 	if name == "" {
-		rbuf := make([]byte, RANDBYTELEN)
-		rand.Read(rbuf)
-		name = "TEST-" + BytesToHexString(rbuf)
+		name = "TEST-" + BytesToHexString(util.RandomBytes(RANDBYTELEN))
 	}
 
 	return name
@@ -68,20 +66,20 @@ func assetAction(c *cli.Context) error {
 	var resp []byte
 	switch {
 	case c.Bool("reg"):
-		resp, err = httpjsonrpc.Call(Address(), "registasset", 0, []interface{}{parseAssetName(c), value})
+		resp, err = httpjson.Call(Address(), "registasset", 0, []interface{}{parseAssetName(c), value})
 	case c.Bool("issue"):
-		resp, err = httpjsonrpc.Call(Address(), "issueasset", 0, []interface{}{parseAssetID(c), parseAddress(c), value})
+		resp, err = httpjson.Call(Address(), "issueasset", 0, []interface{}{parseAssetID(c), parseAddress(c), value})
 	case c.Bool("transfer"):
-		resp, err = httpjsonrpc.Call(Address(), "sendtoaddress", 0, []interface{}{parseAssetID(c), parseAddress(c), value})
+		resp, err = httpjson.Call(Address(), "sendtoaddress", 0, []interface{}{parseAssetID(c), parseAddress(c), value})
 	case c.Bool("prepaid"):
 		rates := c.String("rates")
 		if rates == "" {
 			fmt.Println("rates is required with [--rates]")
 			return nil
 		}
-		resp, err = httpjsonrpc.Call(Address(), "prepaidasset", 0, []interface{}{parseAssetID(c), value, rates})
+		resp, err = httpjson.Call(Address(), "prepaidasset", 0, []interface{}{parseAssetID(c), value, rates})
 	case c.Bool("withdraw"):
-		resp, err = httpjsonrpc.Call(Address(), "withdrawasset", 0, []interface{}{parseAssetID(c), value})
+		resp, err = httpjson.Call(Address(), "withdrawasset", 0, []interface{}{parseAssetID(c), value})
 	default:
 		cli.ShowSubcommandHelp(c)
 		return nil

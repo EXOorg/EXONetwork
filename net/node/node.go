@@ -14,7 +14,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"runtime"
 	"strconv"
@@ -51,7 +50,7 @@ type node struct {
 	local      *node             // The pointer to local node
 	nbrNodes                     // The neighbor node connect with currently node except itself
 	eventQueue                   // The event queue to notice notice other modules
-	TXNPool                      // Unconfirmed transaction pool
+	*transaction.TXNPool                      // Unconfirmed transaction pool
 	idCache                      // The buffer to store the id of the items which already be processed
 	/*
 	 * |--|--|--|--|--|--|isSyncFailed|isSyncHeaders|
@@ -173,8 +172,6 @@ func InitNode(pubKey *crypto.PubKey) Noder {
 
 	n.link.port = uint16(Parameters.NodePort)
 	n.relay = true
-	// TODO is it neccessary to init the rand seed here?
-	rand.Seed(time.Now().UTC().UnixNano())
 
 	key, err := pubKey.EncodePoint(true)
 	if err != nil {
@@ -188,7 +185,7 @@ func InitNode(pubKey *crypto.PubKey) Noder {
 	n.nbrNodes.init()
 	n.local = n
 	n.publicKey = pubKey
-	n.TXNPool.init()
+	n.TXNPool = transaction.NewTxnPool()
 	n.eventQueue.init()
 	n.nodeDisconnectSubscriber = n.eventQueue.GetEvent("disconnect").Subscribe(events.EventNodeDisconnect, n.NodeDisconnect)
 	go n.initConnection()
@@ -297,6 +294,10 @@ func (node *node) LocalNode() Noder {
 	return node.local
 }
 
+func (node *node) GetTxnPool() *transaction.TXNPool{
+	return node.TXNPool
+}
+
 func (node *node) GetHeight() uint64 {
 	return node.height
 }
@@ -338,6 +339,13 @@ func (node *node) Xmit(message interface{}) error {
 		buffer, err = NewConsensus(consensusPayload)
 		if err != nil {
 			log.Error("Error New consensus message: ", err)
+			return err
+		}
+	case *IsingPayload:
+		isingPayload := message.(*IsingPayload)
+		buffer, err = NewIsingConsensus(isingPayload)
+		if err != nil {
+			log.Error("Error New ising consensus message: ", err)
 			return err
 		}
 	case Uint256:

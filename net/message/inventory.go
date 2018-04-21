@@ -143,12 +143,7 @@ func (msg Inv) Handle(node Noder) error {
 				log.Infof("inv request block hash: %x", id)
 				ReqBlkData(node, id)
 			}
-
 		}
-	case CONSENSUS:
-		log.Debug("RX consensus message")
-		id.Deserialize(bytes.NewReader(msg.P.Blk[:32]))
-		reqConsensusData(node, id)
 	default:
 		log.Warn("RX unknown inventory message")
 	}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
+
 	. "nkn-core/common"
 	"nkn-core/common/log"
 	"nkn-core/common/serialization"
@@ -14,7 +16,6 @@ import (
 	sig "nkn-core/core/signature"
 	"nkn-core/core/transaction/payload"
 	. "nkn-core/errors"
-	"sort"
 )
 
 //for different transaction types with different payload format
@@ -27,12 +28,12 @@ const (
 	RegisterAsset TransactionType = 0x11
 	IssueAsset    TransactionType = 0x12
 	BookKeeper    TransactionType = 0x20
-	DeployCode    TransactionType = 0x30
-	InvokeCode    TransactionType = 0x31
 	Prepaid       TransactionType = 0x40
 	Withdraw      TransactionType = 0x41
 	Commit        TransactionType = 0x42
 )
+
+type TransactionResult map[Uint256]Fixed64
 
 //Payload define the func for loading the payload data
 //base on payload type which have different struture
@@ -49,7 +50,7 @@ type Payload interface {
 //Transaction is used for carry information or action to Ledger
 //validated transaction will be added to block and updates state correspondingly
 
-var TxStore ILedgerStore
+var TxStore TxnHistory
 
 type Transaction struct {
 	TxType         TransactionType
@@ -197,10 +198,6 @@ func (tx *Transaction) DeserializeUnsignedWithoutType(r io.Reader) error {
 		tx.Payload = new(payload.Prepaid)
 	case Withdraw:
 		tx.Payload = new(payload.Withdraw)
-	case DeployCode:
-		tx.Payload = new(payload.DeployCode)
-	case InvokeCode:
-		tx.Payload = new(payload.InvokeCode)
 	default:
 		return errors.New("[Transaction],invalide transaction type.")
 	}
@@ -319,12 +316,8 @@ func (tx *Transaction) GetProgramHashes() ([]Uint160, error) {
 		}
 	case Prepaid:
 	case TransferAsset:
-	case DeployCode:
 	case Withdraw:
 		hashs = append(hashs, tx.Payload.(*payload.Withdraw).ProgramHash)
-	case InvokeCode:
-		issuer := tx.Payload.(*payload.InvokeCode).ProgramHash
-		hashs = append(hashs, issuer)
 	case BookKeeper:
 		issuer := tx.Payload.(*payload.BookKeeper).Issuer
 		signatureRedeemScript, err := contract.CreateSignatureRedeemScript(issuer)

@@ -10,14 +10,17 @@ import (
 	"nkn-core/core/transaction"
 	"nkn-core/crypto"
 	"nkn-core/net"
-	"nkn-core/net/httpjsonrpc"
-	"nkn-core/net/httprestful"
-	"nkn-core/net/httpwebsocket"
-	"nkn-core/net/httpnodeinfo"
+	"nkn-core/rpc/httpjson"
+	"nkn-core/rpc/httprestful"
+	"nkn-core/ws"
+	"nkn-core/test/monitor"
 	"nkn-core/net/protocol"
+	_"nkn-core/core/sigchain" // for testing sigchain package
 	"os"
 	"runtime"
 	"time"
+	"math/rand"
+	"nkn-core/consensus/ising"
 )
 
 const (
@@ -34,6 +37,7 @@ func init() {
 	}
 	log.Debug("The Core number is ", coreNum)
 	runtime.GOMAXPROCS(coreNum)
+	rand.Seed(time.Now().UnixNano())
 }
 
 func main() {
@@ -80,25 +84,26 @@ func main() {
 		goto ERROR
 	}
 	noder = net.StartProtocol(acct.PublicKey)
-	httpjsonrpc.RegistRpcNode(noder)
-	time.Sleep(20 * time.Second)
+	httpjson.RegistRpcNode(noder)
+	time.Sleep(10 * time.Second)
 	noder.SyncNodeHeight()
 	noder.WaitForFourPeersStart()
 	noder.WaitForSyncBlkFinish()
 	if protocol.SERVICENODENAME != config.Parameters.NodeType {
-		log.Info("5. Start DBFT Services")
-		dbftServices := dbft.NewDbftService(client, "logdbft", noder)
-		httpjsonrpc.RegistDbftService(dbftServices)
-		go dbftServices.Start()
+		//log.Info("5. Start DBFT Services")
+		//dbftServices := dbft.NewDbftService(client, "logdbft", noder)
+		//go dbftServices.Start()
+		consensus := ising.New(client, noder)
+		consensus.Start()
 		time.Sleep(5 * time.Second)
 	}
-	httpjsonrpc.Wallet = client
+	httpjson.Wallet = client
 	log.Info("--Start the RPC interface")
-	go httpjsonrpc.StartRPCServer()
+	go httpjson.StartRPCServer()
 	go httprestful.StartServer(noder)
-	go httpwebsocket.StartServer(noder)
+	go ws.StartServer(noder)
 	if config.Parameters.HttpInfoStart {
-		go httpnodeinfo.StartServer(noder)
+		go monitor.StartServer(noder)
 	}
 
 

@@ -2,7 +2,6 @@ package net
 
 import (
 	. "nkn-core/common"
-	"nkn-core/core/ledger"
 	"nkn-core/core/transaction"
 	"nkn-core/crypto"
 	. "nkn-core/errors"
@@ -12,11 +11,12 @@ import (
 )
 
 type Neter interface {
-	GetTxnPool(byCount bool) map[Uint256]*transaction.Transaction
+	GetTxnByCount(int) map[Uint256]*transaction.Transaction
+	GetTxnPool() *transaction.TXNPool
 	Xmit(interface{}) error
 	GetEvent(eventName string) *events.Event
 	GetBookKeepersAddrs() ([]*crypto.PubKey, uint64)
-	CleanSubmittedTransactions(block *ledger.Block) error
+	CleanSubmittedTransactions([]*transaction.Transaction) error
 	GetNeighborNoder() []protocol.Noder
 	Tx(buf []byte)
 	AppendTxnPool(*transaction.Transaction) ErrCode
