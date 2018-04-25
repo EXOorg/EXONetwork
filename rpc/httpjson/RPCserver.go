@@ -30,14 +30,14 @@ func StartRPCServer() {
 	HandleFunc("getbalance", getBalance)
 
 	HandleFunc("setdebuginfo", setDebugInfo)
-	HandleFunc("setdebuginfo", sendToAddress)
+	HandleFunc("sendtoaddress", sendToAddress)
 	HandleFunc("registasset", registAsset)
 	HandleFunc("issueasset", issueAsset)
 	HandleFunc("prepaidasset", prepaidAsset)
 	HandleFunc("withdrawasset", withdrawAsset)
 	HandleFunc("commitpor", commitPor)
 
-	err := http.ListenAndServe(LocalHost+":"+strconv.Itoa(config.Parameters.HttpJsonPort), nil)
+	err := http.ListenAndServe(LocalHost+":"+strconv.Itoa(int(config.Parameters.HttpJsonPort)), nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err.Error())
 	}

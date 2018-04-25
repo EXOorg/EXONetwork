@@ -11,6 +11,11 @@ import (
 	. "github.com/nknorg/nkn/net/protocol"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
+	"github.com/nknorg/nkn/consensus/ising"
+)
+
+const (
+	NodeInfoUpdateTime = ising.ConsensusTime / 2
 )
 
 func keepAlive(from *Noder, dst *Noder) {
@@ -132,7 +137,6 @@ func (node *node) ConnectNeighbors() {
 			continue
 		}
 		found := false
-		var n Noder
 		var ip net.IP
 		node.nbrNodes.Lock()
 		for _, tn := range node.nbrNodes.List {
@@ -140,17 +144,12 @@ func (node *node) ConnectNeighbors() {
 			ip = addr.IpAddr[:]
 			addrstring := ip.To16().String() + ":" + strconv.Itoa(int(addr.Port))
 			if nodeAddr == addrstring {
-				n = tn
 				found = true
 				break
 			}
 		}
 		node.nbrNodes.Unlock()
-		if found {
-			if n.GetState() == ESTABLISH {
-				n.ReqNeighborList()
-			}
-		} else { //not found
+		if !found {
 			go node.Connect(nodeAddr)
 		}
 	}
@@ -224,7 +223,7 @@ func (node *node) updateNodeInfo() {
 	// Fixme: relate ticker time with block generation time.
 	// If the ticker time is inappropriate, the node will
 	// not catch up with neighbor nodes(syncing always).
-	ticker := time.NewTicker(time.Millisecond * 1200)
+	ticker := time.NewTicker(NodeInfoUpdateTime)
 	quit := make(chan struct{})
 	for {
 		select {
