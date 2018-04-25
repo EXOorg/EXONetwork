@@ -1,24 +1,24 @@
 package dbft
 
 import (
-	cl "nkn-core/wallet"
-	. "nkn-core/common"
-	"nkn-core/common/config"
-	"nkn-core/common/log"
-	ct "nkn-core/core/contract"
-	"nkn-core/core/contract/program"
-	"nkn-core/core/ledger"
-	_ "nkn-core/core/signature"
-	sig "nkn-core/core/signature"
-	tx "nkn-core/core/transaction"
-	"nkn-core/core/transaction/payload"
-	va "nkn-core/core/validation"
-	. "nkn-core/errors"
-	"nkn-core/events"
-	"nkn-core/net"
-	msg "nkn-core/net/message"
 	"errors"
 	"fmt"
+	. "github.com/nknorg/nkn/common"
+	ct "github.com/nknorg/nkn/core/contract"
+	"github.com/nknorg/nkn/core/contract/program"
+	"github.com/nknorg/nkn/core/ledger"
+	_ "github.com/nknorg/nkn/core/signature"
+	sig "github.com/nknorg/nkn/core/signature"
+	tx "github.com/nknorg/nkn/core/transaction"
+	"github.com/nknorg/nkn/core/transaction/payload"
+	va "github.com/nknorg/nkn/core/validation"
+	. "github.com/nknorg/nkn/errors"
+	"github.com/nknorg/nkn/events"
+	msg "github.com/nknorg/nkn/net/message"
+	"github.com/nknorg/nkn/net/protocol"
+	"github.com/nknorg/nkn/util/config"
+	"github.com/nknorg/nkn/util/log"
+	cl "github.com/nknorg/nkn/wallet"
 	"time"
 )
 
@@ -33,13 +33,13 @@ type DbftService struct {
 	blockReceivedTime time.Time
 	logDictionary     string
 	started           bool
-	localNet          net.Neter
+	localNet          protocol.Noder
 
 	consensusMsgReceivedSubscriber  events.Subscriber
 	blockPersistCompletedSubscriber events.Subscriber
 }
 
-func NewDbftService(client cl.Wallet, logDictionary string, localNet net.Neter) *DbftService {
+func NewDbftService(client cl.Wallet, logDictionary string, localNet protocol.Noder) *DbftService {
 	log.Debug()
 
 	ds := &DbftService{

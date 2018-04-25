@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	. "nkn-core/cli/common"
-	"nkn-core/rpc/httpjson"
+	. "github.com/nknorg/nkn/cli/common"
+	"github.com/nknorg/nkn/rpc/httpjson"
 
 	"github.com/urfave/cli"
 )
@@ -119,7 +119,7 @@ func NewCommand() *cli.Command {
 	return &cli.Command{
 		Name:        "info",
 		Usage:       "show blockchain information",
-		Description: "With nodectl info, you could look up blocks, transactions, etc.",
+		Description: "With nknc info, you could look up blocks, transactions, etc.",
 		ArgsUsage:   "[args]",
 		Flags: []cli.Flag{
 			cli.StringFlag{

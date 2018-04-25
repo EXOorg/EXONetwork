@@ -1,10 +1,10 @@
 package payload
 
 import (
-	"nkn-core/common"
-	"nkn-core/core/asset"
-	"nkn-core/crypto"
-	. "nkn-core/errors"
+	"github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/core/asset"
+	"github.com/nknorg/nkn/crypto"
+	. "github.com/nknorg/nkn/errors"
 	"io"
 )
 
@@ -60,7 +60,7 @@ func (a *RegisterAsset) Deserialize(r io.Reader, version byte) error {
 
 	//Issuer     *crypto.PubKey
 	a.Issuer = new(crypto.PubKey)
-	err = a.Issuer.DeSerialize(r)
+	err = a.Issuer.Deserialize(r)
 	if err != nil {
 		return NewDetailErr(err, ErrNoCode, "[RegisterAsset], Ammount Deserialize failed.")
 	}

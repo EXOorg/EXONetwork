@@ -1,11 +1,16 @@
 package vm
 
 import (
-	"DNA/vm/errors"
-	"DNA/vm/types"
+	"github.com/nknorg/nkn/vm/errors"
+	"github.com/nknorg/nkn/vm/types"
 	"encoding/binary"
 	"math/big"
 	"reflect"
+	"github.com/nknorg/nkn/vm/interfaces"
+	"hash"
+	"crypto/sha1"
+	"crypto/sha256"
+	"fmt"
 )
 
 type BigIntSorter []big.Int
@@ -131,21 +136,18 @@ func Concat(array1 []byte, array2 []byte) []byte {
 	return array1
 }
 
+
 func BigIntOp(bi *big.Int, op OpCode) *big.Int {
-	var nb *big.Int
+	nb := new(big.Int)
 	switch op {
 	case INC:
-		nb = bi.Add(bi, big.NewInt(int64(1)))
+		nb.Add(bi, big.NewInt(int64(1)))
 	case DEC:
-		nb = bi.Sub(bi, big.NewInt(int64(1)))
-	case SAL:
-		nb = bi.Lsh(bi, 1)
-	case SAR:
-		nb = bi.Rsh(bi, 1)
+		nb.Sub(bi, big.NewInt(int64(1)))
 	case NEGATE:
-		nb = bi.Neg(bi)
+		nb.Neg(bi)
 	case ABS:
-		nb = bi.Abs(bi)
+		nb.Abs(bi)
 	default:
 		nb = bi
 	}
@@ -189,28 +191,34 @@ func ByteArrZip(s1 []byte, s2 []byte, op OpCode) []byte{
 }
 
 func BigIntZip(ints1 *big.Int, ints2 *big.Int, op OpCode) *big.Int {
-	var nb *big.Int
+	nb := new(big.Int)
 	switch op {
 	case AND:
-		nb = ints1.And(ints1, ints2)
+		nb.And(ints1, ints2)
 	case OR:
-		nb = ints1.Or(ints1, ints2)
+		nb.Or(ints1, ints2)
 	case XOR:
-		nb = ints1.Xor(ints1, ints2)
+		nb.Xor(ints1, ints2)
 	case ADD:
-		nb = ints1.Add(ints1, ints2)
+		nb.Add(ints1, ints2)
 	case SUB:
-		nb = ints1.Sub(ints1, ints2)
+		nb.Sub(ints1, ints2)
 	case MUL:
-		nb = ints1.Mul(ints1, ints2)
+		nb.Mul(ints1, ints2)
 	case DIV:
-		nb = ints1.Div(ints1, ints2)
+		if ints2.Sign() == 0 {
+			return nb
+		}
+		nb.Div(ints1, ints2)
 	case MOD:
-		nb = ints1.Mod(ints1, ints2)
+		if ints2.Sign() == 0 {
+			return nb
+		}
+		nb.Mod(ints1, ints2)
 	case SHL:
-		nb = ints1.Lsh(ints1, uint(ints2.Int64()))
+		nb.Lsh(ints1, uint(ints2.Int64()))
 	case SHR:
-		nb = ints1.Rsh(ints1, uint(ints2.Int64()))
+		nb.Rsh(ints1, uint(ints2.Int64()))
 	case MIN:
 		c := ints1.Cmp(ints2)
 		if c <= 0 {
@@ -330,38 +338,170 @@ func WithInOp(int1 *big.Int, int2 *big.Int, int3 *big.Int) bool {
 	return BoolZip(b1, b2, BOOLAND)
 }
 
-func NewStackItems() []types.StackItem {
-	return make([]types.StackItem, 0)
+func NewStackItems() []types.StackItemInterface {
+	return make([]types.StackItemInterface, 0)
 }
 
-func NewStackItem(data interface{}) (types.StackItem, error) {
-	var stackItem types.StackItem
-	var err error
+func NewStackItemInterface(data interface{}) types.StackItemInterface {
+	var stackItem types.StackItemInterface
 	switch data.(type) {
 	case int8, int16, int32, int64, int, uint8, uint16, uint32, uint64, *big.Int, big.Int:
 		stackItem = types.NewInteger(ToBigInt(data))
+	case *types.Integer:
+		stackItem = data.(*types.Integer)
+	case *types.Array:
+		stackItem = data.(*types.Array)
+	case *types.Boolean:
+		stackItem = data.(*types.Boolean)
+	case *types.ByteArray:
+		stackItem = data.(*types.ByteArray)
 	case bool:
 		stackItem = types.NewBoolean(data.(bool))
 	case []byte:
 		stackItem = types.NewByteArray(data.([]byte))
-	case []types.StackItem:
-		stackItem = types.NewArray(data.([]types.StackItem))
+	case []types.StackItemInterface:
+		stackItem = types.NewArray(data.([]types.StackItemInterface))
+	case types.StackItemInterface:
+		stackItem = data.(types.StackItemInterface)
+	case interfaces.IInteropInterface:
+		stackItem = types.NewInteropInterface(data.(interfaces.IInteropInterface))
 	default:
-		err = errors.ErrBadType
+		fmt.Println("=======================type invalid==============================")
 	}
-	return stackItem, err
+	return stackItem
 }
 
-func AssertExecutionContext(context interface{}) *ExecutionContext {
-	if c, ok := context.(*ExecutionContext); ok {
-		return c
+func Hash(b []byte, e *ExecutionEngine) []byte {
+	var sh hash.Hash
+	var bt []byte
+	switch e.opCode {
+	case SHA1:
+		sh = sha1.New()
+		sh.Write(b)
+		bt = sh.Sum(nil)
+	case SHA256:
+		sh = sha256.New()
+		sh.Write(b)
+		bt = sh.Sum(nil)
+	case HASH160:
+		bt = e.crypto.Hash160(b)
+	case HASH256:
+		bt = e.crypto.Hash256(b)
 	}
-	return nil
+	return bt
 }
 
-func AssertStackItem(stackItem interface{}) types.StackItem {
-	if s, ok := stackItem.(types.StackItem); ok {
-		return s
-	}
-	return nil
+
+
+func PopBigInt(e *ExecutionEngine) *big.Int {
+	x := PopStackItem(e)
+	return x.GetBigInteger()
 }
+
+func PopInt(e *ExecutionEngine) int {
+	x:= PopBigInt(e)
+	n := int(x.Int64())
+	return n
+}
+
+
+func PopBoolean(e *ExecutionEngine) bool {
+	x := PopStackItem(e)
+	return x.GetBoolean()
+}
+
+func PopArray(e *ExecutionEngine) []types.StackItemInterface {
+	x := PopStackItem(e)
+	return x.GetArray()
+}
+
+func PopInteropInterface(e *ExecutionEngine) interfaces.IInteropInterface {
+	x := PopStackItem(e)
+	return x.GetInterface()
+}
+
+func PopByteArray(e *ExecutionEngine) []byte {
+	x := PopStackItem(e)
+	return x.GetByteArray()
+}
+
+func PopStackItem(e *ExecutionEngine) types.StackItemInterface {
+	return Pop(e).GetStackItem()
+}
+
+func Pop(e *ExecutionEngine) Element {
+	return e.evaluationStack.Pop()
+}
+
+func PeekArray(e *ExecutionEngine) []types.StackItemInterface {
+	x := PeekStackItem(e)
+	return x.GetArray()
+}
+
+func PeekInteropInterface(e *ExecutionEngine) interfaces.IInteropInterface {
+	x := PeekStackItem(e)
+	return x.GetInterface()
+}
+
+func PeekInt(e *ExecutionEngine) int {
+	x := PeekBigInteger(e)
+	n := int(x.Int64())
+	return n
+}
+
+func PeekBigInteger(e *ExecutionEngine) *big.Int {
+	x := PeekStackItem(e)
+	return x.GetBigInteger()
+}
+
+func PeekStackItem(e *ExecutionEngine) types.StackItemInterface {
+	return Peek(e).GetStackItem()
+}
+
+func PeekNInt(i int, e *ExecutionEngine) int {
+	x := PeekNBigInt(i, e)
+	n := int(x.Int64())
+	return n
+}
+
+func PeekNBigInt(i int, e *ExecutionEngine) *big.Int {
+	x := PeekNStackItem(i, e)
+	return x.GetBigInteger()
+}
+
+func PeekNByteArray(i int, e *ExecutionEngine) []byte {
+	x := PeekNStackItem(i, e)
+	return x.GetByteArray()
+}
+
+func PeekNStackItem(i int, e *ExecutionEngine) types.StackItemInterface {
+	return PeekN(i, e).GetStackItem()
+}
+
+func PeekN(i int, e *ExecutionEngine) Element {
+	return e.evaluationStack.Peek(i)
+}
+
+func Peek(e *ExecutionEngine) Element {
+	return e.evaluationStack.Peek(0)
+}
+
+func EvaluationStackCount(e *ExecutionEngine) int {
+	return e.evaluationStack.Count()
+}
+
+func Push(e *ExecutionEngine, element Element) {
+	e.evaluationStack.Push(element)
+}
+
+func Count(e *ExecutionEngine) int {
+	return e.evaluationStack.Count()
+}
+
+func PushData(e *ExecutionEngine, data interface{}) {
+	d := NewStackItemInterface(data)
+	e.evaluationStack.Push(NewStackItem(d))
+}
+
+
+

@@ -1,7 +1,7 @@
 package crypto
 
 import (
-	. "nkn-core/common"
+	. "github.com/nknorg/nkn/common"
 	"crypto/sha256"
 	"fmt"
 	"testing"

@@ -1,8 +1,9 @@
 package node
 
 import (
-	"nkn-core/events"
 	"fmt"
+
+	"github.com/nknorg/nkn/events"
 )
 
 type eventQueue struct {
@@ -26,7 +27,7 @@ func (eq *eventQueue) GetEvent(eventName string) *events.Event {
 	case "disconnect":
 		return eq.Disconnect
 	default:
-		fmt.Printf("Unknow event registe")
+		fmt.Printf("Unknow event")
 		return nil
 	}
 }

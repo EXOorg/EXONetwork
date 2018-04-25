@@ -2,14 +2,29 @@ package chord
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/nknorg/nkn/util/config"
+	nlog "github.com/nknorg/nkn/util/log"
 )
 
 // Converts the ID to string
 func (vn *Vnode) String() string {
 	return fmt.Sprintf("%x", vn.Id)
+}
+
+func (vn *Vnode) NodeAddr() (string, error) {
+	i := strings.Index(vn.Host, ":")
+	if i < 0 {
+		nlog.Error("Parse IP address error\n")
+		return "", errors.New("Parse IP address error")
+	}
+	return vn.Host[:i] + ":" + strconv.Itoa(int(vn.NodePort)), nil
 }
 
 // Initializes a local vnode
@@ -19,6 +34,9 @@ func (vn *localVnode) init(idx int) {
 
 	// Set our host
 	vn.Host = vn.ring.config.Hostname
+
+	// Set node port
+	vn.NodePort = config.Parameters.NodePort
 
 	// Initialize all state
 	vn.successors = make([]*Vnode, vn.ring.config.NumSuccessors)
@@ -89,44 +107,40 @@ func (vn *localVnode) checkNewSuccessor() error {
 	// Ask our successor for it's predecessor
 	trans := vn.ring.transport
 
-CHECK_NEW_SUC:
 	succ := vn.successors[0]
 	if succ == nil {
 		panic("Node has no successor!")
 	}
 	maybe_suc, err := trans.GetPredecessor(succ)
-	if err != nil {
-		// Check if we have succ list, try to contact next live succ
-		known := vn.knownSuccessors()
-		if known > 1 {
-			for i := 0; i < known; i++ {
-				if alive, _ := trans.Ping(vn.successors[0]); !alive {
-					// Don't eliminate the last successor we know of
-					if i+1 == known {
-						return fmt.Errorf("All known successors dead!")
-					}
+	known := vn.knownSuccessors()
 
-					// Advance the successors list past the dead one
-					copy(vn.successors[0:], vn.successors[1:])
-					vn.successors[known-1-i] = nil
-				} else {
-					// Found live successor, check for new one
-					goto CHECK_NEW_SUC
-				}
-			}
+	for i := 0; i < known; i++ {
+		if err == nil {
+			break
 		}
-		return err
+		if i == known-1 {
+			// TODO: re-join the network
+			panic("All known successors dead!")
+		}
+		// TODO: add retry before removing successor from list
+		copy(vn.successors[0:], vn.successors[1:])
+		vn.successors[known-1-i] = nil
+		succ = vn.successors[0]
+		maybe_suc, err = trans.GetPredecessor(succ)
 	}
 
 	// Check if we should replace our successor
 	if maybe_suc != nil && between(vn.Id, succ.Id, maybe_suc.Id) {
 		// Check if new successor is alive before switching
 		alive, err := trans.Ping(maybe_suc)
-		if alive && err == nil {
+		if err != nil {
+			return err
+		}
+		if alive {
 			copy(vn.successors[1:], vn.successors[0:len(vn.successors)-1])
 			vn.successors[0] = maybe_suc
 		} else {
-			return err
+			// TODO: notify successor to update its predecessor
 		}
 	}
 	return nil
@@ -350,4 +364,22 @@ func (vn *localVnode) knownSuccessors() (successors int) {
 		}
 	}
 	return
+}
+
+func (vn *localVnode) Neighbors() []*Vnode {
+	seen := make(map[*Vnode]bool)
+	neighbors := []*Vnode{}
+	for _, n := range vn.finger {
+		if n == nil {
+			continue
+		}
+		if n.Host == vn.Host {
+			continue
+		}
+		if _, value := seen[n]; !value {
+			seen[n] = true
+			neighbors = append(neighbors, n)
+		}
+	}
+	return neighbors
 }

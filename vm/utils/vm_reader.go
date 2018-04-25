@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 )
 
 type VmReader struct {
@@ -17,18 +18,19 @@ func NewVmReader(b []byte) *VmReader {
 	return &vmreader
 }
 
+func (r *VmReader) Reader() *bytes.Reader{
+	return r.reader
+}
+
 func (r *VmReader) ReadByte() (byte,error) {
 	byte, err := r.reader.ReadByte()
 	return byte,err
 }
 
 func (r *VmReader) ReadBytes(count int) []byte {
-	var bytes []byte
-	for i := 0; i < count; i++ {
-		d,_ := r.ReadByte()
-		bytes = append(bytes, d)
-	}
-	return bytes
+	b := make([]byte, count)
+	r.reader.Read(b)
+	return b
 }
 
 func (r *VmReader) ReadUint16() uint16 {
@@ -50,7 +52,7 @@ func (r *VmReader) ReadInt16() int16 {
 	b := r.ReadBytes(2)
 	bytesBuffer := bytes.NewBuffer(b)
 	var vi int16
-	binary.Read(bytesBuffer, binary.BigEndian, &vi)
+	binary.Read(bytesBuffer, binary.LittleEndian, &vi)
 	return vi
 
 }
@@ -59,7 +61,7 @@ func (r *VmReader) ReadInt32() int32 {
 	b := r.ReadBytes(4)
 	bytesBuffer := bytes.NewBuffer(b)
 	var vi int32
-	binary.Read(bytesBuffer, binary.BigEndian, &vi)
+	binary.Read(bytesBuffer, binary.LittleEndian, &vi)
 	return vi
 }
 
@@ -97,12 +99,13 @@ func (r *VmReader) ReadVarInt(max uint64) uint64 {
 	if value > max {
 		return 0
 	}
+	fmt.Println(value)
 	return value
 }
 
 func (r *VmReader) ReadVarString() string{
 	bs := r.ReadVarBytes(0X7fffffc7)
 	return string(bs)
-	//return Encoding.UTF8.GetString(reader.ReadVarBytes());
 }
+
 

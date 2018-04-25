@@ -2,7 +2,7 @@
 package transaction
 
 import (
-	. "nkn-core/common"
+	. "github.com/nknorg/nkn/common"
 )
 
 const (

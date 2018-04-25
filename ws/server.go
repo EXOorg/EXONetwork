@@ -1,15 +1,16 @@
 package ws
 
 import (
-	. "nkn-core/common"
-	. "nkn-core/common/config"
-	"nkn-core/core/ledger"
-	"nkn-core/events"
-	"nkn-core/rpc/httprestful/common"
-	Err "nkn-core/rpc/httprestful/error"
-	"nkn-core/ws/websocket"
-	. "nkn-core/net/protocol"
 	"bytes"
+
+	. "github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/core/ledger"
+	"github.com/nknorg/nkn/events"
+	. "github.com/nknorg/nkn/net/protocol"
+	"github.com/nknorg/nkn/rpc/httprestful/common"
+	Err "github.com/nknorg/nkn/rpc/httprestful/error"
+	. "github.com/nknorg/nkn/util/config"
+	"github.com/nknorg/nkn/ws/websocket"
 )
 
 var ws *websocket.WsServer

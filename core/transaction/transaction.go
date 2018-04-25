@@ -8,14 +8,14 @@ import (
 	"io"
 	"sort"
 
-	. "nkn-core/common"
-	"nkn-core/common/log"
-	"nkn-core/common/serialization"
-	"nkn-core/core/contract"
-	"nkn-core/core/contract/program"
-	sig "nkn-core/core/signature"
-	"nkn-core/core/transaction/payload"
-	. "nkn-core/errors"
+	. "github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/common/serialization"
+	"github.com/nknorg/nkn/core/contract"
+	"github.com/nknorg/nkn/core/contract/program"
+	sig "github.com/nknorg/nkn/core/signature"
+	"github.com/nknorg/nkn/core/transaction/payload"
+	. "github.com/nknorg/nkn/errors"
+	"github.com/nknorg/nkn/util/log"
 )
 
 //for different transaction types with different payload format
@@ -198,6 +198,8 @@ func (tx *Transaction) DeserializeUnsignedWithoutType(r io.Reader) error {
 		tx.Payload = new(payload.Prepaid)
 	case Withdraw:
 		tx.Payload = new(payload.Withdraw)
+	case Commit:
+		tx.Payload = new(payload.Commit)
 	default:
 		return errors.New("[Transaction],invalide transaction type.")
 	}
@@ -316,6 +318,7 @@ func (tx *Transaction) GetProgramHashes() ([]Uint160, error) {
 		}
 	case Prepaid:
 	case TransferAsset:
+	case Commit:
 	case Withdraw:
 		hashs = append(hashs, tx.Payload.(*payload.Withdraw).ProgramHash)
 	case BookKeeper:

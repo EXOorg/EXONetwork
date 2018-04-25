@@ -7,15 +7,16 @@ import (
 	"os"
 	"strconv"
 
-	"nkn-core/common/config"
-	"nkn-core/common/password"
+	"github.com/nknorg/nkn/util/config"
+	"github.com/nknorg/nkn/util/password"
 
 	"github.com/urfave/cli"
 )
 
 var (
-	Ip   string
-	Port string
+	Ip      string
+	Port    string
+	Version string
 )
 
 func NewIpFlag() cli.Flag {

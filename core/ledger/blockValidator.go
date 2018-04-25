@@ -1,11 +1,11 @@
 package ledger
 
 import (
-	tx "nkn-core/core/transaction"
-	"nkn-core/core/validation"
-	. "nkn-core/errors"
+	tx "github.com/nknorg/nkn/core/transaction"
+	. "github.com/nknorg/nkn/errors"
 	"errors"
 	"fmt"
+	"github.com/nknorg/nkn/core/validation"
 )
 
 func VerifyBlock(block *Block, ld *Ledger, completely bool) error {

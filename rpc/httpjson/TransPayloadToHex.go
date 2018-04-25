@@ -1,10 +1,10 @@
 package httpjson
 
 import (
-	. "nkn-core/common"
-	"nkn-core/core/asset"
-	. "nkn-core/core/transaction"
-	"nkn-core/core/transaction/payload"
+	. "github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/core/asset"
+	. "github.com/nknorg/nkn/core/transaction"
+	"github.com/nknorg/nkn/core/transaction/payload"
 )
 
 type PayloadInfo interface{}

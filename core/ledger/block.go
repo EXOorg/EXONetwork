@@ -1,26 +1,27 @@
 package ledger
 
 import (
-	. "nkn-core/common"
-	"nkn-core/common/log"
-	"nkn-core/common/serialization"
-	"nkn-core/core/contract/program"
-	sig "nkn-core/core/signature"
-	tx "nkn-core/core/transaction"
-	"nkn-core/core/transaction/payload"
-	"nkn-core/crypto"
-	. "nkn-core/errors"
-	"nkn-core/vm/avm"
+	"bytes"
 	"io"
 	"time"
-	"bytes"
+
+	. "github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/common/serialization"
+	"github.com/nknorg/nkn/core/contract/program"
+	sig "github.com/nknorg/nkn/core/signature"
+	tx "github.com/nknorg/nkn/core/transaction"
+	"github.com/nknorg/nkn/core/transaction/payload"
+	"github.com/nknorg/nkn/crypto"
+	. "github.com/nknorg/nkn/errors"
+	"github.com/nknorg/nkn/util/log"
+	"github.com/nknorg/nkn/vm"
 )
 
 const BlockVersion uint32 = 0
 const GenesisNonce uint64 = 2083236893
 
 type Block struct {
-	Header    *Header
+	Header       *Header
 	Transactions []*tx.Transaction
 
 	hash *Uint256
@@ -117,7 +118,7 @@ func (b *Block) GetMessage() []byte {
 	return sig.GetHashData(b)
 }
 
-func (b *Block) ToArray() ([]byte) {
+func (b *Block) ToArray() []byte {
 	bf := new(bytes.Buffer)
 	b.Serialize(bf)
 	return bf.Bytes()
@@ -171,7 +172,7 @@ func GenesisBlockInit(defaultBookKeeper []*crypto.PubKey) (*Block, error) {
 		NextBookKeeper:   nextBookKeeper,
 		Program: &program.Program{
 			Code:      []byte{},
-			Parameter: []byte{byte(avm.PUSHT)},
+			Parameter: []byte{byte(vm.PUSHT)},
 		},
 	}
 	//transaction
@@ -181,14 +182,14 @@ func GenesisBlockInit(defaultBookKeeper []*crypto.PubKey) (*Block, error) {
 		Payload: &payload.BookKeeping{
 			Nonce: GenesisNonce,
 		},
-		Attributes:    []*tx.TxAttribute{},
-		UTXOInputs:    []*tx.UTXOTxInput{},
-		Outputs:       []*tx.TxOutput{},
-		Programs:      []*program.Program{},
+		Attributes: []*tx.TxAttribute{},
+		UTXOInputs: []*tx.UTXOTxInput{},
+		Outputs:    []*tx.TxOutput{},
+		Programs:   []*program.Program{},
 	}
 	//block
 	genesisBlock := &Block{
-		Header:    genesisBlockdata,
+		Header:       genesisBlockdata,
 		Transactions: []*tx.Transaction{trans},
 	}
 

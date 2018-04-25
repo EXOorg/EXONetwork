@@ -5,10 +5,13 @@ Chord network protocol.
 package chord
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"fmt"
 	"hash"
 	"time"
+
+	"github.com/nknorg/nkn/util/config"
+	"github.com/nknorg/nkn/util/log"
 )
 
 // Implements the methods needed for a Chord ring
@@ -70,8 +73,9 @@ type Config struct {
 
 // Represents an Vnode, local or remote
 type Vnode struct {
-	Id   []byte // Virtual ID
-	Host string // Host identifier
+	Id       []byte // Virtual ID
+	Host     string // Chord Host identifier
+	NodePort int    // Node port
 }
 
 // Represents a local Vnode
@@ -99,13 +103,13 @@ type Ring struct {
 func DefaultConfig(hostname string) *Config {
 	return &Config{
 		hostname,
-		8,        // 8 vnodes
-		sha1.New, // SHA1
-		time.Duration(15 * time.Second),
-		time.Duration(45 * time.Second),
+		1,          // 1 vnodes
+		sha256.New, // SHA256
+		time.Duration(150 * time.Millisecond),
+		time.Duration(450 * time.Millisecond),
 		8,   // 8 successors
 		nil, // No delegate
-		160, // 160bit hash function
+		256, // 256bit hash function
 	}
 }
 
@@ -113,6 +117,10 @@ func DefaultConfig(hostname string) *Config {
 func Create(conf *Config, trans Transport) (*Ring, error) {
 	// Initialize the hash bits
 	conf.hashBits = conf.HashFunc().Size() * 8
+
+	if conf.NumVnodes < conf.NumSuccessors {
+		conf.NumVnodes = conf.NumSuccessors
+	}
 
 	// Create and initialize a ring
 	ring := &Ring{}
@@ -221,4 +229,86 @@ func (r *Ring) Lookup(n int, key []byte) ([]*Vnode, error) {
 		successors = successors[:len(successors)-1]
 	}
 	return successors, nil
+}
+
+// Ring create and join functions
+func prepRing(port int) (*Config, *TCPTransport, error) {
+	listen := fmt.Sprintf("127.0.0.1:%d", port)
+	conf := DefaultConfig(listen)
+	timeout := time.Duration(20 * time.Millisecond)
+	trans, err := InitTCPTransport(listen, timeout)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conf, trans, nil
+}
+
+// Creat the ring
+func CreateNet() (*Ring, *TCPTransport, error) {
+	log.Trace()
+	c, t, err := prepRing(config.Parameters.ChordPort)
+	if err != nil {
+		log.Fatal("unexpected err. %s", err)
+		return nil, nil, err
+	}
+
+	// Create initial ring
+	r, err := Create(c, t)
+	if err != nil {
+		log.Fatal("unexpected err. %s", err)
+		return nil, nil, err
+	}
+
+	go func() {
+		i := 0
+		for {
+			time.Sleep(20 * time.Second)
+			log.Infof("Create Height = %d\n", i)
+			r.DumpInfo(false)
+			i++
+		}
+	}()
+
+	return r, t, nil
+}
+
+func prepJoinRing(port int) (*Config, *TCPTransport, error) {
+	listen := fmt.Sprintf("127.0.0.1:%d", port)
+	conf := DefaultConfig(listen)
+	timeout := time.Duration(20 * time.Millisecond)
+	trans, err := InitTCPTransport(listen, timeout)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conf, trans, nil
+}
+
+// Join the ring
+func JoinNet() (*Ring, *TCPTransport, error) {
+	log.Trace()
+	port := config.Parameters.ChordPort
+	c, t, err := prepJoinRing(port)
+	if err != nil {
+		log.Fatal("unexpected err. %s", err)
+		return nil, nil, err
+	}
+
+	// Join ring
+	r, err := Join(c, t, config.Parameters.SeedList[0])
+	if err != nil {
+		log.Fatal("failed to join local node! Got %s", err)
+		return nil, nil, err
+	}
+
+	go func() {
+		i := 0
+		for {
+			time.Sleep(20 * time.Second)
+			log.Infof("Join Height = %d\n", i)
+			r.DumpInfo(false)
+			i++
+		}
+	}()
+
+	return r, t, nil
 }

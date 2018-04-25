@@ -1,11 +1,12 @@
 package dbft
 
 import (
-	"nkn-core/common/log"
-	ser "nkn-core/common/serialization"
 	"bytes"
 	"errors"
 	"io"
+
+	ser "github.com/nknorg/nkn/common/serialization"
+	"github.com/nknorg/nkn/util/log"
 )
 
 type ConsensusMessage interface {

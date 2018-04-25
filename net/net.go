@@ -1,30 +1,23 @@
 package net
 
 import (
-	. "nkn-core/common"
-	"nkn-core/core/transaction"
-	"nkn-core/crypto"
-	. "nkn-core/errors"
-	"nkn-core/events"
-	"nkn-core/net/node"
-	"nkn-core/net/protocol"
+	"time"
+
+	"github.com/nknorg/nkn/crypto"
+	"github.com/nknorg/nkn/net/chord"
+	"github.com/nknorg/nkn/net/node"
+	"github.com/nknorg/nkn/net/protocol"
 )
 
-type Neter interface {
-	GetTxnByCount(int) map[Uint256]*transaction.Transaction
-	GetTxnPool() *transaction.TXNPool
-	Xmit(interface{}) error
-	GetEvent(eventName string) *events.Event
-	GetBookKeepersAddrs() ([]*crypto.PubKey, uint64)
-	CleanSubmittedTransactions([]*transaction.Transaction) error
-	GetNeighborNoder() []protocol.Noder
-	Tx(buf []byte)
-	AppendTxnPool(*transaction.Transaction) ErrCode
-}
+const (
+	// waiting for neighbors to connect
+	WaitingForOtherNodes = 10 * time.Second
+)
 
-func StartProtocol(pubKey *crypto.PubKey) protocol.Noder {
-	net := node.InitNode(pubKey)
-	net.ConnectSeeds()
+func StartProtocol(pubKey *crypto.PubKey, ring *chord.Ring) protocol.Noder {
+	net := node.InitNode(pubKey, ring)
+	net.ConnectNeighbors()
+	time.Sleep(WaitingForOtherNodes)
 
 	return net
 }

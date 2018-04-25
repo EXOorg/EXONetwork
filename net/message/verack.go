@@ -1,11 +1,13 @@
 package message
 
 import (
-	"nkn-core/common/log"
-	. "nkn-core/net/protocol"
-	"encoding/hex"
 	"errors"
 	"strconv"
+
+	"bytes"
+
+	. "github.com/nknorg/nkn/net/protocol"
+	"github.com/nknorg/nkn/util/log"
 )
 
 type verACK struct {
@@ -20,15 +22,13 @@ func NewVerack() ([]byte, error) {
 	sum = []byte{0x5d, 0xf6, 0xe0, 0xe2}
 	msg.msgHdr.init("verack", sum, 0)
 
-	buf, err := msg.Serialization()
+	buff := bytes.NewBuffer(nil)
+	err := msg.Serialize(buff)
 	if err != nil {
 		return nil, err
 	}
 
-	str := hex.EncodeToString(buf)
-	log.Debug("The message tx verack length is ", len(buf), ", ", str)
-
-	return buf, err
+	return buff.Bytes(), nil
 }
 
 /*
@@ -54,8 +54,8 @@ func (msg verACK) Handle(node Noder) error {
 
 	s := node.GetState()
 	if s != HANDSHAKE && s != HANDSHAKED {
-		log.Warn("Unknow status to received verack")
-		return errors.New("Unknow status to received verack")
+		log.Warn("Unknown status to received verack")
+		return errors.New("Unknown status to received verack")
 	}
 
 	node.SetState(ESTABLISH)

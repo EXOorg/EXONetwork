@@ -1,71 +1,73 @@
 package vm
 
+import (
+	"github.com/nknorg/nkn/vm/types"
+)
+
 func opArraySize(e *ExecutionEngine) (VMState, error) {
-	if e.evaluationStack.Count() < 1 {
-		return FAULT, nil
+	item := PopStackItem(e)
+	if _, ok := item.(*types.Array); ok {
+		PushData(e, len(item.GetArray()))
+	} else {
+		PushData(e, len(item.GetByteArray()))
 	}
-	arr := AssertStackItem(e.evaluationStack.Pop()).GetArray()
-	err := pushData(e, len(arr))
-	if err != nil {
-		return FAULT, err
-	}
+
 	return NONE, nil
 }
 
 func opPack(e *ExecutionEngine) (VMState, error) {
-	if e.evaluationStack.Count() < 1 {
-		return FAULT, nil
-	}
-	size := int(AssertStackItem(e.evaluationStack.Pop()).GetBigInteger().Int64())
-	if size < 0 || size > e.evaluationStack.Count() {
-		return FAULT, nil
-	}
+	size := PopInt(e)
 	items := NewStackItems()
-	for {
-		if size == 0 {
-			break
-		}
-		items = append(items, AssertStackItem(e.evaluationStack.Pop()))
-		size--
+	for i := 0; i < size; i++ {
+		items = append(items, PopStackItem(e))
 	}
-	err := pushData(e, items)
-	if err != nil {
-		return FAULT, err
-	}
+	PushData(e, items)
 	return NONE, nil
 }
 
 func opUnpack(e *ExecutionEngine) (VMState, error) {
-	if e.evaluationStack.Count() < 1 {
-		return FAULT, nil
-	}
-	arr := AssertStackItem(e.evaluationStack.Pop()).GetArray()
+	arr := PopArray(e)
 	l := len(arr)
 	for i := l - 1; i >= 0; i-- {
-		e.evaluationStack.Push(arr[i])
+		Push(e, NewStackItem(arr[i]))
 	}
-	err := pushData(e, l)
-	if err != nil {
-		return FAULT, err
-	}
+	PushData(e, l)
 	return NONE, nil
 }
 
 func opPickItem(e *ExecutionEngine) (VMState, error) {
-	if e.evaluationStack.Count() < 1 {
-		return FAULT, nil
+	index := PopInt(e)
+	itemArr := PopStackItem(e)
+	if _, ok := itemArr.(*types.Array); ok {
+		items := itemArr.GetArray()
+		PushData(e, items[index])
+	} else {
+		items := itemArr.GetByteArray()
+		PushData(e, items[index])
 	}
-	index := int(AssertStackItem(e.evaluationStack.Pop()).GetBigInteger().Int64())
-	if index < 0 {
-		return FAULT, nil
+	return NONE, nil
+}
+
+func opSetItem(e *ExecutionEngine) (VMState, error) {
+	newItem := PopStackItem(e)
+	index := PopInt(e)
+	itemArr := PopStackItem(e)
+	if _, ok := itemArr.(*types.Array); ok {
+		items := itemArr.GetArray()
+		items[index] = newItem
+	} else {
+		items := itemArr.GetByteArray()
+		items[index] = newItem.GetByteArray()[0]
 	}
-	items := AssertStackItem(e.evaluationStack.Pop()).GetArray()
-	if index >= len(items) {
-		return FAULT, nil
+	return NONE, nil
+}
+
+func opNewArray(e *ExecutionEngine) (VMState, error) {
+	count := PopInt(e)
+	items := NewStackItems()
+	for i := 0; i < count; i++ {
+		items = append(items, types.NewBoolean(false))
 	}
-	err := pushData(e, items[index])
-	if err != nil {
-		return FAULT, err
-	}
+	PushData(e, items)
 	return NONE, nil
 }

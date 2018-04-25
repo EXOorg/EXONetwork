@@ -1,15 +1,16 @@
 package contract
 
 import (
-	. "nkn-core/common"
-	"nkn-core/common/log"
-	pg "nkn-core/core/contract/program"
-	sig "nkn-core/core/signature"
-	"nkn-core/crypto"
-	_ "nkn-core/errors"
 	"errors"
 	"math/big"
 	"sort"
+
+	. "github.com/nknorg/nkn/common"
+	pg "github.com/nknorg/nkn/core/contract/program"
+	sig "github.com/nknorg/nkn/core/signature"
+	"github.com/nknorg/nkn/crypto"
+	_ "github.com/nknorg/nkn/errors"
+	"github.com/nknorg/nkn/util/log"
 )
 
 type ContractContext struct {

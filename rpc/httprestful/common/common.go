@@ -6,13 +6,13 @@ import (
 	"math"
 	"strconv"
 
-	. "nkn-core/common"
-	"nkn-core/core/ledger"
-	tx "nkn-core/core/transaction"
-	. "nkn-core/errors"
-	. "nkn-core/rpc/httpjson"
-	Err "nkn-core/rpc/httprestful/error"
-	. "nkn-core/net/protocol"
+	. "github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/core/ledger"
+	tx "github.com/nknorg/nkn/core/transaction"
+	. "github.com/nknorg/nkn/errors"
+	. "github.com/nknorg/nkn/rpc/httpjson"
+	Err "github.com/nknorg/nkn/rpc/httprestful/error"
+	. "github.com/nknorg/nkn/net/protocol"
 )
 
 var node Noder

@@ -2,19 +2,43 @@ GOFMT=gofmt
 GC=go build
 VERSION := $(shell git describe --abbrev=4 --dirty --always --tags)
 Minversion := $(shell date)
-BUILD_NODE_PAR = -ldflags "-X nkn-core/common/config.Version=$(VERSION)" #-race
-BUILD_NODECTL_PAR = -ldflags "-X main.Version=$(VERSION)"
+BUILD_NKND_PARAM = -ldflags "-X github.com/nknorg/nkn/util/config.Version=$(VERSION)" #-race
+BUILD_NKNC_PARAM = -ldflags "-X github.com/nknorg/nkn/cli/common.Version=$(VERSION)"
 
+.PHONY: nknd
+nknd:
+	$(GC)  $(BUILD_NKND_PARAM) nknd.go
+
+.PHONY: all
 all:
-	$(GC)  $(BUILD_NODE_PAR) -o node main.go
-	$(GC)  $(BUILD_NODECTL_PAR) nodectl.go
+	$(GC)  $(BUILD_NKND_PARAM) nknd.go
+	$(GC)  $(BUILD_NKNC_PARAM) nknc.go
 
+.PHONY: format
 format:
-	$(GOFMT) -w main.go
+	$(GOFMT) -w nknd.go
 
+.PHONY: glide
+glide:
+	@ mkdir -p $$GOPATH/bin
+	@ curl https://glide.sh/get | sh;
+
+.PHONY: vendor
+vendor: glide.yaml glide.lock
+	@ glide install
+
+.PHONY: test
+test:
+	go test -v github.com/nknorg/nkn/common
+	go test -v github.com/nknorg/nkn/net
+	go test -v github.com/nknorg/nkn/por
+	go test -v github.com/nknorg/nkn/db
+	go test -v github.com/nknorg/nkn/cli
+
+.PHONY: clean
 clean:
-	rm -rf *.8 *.o *.out *.6
+	rm -rf nknd nknc
 
-cov:
-	gocov test ./ | gocov-html > /tmp/coverage.html
-	open /tmp/coverage.html
+.PHONY: deepclean
+deepclean:
+	rm -rf nknd nknc vendor

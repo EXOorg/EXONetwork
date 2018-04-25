@@ -1,7 +1,7 @@
 package p256r1
 
 import (
-	"nkn-core/crypto/util"
+	"github.com/nknorg/nkn/crypto/util"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"

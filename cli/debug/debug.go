@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	. "nkn-core/cli/common"
-	"nkn-core/rpc/httpjson"
+	. "github.com/nknorg/nkn/cli/common"
+	"github.com/nknorg/nkn/rpc/httpjson"
 
 	"github.com/urfave/cli"
 )
@@ -30,7 +30,7 @@ func debugAction(c *cli.Context) (err error) {
 func NewCommand() *cli.Command {
 	return &cli.Command{Name: "debug",
 		Usage:       "blockchain node debugging",
-		Description: "With nodectl debug, you could debug blockchain node.",
+		Description: "With nknc debug, you could debug blockchain node.",
 		ArgsUsage:   "[args]",
 		Flags: []cli.Flag{
 			cli.IntFlag{

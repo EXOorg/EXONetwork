@@ -1,7 +1,7 @@
 package payload
 
 import (
-	"nkn-core/common/serialization"
+	"github.com/nknorg/nkn/common/serialization"
 	"io"
 )
 

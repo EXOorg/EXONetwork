@@ -1,15 +1,16 @@
 package signature
 
 import (
-	"nkn-core/common"
-	"nkn-core/common/log"
-	"nkn-core/core/contract/program"
-	"nkn-core/crypto"
-	. "nkn-core/errors"
-	"nkn-core/vm/avm/interfaces"
 	"bytes"
 	"crypto/sha256"
 	"io"
+
+	"github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/core/contract/program"
+	"github.com/nknorg/nkn/crypto"
+	. "github.com/nknorg/nkn/errors"
+	"github.com/nknorg/nkn/util/log"
+	"github.com/nknorg/nkn/vm/interfaces"
 )
 
 //SignableData describe the data need be signed.

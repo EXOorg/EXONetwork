@@ -1,10 +1,10 @@
 package code
 
 import (
-	"nkn-core/common/log"
-	. "nkn-core/common"
-	. "nkn-core/core/contract"
-	"nkn-core/common/serialization"
+	"github.com/nknorg/nkn/common/log"
+	. "github.com/nknorg/nkn/common"
+	. "github.com/nknorg/nkn/core/contract"
+	"github.com/nknorg/nkn/common/serialization"
 	"fmt"
 	"io"
 )

@@ -1,15 +1,6 @@
 package node
 
 import (
-	. "nkn-core/common"
-	. "nkn-core/common/config"
-	"nkn-core/common/log"
-	"nkn-core/core/ledger"
-	"nkn-core/core/transaction"
-	"nkn-core/crypto"
-	"nkn-core/events"
-	. "nkn-core/net/message"
-	. "nkn-core/net/protocol"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -21,6 +12,17 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	. "github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/core/ledger"
+	"github.com/nknorg/nkn/core/transaction"
+	"github.com/nknorg/nkn/crypto"
+	"github.com/nknorg/nkn/events"
+	"github.com/nknorg/nkn/net/chord"
+	. "github.com/nknorg/nkn/net/message"
+	. "github.com/nknorg/nkn/net/protocol"
+	. "github.com/nknorg/nkn/util/config"
+	"github.com/nknorg/nkn/util/log"
 )
 
 type Semaphore chan struct{}
@@ -34,24 +36,24 @@ func (s Semaphore) release() { <-s }
 
 type node struct {
 	//sync.RWMutex	//The Lock not be used as expected to use function channel instead of lock
-	state     uint32 // node state
-	id        uint64 // The nodes's id
+	state     uint32   // node state
+	id        uint64   // The nodes's id
 	cap       [32]byte // The node capability set
-	version   uint32 // The network protocol the node used
-	services  uint64 // The services the node supplied
-	relay     bool   // The relay capability of the node (merge into capbility flag)
-	height    uint64 // The node latest block height
-	txnCnt    uint64 // The transactions be transmit by this node
-	rxTxnCnt  uint64 // The transaction received by this node
+	version   uint32   // The network protocol the node used
+	services  uint64   // The services the node supplied
+	relay     bool     // The relay capability of the node (merge into capbility flag)
+	height    uint64   // The node latest block height
+	txnCnt    uint64   // The transactions be transmit by this node
+	rxTxnCnt  uint64   // The transaction received by this node
 	publicKey *crypto.PubKey
 	// TODO does this channel should be a buffer channel
-	chF        chan func() error // Channel used to operate the node without lock
-	link                         // The link status and infomation
-	local      *node             // The pointer to local node
-	nbrNodes                     // The neighbor node connect with currently node except itself
-	eventQueue                   // The event queue to notice notice other modules
-	*transaction.TXNPool                      // Unconfirmed transaction pool
-	idCache                      // The buffer to store the id of the items which already be processed
+	chF                  chan func() error // Channel used to operate the node without lock
+	link                                   // The link status and infomation
+	local                *node             // The pointer to local node
+	nbrNodes                               // The neighbor node connect with currently node except itself
+	eventQueue                             // The event queue to notice notice other modules
+	*transaction.TXNPool                   // Unconfirmed transaction pool
+	idCache                                // The buffer to store the id of the items which already be processed
 	/*
 	 * |--|--|--|--|--|--|isSyncFailed|isSyncHeaders|
 	 */
@@ -62,6 +64,7 @@ type node struct {
 	ConnectingNodes
 	RetryConnAddrs
 	SyncReqSem Semaphore
+	ring       *chord.Ring
 }
 
 type RetryConnAddrs struct {
@@ -155,7 +158,7 @@ func NewNode() *node {
 	return &n
 }
 
-func InitNode(pubKey *crypto.PubKey) Noder {
+func InitNode(pubKey *crypto.PubKey, ring *chord.Ring) Noder {
 	n := NewNode()
 	n.version = PROTOCOLVERSION
 	if Parameters.NodeType == SERVICENODENAME {
@@ -188,6 +191,9 @@ func InitNode(pubKey *crypto.PubKey) Noder {
 	n.TXNPool = transaction.NewTxnPool()
 	n.eventQueue.init()
 	n.nodeDisconnectSubscriber = n.eventQueue.GetEvent("disconnect").Subscribe(events.EventNodeDisconnect, n.NodeDisconnect)
+
+	n.ring = ring
+
 	go n.initConnection()
 	go n.updateConnection()
 	go n.updateNodeInfo()
@@ -230,7 +236,7 @@ func (node *node) GetPort() uint16 {
 	return node.port
 }
 
-func (node *node) GetHttpInfoPort() (int) {
+func (node *node) GetHttpInfoPort() int {
 	return int(node.httpInfoPort)
 }
 
@@ -238,7 +244,7 @@ func (node *node) SetHttpInfoPort(nodeInfoPort uint16) {
 	node.httpInfoPort = nodeInfoPort
 }
 
-func (node *node) GetHttpInfoState() bool{
+func (node *node) GetHttpInfoState() bool {
 	if node.cap[HTTPINFOFLAG] == 0x01 {
 		return true
 	} else {
@@ -246,8 +252,8 @@ func (node *node) GetHttpInfoState() bool{
 	}
 }
 
-func (node *node) SetHttpInfoState(nodeInfo bool){
-	if nodeInfo{
+func (node *node) SetHttpInfoState(nodeInfo bool) {
+	if nodeInfo {
 		node.cap[HTTPINFOFLAG] = 0x01
 	} else {
 		node.cap[HTTPINFOFLAG] = 0x00
@@ -282,7 +288,7 @@ func (node *node) SetState(state uint32) {
 	atomic.StoreUint32(&(node.state), state)
 }
 
-func (node *node) GetPubKey() *crypto.PubKey{
+func (node *node) GetPubKey() *crypto.PubKey {
 	return node.publicKey
 }
 
@@ -294,7 +300,7 @@ func (node *node) LocalNode() Noder {
 	return node.local
 }
 
-func (node *node) GetTxnPool() *transaction.TXNPool{
+func (node *node) GetTxnPool() *transaction.TXNPool {
 	return node.TXNPool
 }
 
@@ -421,7 +427,7 @@ func (node *node) SyncNodeHeight() {
 		if CompareHeight(uint64(ledger.DefaultLedger.Blockchain.BlockHeight), heights) {
 			break
 		}
-		<-time.After(5 * time.Second)
+		<-time.After(time.Second)
 	}
 }
 

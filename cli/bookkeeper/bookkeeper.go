@@ -1,19 +1,20 @@
 package bookkeeper
 
 import (
-	"nkn-core/wallet"
-	. "nkn-core/cli/common"
-	"nkn-core/core/contract"
-	"nkn-core/core/signature"
-	"nkn-core/core/transaction"
-	"nkn-core/crypto"
-	"nkn-core/rpc/httpjson"
 	"bytes"
 	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"os"
 	"strconv"
+
+	. "github.com/nknorg/nkn/cli/common"
+	"github.com/nknorg/nkn/core/contract"
+	"github.com/nknorg/nkn/core/signature"
+	"github.com/nknorg/nkn/core/transaction"
+	"github.com/nknorg/nkn/crypto"
+	"github.com/nknorg/nkn/rpc/httpjson"
+	"github.com/nknorg/nkn/wallet"
 
 	"github.com/urfave/cli"
 )
@@ -93,7 +94,7 @@ func assetAction(c *cli.Context) error {
 	}
 	cert := c.String("cert")
 
-	wallet, err := wallet.Open(wallet.WalletFileName, WalletPassword(c.String("password")))
+	wallet, err := wallet.OpenWallet(wallet.WalletFileName, WalletPassword(c.String("password")))
 	if err != nil {
 		fmt.Println("Failed to open wallet.")
 		os.Exit(1)
@@ -120,7 +121,7 @@ func NewCommand() *cli.Command {
 	return &cli.Command{
 		Name:        "bookkeeper",
 		Usage:       "add or remove bookkeeper",
-		Description: "With nodectl bookkeeper, you could add or remove bookkeeper.",
+		Description: "With nknc bookkeeper, you could add or remove bookkeeper.",
 		ArgsUsage:   "[args]",
 		Flags: []cli.Flag{
 			cli.StringFlag{
