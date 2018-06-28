@@ -16,7 +16,7 @@ const (
 	BlockRequestMsg  IsingMessageType = 0x01
 	BlockResponseMsg IsingMessageType = 0x02
 	BlockProposalMsg IsingMessageType = 0x03
-	BlockVoteMsg     IsingMessageType = 0x04
+	MindChangingMsg  IsingMessageType = 0x04
 	StateProbeMsg    IsingMessageType = 0x05
 	StateResponseMsg IsingMessageType = 0x06
 )
@@ -37,8 +37,8 @@ func BuildIsingPayload(msg IsingMessage, sender *crypto.PubKey) (*message.IsingP
 		err = serialization.WriteByte(buf, byte(BlockResponseMsg))
 	case *Proposal:
 		err = serialization.WriteByte(buf, byte(BlockProposalMsg))
-	case *Voting:
-		err = serialization.WriteByte(buf, byte(BlockVoteMsg))
+	case *MindChanging:
+		err = serialization.WriteByte(buf, byte(MindChangingMsg))
 	case *StateProbe:
 		err = serialization.WriteByte(buf, byte(StateProbeMsg))
 	case *StateResponse:
@@ -96,13 +96,13 @@ func RecoverFromIsingPayload(payload *message.IsingPayload) (IsingMessage, error
 			return nil, err
 		}
 		return bpmsg, nil
-	case BlockVoteMsg:
-		bvmsg := &Voting{}
-		err := bvmsg.Deserialize(r)
+	case MindChangingMsg:
+		mcMsg := &MindChanging{}
+		err := mcMsg.Deserialize(r)
 		if err != nil {
 			return nil, err
 		}
-		return bvmsg, nil
+		return mcMsg, nil
 	case StateProbeMsg:
 		spmsg := &StateProbe{}
 		err := spmsg.Deserialize(r)

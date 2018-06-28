@@ -3,7 +3,6 @@ package node
 import (
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"net"
 	"strconv"
 
@@ -17,14 +16,14 @@ import (
 	"github.com/nknorg/nkn/wallet"
 )
 
-func (node *node) StartRelayer(account *wallet.Account) {
-	node.relayer = relay.NewRelayService(account, node)
+func (node *node) StartRelayer(wallet wallet.Wallet) {
+	node.relayer = relay.NewRelayService(wallet, node)
 	node.relayer.Start()
 }
 
 func (node *node) NextHop(key []byte) (protocol.Noder, error) {
-	chordNode := node.ring.GetFirstVnode()
-	if chordNode == nil {
+	chordNode, err := node.ring.GetFirstVnode()
+	if err != nil || chordNode == nil {
 		return nil, errors.New("No chord node binded")
 	}
 	iter, err := chordNode.ClosestNeighborIterator(key)
@@ -62,49 +61,37 @@ func (node *node) NextHop(key []byte) (protocol.Noder, error) {
 	return nil, nil
 }
 
-func (node *node) SendRelayPacket(destID []byte, destPubkey []byte, payload []byte) error {
-	nextHop, err := node.NextHop(destID)
-	if err != nil {
-		log.Error("Get next hop error: ", err)
-		return err
-	}
-	if nextHop == nil {
-		return errors.New(fmt.Sprintf("No next hop for destination %x", destID))
-	}
-	nextPubkey, err := nextHop.GetPubKey().EncodePoint(true)
-	if err != nil {
-		log.Error("Get next hop public key error: ", err)
-		return err
-	}
+func (node *node) SendRelayPacket(srcID, srcPubkey, destID, destPubkey, payload, signature []byte) error {
 	payloadHash := sha256.Sum256(payload)
 	payloadHash256, err := common.Uint256ParseFromBytes(payloadHash[:])
 	if err != nil {
 		log.Error("Compute uint256 data hash error: ", err)
 		return err
 	}
-	sigChain, err := por.NewSigChain(
-		node.relayer.GetAccount(),
-		ledger.DefaultLedger.Store.GetHeight(),
+
+	height := ledger.DefaultLedger.Store.GetHeaderHeight()
+	prevHeaderHash := ledger.DefaultLedger.Store.GetHeaderHashByHeight(height - 1)
+	sigChain, err := por.GetPorServer().CreateSigChainForClient(
 		uint32(len(payload)),
 		&payloadHash256,
+		&prevHeaderHash,
+		srcPubkey,
 		destPubkey,
-		nextPubkey,
+		signature,
+		por.SigAlgo_ECDSA,
 	)
+
+	relayPacket, err := message.NewRelayPacket(srcID, destID, payload, sigChain)
 	if err != nil {
-		log.Error("Create signature chain error: ", err)
+		log.Error("Create relay packet error: ", err)
 		return err
 	}
-	relayPacket := &message.RelayPacket{
-		node.GetChordAddr(),
-		destID,
-		sigChain,
-		payload,
-	}
-	msg, err := message.NewRelayMessage(relayPacket)
+
+	err = node.relayer.HandleMsg(relayPacket)
 	if err != nil {
-		log.Error("Create relay message error: ", err)
+		log.Error("Handle relay msg error:", err)
 		return err
 	}
-	nextHop.Tx(msg)
+
 	return nil
 }

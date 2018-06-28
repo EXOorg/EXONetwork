@@ -12,9 +12,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/net/protocol"
 	. "github.com/nknorg/nkn/rpc/httprestful/common"
 	Err "github.com/nknorg/nkn/rpc/httprestful/error"
+	"github.com/nknorg/nkn/util/address"
 	. "github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	. "github.com/nknorg/nkn/websocket/session"
@@ -129,17 +131,82 @@ func (ws *WsServer) registryMethod() {
 		resp["Result"] = ws.SessionList.GetSessionCount()
 		return resp
 	}
-	relayhandler := func(cmd map[string]interface{}) map[string]interface{} {
-		destID, err := hex.DecodeString(cmd["destID"].(string))
-		if err != nil {
+	setClient := func(cmd map[string]interface{}) map[string]interface{} {
+		addrStr, ok := cmd["Addr"].(string)
+		if !ok {
 			return ResponsePack(Err.INVALID_PARAMS)
 		}
-		destPubkey, err := hex.DecodeString(cmd["destPubkey"].(string))
+		clientID, pubKey, err := address.ParseClientAddress(addrStr)
 		if err != nil {
+			log.Error("Parse client address error:", err)
 			return ResponsePack(Err.INVALID_PARAMS)
 		}
-		payload := []byte(cmd["payload"].(string))
-		ws.node.SendRelayPacket(destID[:], destPubkey, payload)
+
+		_, err = crypto.DecodePoint(pubKey)
+		if err != nil {
+			log.Error("Invalid public key hex decoding to point:", err)
+			return ResponsePack(Err.INVALID_PARAMS)
+		}
+
+		// TODO: use signature (or better, with one-time challange) to verify identity
+
+		nextHop, err := ws.node.NextHop(clientID)
+		if err != nil {
+			log.Error("Get next hop error: ", err)
+			return ResponsePack(Err.INTERNAL_ERROR)
+		}
+		if nextHop != nil {
+			log.Error("This is not the correct node to connect")
+			return ResponsePack(Err.INVALID_PARAMS)
+		}
+
+		newSessionId := hex.EncodeToString(clientID)
+		err = ws.SessionList.ChangeSessionId(cmd["Userid"].(string), newSessionId)
+		if err != nil {
+			log.Error("Change session id error: ", err)
+			return ResponsePack(Err.INTERNAL_ERROR)
+		}
+		session := ws.SessionList.GetSessionById(newSessionId)
+		if session == nil {
+			log.Error("Nil session with id: ", newSessionId)
+			return ResponsePack(Err.INTERNAL_ERROR)
+		}
+		session.SetClient(clientID, pubKey, &addrStr)
+		resp := ResponsePack(Err.SUCCESS)
+		return resp
+	}
+	relayHandler := func(cmd map[string]interface{}) map[string]interface{} {
+		client := ws.SessionList.GetSessionById(cmd["Userid"].(string))
+		if !client.IsClient() {
+			log.Error("Session is not client")
+			return ResponsePack(Err.INVALID_METHOD)
+		}
+		srcAddrStr := client.GetAddrStr()
+		srcPubkey := client.GetPubKey()
+		if srcPubkey == nil {
+			log.Error("Session does not have a public key")
+			return ResponsePack(Err.INVALID_METHOD)
+		}
+		addrStr, ok := cmd["Dest"].(string)
+		if !ok {
+			return ResponsePack(Err.INVALID_PARAMS)
+		}
+		destID, destPubkey, err := address.ParseClientAddress(addrStr)
+		if err != nil {
+			log.Error("Parse client address error:", err)
+			return ResponsePack(Err.INVALID_PARAMS)
+		}
+		payload := []byte(cmd["Payload"].(string))
+		signature, err := hex.DecodeString(cmd["Signature"].(string))
+		if err != nil {
+			log.Error("Decode signature error:", err)
+			return ResponsePack(Err.INVALID_PARAMS)
+		}
+		err = ws.node.SendRelayPacket([]byte(*srcAddrStr), srcPubkey, destID[:], destPubkey, payload, signature)
+		if err != nil {
+			log.Error("Send relay packet error:", err)
+			return ResponsePack(Err.INTERNAL_ERROR)
+		}
 		resp := ResponsePack(Err.SUCCESS)
 		return resp
 	}
@@ -161,7 +228,8 @@ func (ws *WsServer) registryMethod() {
 		"gettxhashmap":    {handler: gettxhashmap},
 		"getsessioncount": {handler: getsessioncount},
 
-		"relay": {handler: relayhandler},
+		"setClient":  {handler: setClient},
+		"sendPacket": {handler: relayHandler},
 	}
 	ws.ActionMap = actionMap
 }
@@ -172,6 +240,7 @@ func (ws *WsServer) Stop() {
 		log.Error("Close websocket ")
 	}
 }
+
 func (ws *WsServer) Restart() {
 	go func() {
 		time.Sleep(time.Second)
@@ -244,6 +313,7 @@ func (ws *WsServer) webSocketHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
 func (ws *WsServer) IsValidMsg(reqMsg map[string]interface{}) bool {
 	if _, ok := reqMsg["Hash"].(string); !ok && reqMsg["Hash"] != nil {
 		return false
@@ -256,6 +326,7 @@ func (ws *WsServer) IsValidMsg(reqMsg map[string]interface{}) bool {
 	}
 	return true
 }
+
 func (ws *WsServer) OnDataHandle(curSession *Session, bysMsg []byte, r *http.Request) bool {
 
 	var req = make(map[string]interface{})
@@ -301,11 +372,13 @@ func (ws *WsServer) OnDataHandle(curSession *Session, bysMsg []byte, r *http.Req
 
 	return true
 }
+
 func (ws *WsServer) SetTxHashMap(txhash string, sessionid string) {
 	ws.Lock()
 	defer ws.Unlock()
 	ws.TxHashMap[txhash] = sessionid
 }
+
 func (ws *WsServer) deleteTxHashs(sSessionId string) {
 	ws.Lock()
 	defer ws.Unlock()
@@ -315,6 +388,7 @@ func (ws *WsServer) deleteTxHashs(sSessionId string) {
 		}
 	}
 }
+
 func (ws *WsServer) response(sSessionId string, resp map[string]interface{}) {
 	resp["Desc"] = Err.ErrMap[resp["Error"].(int64)]
 	data, err := json.Marshal(resp)
@@ -324,6 +398,7 @@ func (ws *WsServer) response(sSessionId string, resp map[string]interface{}) {
 	}
 	ws.send(sSessionId, data)
 }
+
 func (ws *WsServer) PushTxResult(txHashStr string, resp map[string]interface{}) {
 	ws.Lock()
 	defer ws.Unlock()
@@ -334,6 +409,7 @@ func (ws *WsServer) PushTxResult(txHashStr string, resp map[string]interface{}) 
 	}
 	ws.PushResult(resp)
 }
+
 func (ws *WsServer) PushResult(resp map[string]interface{}) {
 	resp["Desc"] = Err.ErrMap[resp["Error"].(int64)]
 	data, err := json.Marshal(resp)
@@ -343,14 +419,17 @@ func (ws *WsServer) PushResult(resp map[string]interface{}) {
 	}
 	ws.Broadcast(data)
 }
+
 func (ws *WsServer) send(sSessionId string, data []byte) error {
 	session := ws.SessionList.GetSessionById(sSessionId)
 	if session == nil {
-		return errors.New("websocket sessionId Not Exist:" + sSessionId)
+		return errors.New("websocket sessionId Not Exist: " + sSessionId)
 	}
 	return session.Send(data)
 }
+
 func (ws *WsServer) Broadcast(data []byte) error {
+	// TODO: only send to subscribed sessions
 	ws.SessionList.ForEachSession(func(v *Session) {
 		v.Send(data)
 	})
@@ -380,4 +459,15 @@ func (ws *WsServer) initTlsListen() (net.Listener, error) {
 		return nil, err
 	}
 	return listener, nil
+}
+
+func (ws *WsServer) GetClientById(cliendID []byte) *Session {
+	session := ws.SessionList.GetSessionById(hex.EncodeToString(cliendID))
+	if session == nil {
+		return nil
+	}
+	if !session.IsClient() {
+		return nil
+	}
+	return session
 }

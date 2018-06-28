@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/wallet"
@@ -14,28 +15,30 @@ func TestSigChain(t *testing.T) {
 
 	from, _ := wallet.NewAccount()
 	to, _ := wallet.NewAccount()
-	rel1, _ := wallet.NewAccount()
-	rel2, _ := wallet.NewAccount()
+	relay1, _ := wallet.NewAccount()
+	relay2, _ := wallet.NewAccount()
 
 	fromPk, _ := from.PubKey().EncodePoint(true)
 	toPk, _ := to.PubKey().EncodePoint(true)
-	rel1Pk, _ := rel1.PubKey().EncodePoint(true)
-	rel2Pk, _ := rel2.PubKey().EncodePoint(true)
+	relay1Pk, _ := relay1.PubKey().EncodePoint(true)
+	relay2Pk, _ := relay2.PubKey().EncodePoint(true)
 
-	//test Sign & Verify
-	sc, err := NewSigChain(from, 1, 1, &common.Uint256{1, 2, 3}, toPk, rel1Pk)
+	// test Sign & Verify
+	dataHash := common.Uint256{1, 2, 3}
+	blockHash := common.Uint256{4, 5, 6}
+	sc, err := NewSigChain(from, 1, dataHash[:], blockHash[:], toPk, relay1Pk)
 	if err != nil || sc.Verify() != nil {
 		t.Error("[TestSigChain] 'from' create new SigChain in error")
 	}
 
-	err = sc.Sign(rel2Pk, rel1)
+	err = sc.Sign(relay2Pk, relay1)
 	if err != nil || sc.Verify() != nil {
-		t.Error("[TestSigChain] 'rel1' sign in error")
+		t.Error("[TestSigChain] 'relay1' sign in error")
 	}
 
-	err = sc.Sign(toPk, rel2)
+	err = sc.Sign(toPk, relay2)
 	if err != nil || sc.Verify() != nil {
-		t.Error("[TestSigChain] 'rel2' sign in error")
+		t.Error("[TestSigChain] 'relay2' sign in error")
 	}
 
 	err = sc.Sign(toPk, to)
@@ -43,11 +46,11 @@ func TestSigChain(t *testing.T) {
 		t.Error("[TestSigChain] 'to' sign in error")
 	}
 
-	//test Path()
+	// test Path
 	pks := sc.Path()
 	if !common.IsEqualBytes(pks[0], fromPk) ||
-		!common.IsEqualBytes(pks[1], rel1Pk) ||
-		!common.IsEqualBytes(pks[2], rel2Pk) ||
+		!common.IsEqualBytes(pks[1], relay1Pk) ||
+		!common.IsEqualBytes(pks[2], relay2Pk) ||
 		!common.IsEqualBytes(pks[3], toPk) {
 		t.Error("[TestSigChain] path of 'sc' is incorrect")
 	}
@@ -63,7 +66,7 @@ func TestSigChain(t *testing.T) {
 	}
 
 	// test GetSignerIndex
-	idx, err := sc.GetSignerIndex(rel2Pk)
+	idx, err := sc.GetSignerIndex(relay2Pk)
 	if err != nil || idx != 2 {
 		t.Error("[TestSigChain] GetSignerIndex test failed")
 	}
@@ -75,8 +78,8 @@ func TestSigChain(t *testing.T) {
 	}
 
 	// test GetDataHash
-	dataHash := sc.GetDataHash()
-	if dataHash.CompareTo(common.Uint256{1, 2, 3}) != 0 {
+	gotDataHash := sc.GetDataHash()
+	if bytes.Compare(dataHash[:], gotDataHash[:]) != 0 {
 		t.Error("[TestSigChain] GetDataHash test failed")
 	}
 
@@ -85,9 +88,10 @@ func TestSigChain(t *testing.T) {
 		t.Error("[TestSigChain] Get GetSignature error", len(sig))
 	}
 
-	// test GetHeight
-	if sc.GetHeight() != 1 {
-		t.Error("[TestSigChain] GetHeight test failed")
+	// test GetBlockHash
+	gotBlockHash := sc.GetBlockHash()
+	if bytes.Compare(blockHash[:], gotBlockHash[:]) != 0 {
+		t.Error("[TestSigChain] GetBlockHash test failed")
 	}
 
 	// test GetOwner
@@ -100,12 +104,21 @@ func TestSigChain(t *testing.T) {
 	}
 
 	// test Serialize & Deserialize & Hash
-	var sd SigChain
-	buff := bytes.NewBuffer(nil)
-	sc.Serialize(buff)
-	sd.Deserialize(buff)
-	if scHash := sc.Hash(); scHash.CompareTo(sd.Hash()) != 0 {
+	sd := &SigChain{}
+	buf, err := proto.Marshal(sc)
+	err = proto.Unmarshal(buf, sd)
+	scHash, err := sc.SignatureHash()
+	sdHash, err := sd.SignatureHash()
+	if err == nil || bytes.Compare(scHash[:], sdHash[:]) != 0 {
 		t.Error("[TestSigChain] Serialize test failed")
+	}
+
+	elem2, err := sc.getElemByIndex(2)
+	if err != nil {
+		t.Error(err)
+	}
+	if !common.IsEqualBytes(elem2.Signature, sc.Elems[2].Signature) {
+		t.Error("[TestSigChain] getElemByIndex error")
 	}
 
 }

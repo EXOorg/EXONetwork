@@ -7,6 +7,7 @@ import (
 
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/transaction"
+	"github.com/nknorg/nkn/core/transaction/pool"
 	"github.com/nknorg/nkn/crypto"
 	. "github.com/nknorg/nkn/errors"
 	"github.com/nknorg/nkn/events"
@@ -98,7 +99,7 @@ type Noder interface {
 	GetHeight() uint64
 	GetConnectionCnt() uint
 	GetTxnByCount(int) map[common.Uint256]*transaction.Transaction
-	GetTxnPool() *transaction.TXNPool
+	GetTxnPool() *pool.TXNPool
 	AppendTxnPool(*transaction.Transaction) ErrCode
 	ExistedID(id common.Uint256) bool
 	ReqNeighborList()
@@ -145,9 +146,9 @@ type Noder interface {
 	RelSyncReqSem()
 
 	GetChordAddr() []byte
-	StartRelayer(account *wallet.Account)
+	StartRelayer(wallet wallet.Wallet)
 	NextHop(key []byte) (Noder, error)
-	SendRelayPacket(destID []byte, destPubkey []byte, payload []byte) error
+	SendRelayPacket(srcID, srcPubkey, destID, destPubkey, payload, signature []byte) error
 }
 
 func (msg *NodeAddr) Deserialization(p []byte) error {

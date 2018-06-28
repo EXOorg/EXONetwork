@@ -7,8 +7,8 @@ import (
 type VotingContentType byte
 
 const (
-	SigChainVote VotingContentType = 0
-	BlockVote    VotingContentType = 1
+	SigChainTxnVote VotingContentType = 0
+	BlockVote       VotingContentType = 1
 )
 
 type VotingContent interface {
@@ -24,20 +24,30 @@ type Voting interface {
 	SetConfirmingHash(hash Uint256)
 	// get hash in process
 	GetConfirmingHash() Uint256
-	// set proposer state
-	SetProposerState(hash Uint256, s State)
+	// set self state
+	SetSelfState(hash Uint256, s State)
 	// check proposer state
-	HasProposerState(hash Uint256, s State) bool
+	HasSelfState(hash Uint256, s State) bool
 	// set voter state
-	SetVoterState(nid uint64, hash Uint256, s State)
+	SetNeighborState(nid uint64, hash Uint256, s State)
 	// check voter state
-	HasVoterState(nid uint64, hash Uint256, s State) bool
-	// get prefer voting content
-	GetCurrentVotingContent() (VotingContent, error)
-	// get voting content from local by hash
-	GetVotingContent(hash Uint256) (VotingContent, error)
+	HasNeighborState(nid uint64, hash Uint256, s State) bool
+	// get current voting height
+	GetVotingHeight() uint32
+	// update voting height for next round
+	UpdateVotingHeight()
+	// get best voting content
+	GetBestVotingContent(height uint32) (VotingContent, error)
+	// get worse voting content for testing mind changing
+	GetWorseVotingContent(height uint32) (VotingContent, error)
+	// get voting content from memory pool
+	GetVotingContentFromPool(hash Uint256, height uint32) (VotingContent, error)
+	// get voting content from memory pool and ledger
+	GetVotingContent(hash Uint256, height uint32) (VotingContent, error)
+	// get voting pool
+	GetVotingPool() VotingPool
 	// check if exist in local memory
-	Exist(hash Uint256) bool
+	Exist(hash Uint256, height uint32) bool
 	// dump consensus state for testing
 	DumpState(hash Uint256, desc string, verbose bool)
 }

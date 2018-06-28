@@ -1,18 +1,23 @@
 package session
 
 import (
+	"encoding/hex"
 	"errors"
-	"github.com/gorilla/websocket"
-	"github.com/pborman/uuid"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/pborman/uuid"
 )
 
 type Session struct {
 	sync.Mutex
-	mConnection *websocket.Conn
-	nLastActive int64
-	sSessionId  string
+	mConnection   *websocket.Conn
+	nLastActive   int64
+	sSessionId    string
+	clientChordID []byte
+	clientPubKey  []byte
+	clientAddrStr *string
 }
 
 const sessionTimeOut int64 = 120
@@ -56,10 +61,44 @@ func (s *Session) Send(data []byte) error {
 }
 
 func (s *Session) SessionTimeoverCheck() bool {
-
+	if s.IsClient() {
+		return false
+	}
 	nCurTime := time.Now().Unix()
 	if nCurTime-s.nLastActive > sessionTimeOut { //sec
 		return true
 	}
 	return false
+}
+
+func (s *Session) SetClient(chordID, pubKey []byte, addrStr *string) {
+	s.clientChordID = chordID
+	s.clientPubKey = pubKey
+	s.clientAddrStr = addrStr
+	s.sSessionId = hex.EncodeToString(chordID)
+}
+
+func (s *Session) IsClient() bool {
+	return s.clientChordID != nil && s.clientPubKey != nil && s.clientAddrStr != nil
+}
+
+func (s *Session) GetID() []byte {
+	if !s.IsClient() {
+		return nil
+	}
+	return s.clientChordID
+}
+
+func (s *Session) GetPubKey() []byte {
+	if !s.IsClient() {
+		return nil
+	}
+	return s.clientPubKey
+}
+
+func (s *Session) GetAddrStr() *string {
+	if !s.IsClient() {
+		return nil
+	}
+	return s.clientAddrStr
 }

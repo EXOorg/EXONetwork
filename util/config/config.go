@@ -16,7 +16,7 @@ const (
 	DEFAULTGENBLOCKTIME    = 6
 	DefaultConfigFilename  = "./config.json"
 	DefaultBookKeeperCount = 4
-	DefaultMultiCoreNum    = 4
+	DefaultProposerCount   = 1
 )
 
 var (
@@ -25,15 +25,15 @@ var (
 	defaultParameters = &Configuration{
 		Magic:         99281,
 		Version:       1,
-		HttpRestPort:  10334,
-		HttpWsPort:    10335,
-		HttpJsonPort:  10336,
-		NodePort:      10338,
-		ChordPort:     10339,
-		PrintLevel:    5,
+		ChordPort:     30000,
+		NodePort:      30001,
+		HttpWsPort:    30002,
+		HttpRestPort:  30003,
+		HttpJsonPort:  30004,
+		PrintLevel:    1,
 		ConsensusType: "ising",
 		SeedList: []string{
-			"127.0.0.1:10339",
+			"127.0.0.1:30000",
 		},
 	}
 )
@@ -64,6 +64,7 @@ type Configuration struct {
 	MaxHdrSyncReqs int      `json:"MaxConcurrentSyncHeaderReqs"`
 	ConsensusType  string   `json:"ConsensusType"`
 	ChordPort      uint16   `json:"ChordPort"`
+	BlockProposer  []string `json:"TestBlockProposer"`
 }
 
 func init() {
@@ -104,6 +105,9 @@ func check(config *Configuration) error {
 		if len(config.SeedList) == 0 {
 			return errors.New("seed list in config file should not be blank")
 		}
+		if len(config.BlockProposer) < DefaultProposerCount {
+			log.Fatalln("bootstrap block proposer is required at least one in config.json")
+		}
 	default:
 		fmt.Println(config.ConsensusType)
 		return errors.New("consensus type in config file should not be blank")
@@ -128,12 +132,11 @@ func findMinMaxPort(array []uint16) (uint16, uint16) {
 
 func IncrementPort() {
 	allPorts := []uint16{
-		Parameters.HttpInfoPort,
-		Parameters.HttpRestPort,
-		Parameters.HttpWsPort,
-		Parameters.HttpJsonPort,
-		Parameters.NodePort,
 		Parameters.ChordPort,
+		Parameters.NodePort,
+		Parameters.HttpWsPort,
+		Parameters.HttpRestPort,
+		Parameters.HttpJsonPort,
 	}
 	minPort, maxPort := findMinMaxPort(allPorts)
 	step := maxPort - minPort + 1
@@ -146,10 +149,9 @@ func IncrementPort() {
 		}
 		delta += step
 	}
-	Parameters.HttpInfoPort += delta
-	Parameters.HttpRestPort += delta
-	Parameters.HttpWsPort += delta
-	Parameters.HttpJsonPort += delta
-	Parameters.NodePort += delta
 	Parameters.ChordPort += delta
+	Parameters.NodePort += delta
+	Parameters.HttpWsPort += delta
+	Parameters.HttpRestPort += delta
+	Parameters.HttpJsonPort += delta
 }

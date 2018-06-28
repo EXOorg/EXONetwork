@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"io"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/nknorg/nkn/common/serialization"
 	"github.com/nknorg/nkn/events"
 	"github.com/nknorg/nkn/net/protocol"
@@ -16,13 +17,47 @@ import (
 type RelayPacket struct {
 	SrcID    []byte
 	DestID   []byte
-	SigChain *por.SigChain
 	Payload  []byte
+	SigChain *por.SigChain
 }
 
 type RelayMessage struct {
 	msgHdr
 	packet RelayPacket
+}
+
+func NewRelayPacket(srcID, destID, payload []byte, sigChain *por.SigChain) (*RelayPacket, error) {
+	relayPakcet := &RelayPacket{
+		SrcID:    srcID,
+		DestID:   destID,
+		Payload:  payload,
+		SigChain: sigChain,
+	}
+	return relayPakcet, nil
+}
+
+func NewRelayMessage(packet *RelayPacket) (*RelayMessage, error) {
+	var msg RelayMessage
+	msg.msgHdr.Magic = protocol.NETMAGIC
+	cmd := "relay"
+	copy(msg.msgHdr.CMD[0:len(cmd)], cmd)
+	tmpBuffer := bytes.NewBuffer(nil)
+	packet.Serialize(tmpBuffer)
+	msg.packet = *packet
+	b := new(bytes.Buffer)
+	err := binary.Write(b, binary.LittleEndian, tmpBuffer.Bytes())
+	if err != nil {
+		log.Error("Binary Write failed at new Msg")
+		return nil, err
+	}
+	s := sha256.Sum256(b.Bytes())
+	s2 := s[:]
+	s = sha256.Sum256(s2)
+	buf := bytes.NewBuffer(s[:4])
+	binary.Read(buf, binary.LittleEndian, &(msg.msgHdr.Checksum))
+	msg.msgHdr.Length = uint32(len(b.Bytes()))
+
+	return &msg, nil
 }
 
 func (msg RelayMessage) Handle(node protocol.Noder) error {
@@ -58,6 +93,16 @@ func (msg *RelayMessage) Deserialize(r io.Reader) error {
 	return nil
 }
 
+func (msg *RelayMessage) ToBytes() ([]byte, error) {
+	buffer := bytes.NewBuffer(nil)
+	err := msg.Serialize(buffer)
+	if err != nil {
+		log.Error("Error serializing relay message ", err.Error())
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
 func (packet *RelayPacket) Serialize(w io.Writer) error {
 	var err error
 	err = serialization.WriteVarBytes(w, packet.SrcID)
@@ -70,12 +115,16 @@ func (packet *RelayPacket) Serialize(w io.Writer) error {
 		return err
 	}
 
-	err = packet.SigChain.Serialize(w)
+	err = serialization.WriteVarBytes(w, packet.Payload)
 	if err != nil {
 		return err
 	}
 
-	err = serialization.WriteVarBytes(w, packet.Payload)
+	buf, err := proto.Marshal(packet.SigChain)
+	if err != nil {
+		return err
+	}
+	err = serialization.WriteVarBytes(w, buf)
 	if err != nil {
 		return err
 	}
@@ -96,48 +145,21 @@ func (packet *RelayPacket) Deserialize(r io.Reader) error {
 	}
 	packet.DestID = destID
 
-	packet.SigChain = &por.SigChain{}
-	err = packet.SigChain.Deserialize(r)
-	if err != nil {
-		return err
-	}
-
 	payload, err := serialization.ReadVarBytes(r)
 	if err != nil {
 		return err
 	}
 	packet.Payload = payload
 
+	buf, err := serialization.ReadVarBytes(r)
+	if err != nil {
+		return err
+	}
+	packet.SigChain = &por.SigChain{}
+	err = proto.Unmarshal(buf, packet.SigChain)
+	if err != nil {
+		return err
+	}
+
 	return nil
-}
-
-func NewRelayMessage(packet *RelayPacket) ([]byte, error) {
-	var msg RelayMessage
-	msg.msgHdr.Magic = protocol.NETMAGIC
-	cmd := "relay"
-	copy(msg.msgHdr.CMD[0:len(cmd)], cmd)
-	tmpBuffer := bytes.NewBuffer(nil)
-	packet.Serialize(tmpBuffer)
-	msg.packet = *packet
-	b := new(bytes.Buffer)
-	err := binary.Write(b, binary.LittleEndian, tmpBuffer.Bytes())
-	if err != nil {
-		log.Error("Binary Write failed at new Msg")
-		return nil, err
-	}
-	s := sha256.Sum256(b.Bytes())
-	s2 := s[:]
-	s = sha256.Sum256(s2)
-	buf := bytes.NewBuffer(s[:4])
-	binary.Read(buf, binary.LittleEndian, &(msg.msgHdr.Checksum))
-	msg.msgHdr.Length = uint32(len(b.Bytes()))
-
-	relayBuffer := bytes.NewBuffer(nil)
-	err = msg.Serialize(relayBuffer)
-	if err != nil {
-		log.Error("Error Convert net message ", err.Error())
-		return nil, err
-	}
-
-	return relayBuffer.Bytes(), nil
 }

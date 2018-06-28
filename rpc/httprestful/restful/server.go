@@ -55,6 +55,7 @@ const (
 	Api_NoticeServerState   = "/api/v1/config/noticeserver/state"
 	Api_WebsocketState      = "/api/v1/config/websocket/state"
 	Api_Restart             = "/api/v1/restart"
+	Api_ChordRingInfo       = "/api/v1/chord/ring/info"
 )
 
 func InitRestServer() ApiServer {
@@ -82,12 +83,13 @@ func (rt *restServer) Start() error {
 		}
 	} else {
 		var err error
-		rt.listener, err = net.Listen("tcp", ":"+strconv.Itoa(Parameters.HttpRestPort))
+		rt.listener, err = net.Listen("tcp", ":"+strconv.FormatUint(uint64(Parameters.HttpRestPort), 10))
 		if err != nil {
 			log.Fatal("net.Listen: ", err.Error())
 			return err
 		}
 	}
+	log.Infof("Start HTTP RESTful server at %v", rt.listener.Addr())
 	rt.server = &http.Server{Handler: rt.router}
 	err := rt.server.Serve(rt.listener)
 
@@ -115,7 +117,7 @@ func (rt *restServer) setWebsocketState(cmd map[string]interface{}) map[string]i
 		websocket.SetPushBlockTxsFlag(b)
 	}
 	if wsPort, ok := cmd["Port"].(float64); ok && wsPort != 0 {
-		Parameters.HttpWsPort = int(wsPort)
+		Parameters.HttpWsPort = uint16(wsPort)
 	}
 	if startFlag {
 		websocket.ReStartServer()
@@ -149,6 +151,7 @@ func (rt *restServer) registryMethod() {
 		Api_GetBalancebyAsset:   {name: "getbalancebyasset", handler: GetBalanceByAsset},
 		Api_Restart:             {name: "restart", handler: rt.Restart},
 		Api_GetStateUpdate:      {name: "getstateupdate", handler: GetStateUpdate},
+		Api_ChordRingInfo:       {name: "getchordringinfo", handler: GetChordRingInfo},
 	}
 
 	sendRawTransaction := func(cmd map[string]interface{}) map[string]interface{} {
@@ -214,6 +217,7 @@ func (rt *restServer) getParams(r *http.Request, url string, req map[string]inte
 		req["Hash"] = getParam(r, "hash")
 		break
 	case Api_Getblockheight:
+	case Api_ChordRingInfo:
 		break
 	case Api_Getblockhash:
 		req["Height"] = getParam(r, "height")
@@ -329,7 +333,7 @@ func (rt *restServer) response(w http.ResponseWriter, resp map[string]interface{
 	resp["Desc"] = Err.ErrMap[resp["Error"].(int64)]
 	data, err := json.Marshal(resp)
 	if err != nil {
-		log.Fatal("HTTP Handle - json.Marshal: %v", err)
+		log.Fatalf("HTTP Handle - json.Marshal: %v", err)
 		return
 	}
 	rt.write(w, data)
@@ -367,8 +371,8 @@ func (rt *restServer) initTlsListen() (net.Listener, error) {
 		Certificates: []tls.Certificate{cert},
 	}
 
-	log.Info("TLS listen port is ", strconv.Itoa(Parameters.HttpRestPort))
-	listener, err := tls.Listen("tcp", ":"+strconv.Itoa(Parameters.HttpRestPort), tlsConfig)
+	log.Info("TLS listen port is ", strconv.FormatUint(uint64(Parameters.HttpRestPort), 10))
+	listener, err := tls.Listen("tcp", ":"+strconv.FormatUint(uint64(Parameters.HttpRestPort), 10), tlsConfig)
 	if err != nil {
 		log.Error(err)
 		return nil, err

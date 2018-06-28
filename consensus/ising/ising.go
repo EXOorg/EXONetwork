@@ -31,7 +31,6 @@ func (cs *ConsensusService) Start() {
 	}
 }
 
-
 func StartIsingConsensus(account *wallet.Account, node protocol.Noder) {
 	service := NewConsensusService(account, node)
 	service.Start()

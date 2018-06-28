@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/transaction"
 	"github.com/nknorg/nkn/crypto"
@@ -20,7 +21,9 @@ func TestPorPackage(t *testing.T) {
 	toPk, _ := to.PubKey().EncodePoint(true)
 	relPk, _ := rel.PubKey().EncodePoint(true)
 
-	sc, err := NewSigChain(from, 1, 1, &common.Uint256{}, toPk, relPk)
+	dataHash := common.Uint256{}
+	blockHash := common.Uint256{}
+	sc, err := NewSigChain(from, 1, dataHash[:], blockHash[:], toPk, relPk)
 	if err != nil {
 		t.Error("sigchain created failed")
 	}
@@ -35,41 +38,45 @@ func TestPorPackage(t *testing.T) {
 		t.Error("'to' sign in error")
 	}
 
-	buff := bytes.NewBuffer(nil)
-	sc.Serialize(buff)
-	txn, err := transaction.NewCommitTransaction(buff.Bytes())
+	buf, err := proto.Marshal(sc)
+	txn, err := transaction.NewCommitTransaction(buf, from.ProgramHash)
 	if err != nil {
 		log.Error("txn wrong", txn)
 	}
 
-	ppkg := NewPorPackage(txn)
+	ppkg, err := NewPorPackage(txn)
+	if err != nil {
+		log.Error("Create por package error", err)
+	}
 
 	//test Hash
-	ppkgHash := ppkg.Hash()
-	if (&ppkgHash).CompareTo(sc.Hash()) != 0 {
+	ppkgHash := ppkg.SigHash
+	sigChainHash, err := sc.SignatureHash()
+	if bytes.Compare(ppkgHash, sigChainHash) != 0 {
 		t.Error("[TestPorPackage] Hash test failed")
 	}
 
-	//GetHeight
-	if sc.GetHeight() != ppkg.GetHeight() {
-		t.Error("[TestPorPackage] GetHeight test failed")
+	//GetBlockHash
+	if bytes.Compare(sc.GetBlockHash(), ppkg.GetBlockHash()) != 0 {
+		t.Error("[TestPorPackage] GetBlockHeight test failed")
 	}
 
 	//GetTxHash
-	if ppkg.GetTxHash().CompareTo(txn.Hash()) != 0 {
+	txHash := txn.Hash()
+	if bytes.Compare(ppkg.GetTxHash(), txHash[:]) != 0 {
 		t.Error("[TestPorPackage] GetTxHash test failed")
 	}
 
 	//GetSigChain
-	if (&ppkgHash).CompareTo(ppkg.GetSigChain().Hash()) != 0 {
+	sigChainHash, err = ppkg.GetSigChain().SignatureHash()
+	if bytes.Compare(ppkgHash, sigChainHash) != 0 {
 		t.Error("[TestPorPackage] GetSigChain test failed")
 	}
 
 	//Serialize & Deserialize
-	ppkg2 := new(porPackage)
-	buff2 := bytes.NewBuffer(nil)
-	ppkg.Serialize(buff2)
-	ppkg2.Deserialize(buff2)
+	buf, err = proto.Marshal(ppkg)
+	ppkg2 := new(PorPackage)
+	proto.Unmarshal(buf, ppkg2)
 
 	if ppkg.CompareTo(ppkg2) != 0 {
 		t.Error("[TestPorPackage] Serialize test failed")
