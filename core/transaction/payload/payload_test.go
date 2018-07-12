@@ -9,24 +9,18 @@ import (
 	"github.com/nknorg/nkn/crypto"
 )
 
-func TestBookKeeping(t *testing.T) {
-	bk := &BookKeeping{
-		Nonce: 10,
-	}
+func TestCoinbase(t *testing.T) {
+	bk := &Coinbase{}
 
 	data, err := bk.MarshalJson()
 	if err != nil {
-		t.Error("BookKeeping MarshalJson error")
+		t.Error("Coinbase MarshalJson error")
 	}
 
-	newBk := new(BookKeeping)
+	newBk := new(Coinbase)
 	err = newBk.UnmarshalJson(data)
 	if err != nil {
-		t.Error("BookKeeping UnmarshalJson error")
-	}
-
-	if !newBk.Equal(bk) {
-		t.Error("BookKeeping not equal")
+		t.Error("Coinbase UnmarshalJson error")
 	}
 }
 
@@ -37,7 +31,6 @@ func TestRegiserAsset(t *testing.T) {
 			Description: "world",
 			Precision:   8,
 			AssetType:   0x11,
-			RecordType:  0x1,
 		},
 		Amount: 100,
 		Issuer: &crypto.PubKey{

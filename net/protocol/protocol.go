@@ -5,66 +5,16 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/nknorg/nkn/common"
+	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/transaction"
 	"github.com/nknorg/nkn/core/transaction/pool"
 	"github.com/nknorg/nkn/crypto"
 	. "github.com/nknorg/nkn/errors"
 	"github.com/nknorg/nkn/events"
-	"github.com/nknorg/nkn/wallet"
+	"github.com/nknorg/nkn/vault"
 )
 
-type NodeAddr struct {
-	Time     int64
-	Services uint64
-	IpAddr   [16]byte
-	Port     uint16
-	ID       uint64 // Unique ID
-}
-
-// The node capability type
-const (
-	VERIFYNODE  = 1
-	SERVICENODE = 2
-)
-
-const (
-	VERIFYNODENAME  = "verify"
-	SERVICENODENAME = "service"
-)
-
-const (
-	MSGCMDLEN         = 12
-	CMDOFFSET         = 4
-	CHECKSUMLEN       = 4
-	HASHLEN           = 32 // hash length in byte
-	MSGHDRLEN         = 24
-	NETMAGIC          = 0x74746e41
-	MAXBLKHDRCNT      = 500
-	MAXINVHDRCNT      = 500
-	DIVHASHLEN        = 5
-	MINCONNCNT        = 3
-	MAXREQBLKONCE     = 16
-	TIMESOFUPDATETIME = 2
-)
-
-const (
-	HELLOTIMEOUT     = 3 // Seconds
-	MAXHELLORETYR    = 3
-	MAXBUFLEN        = 1024 * 16 // Fixme The maximum buffer to receive message
-	MAXCHANBUF       = 512
-	PROTOCOLVERSION  = 0
-	PERIODUPDATETIME = 3 // Time to update and sync information with other nodes
-	HEARTBEAT        = 2
-	KEEPALIVETIMEOUT = 3
-	DIALTIMEOUT      = 6
-	CONNMONITOR      = 6
-	CONNMAXBACK      = 4000
-	MAXRETRYCOUNT    = 3
-	MAXSYNCHDRREQ    = 2 //Max Concurrent Sync Header Request
-)
-
-// The node state
+// node connection state
 const (
 	INIT       = 0
 	HAND       = 1
@@ -74,7 +24,13 @@ const (
 	INACTIVITY = 5
 )
 
-var ReceiveDuplicateBlockCnt uint64 //an index to detecting networking status
+type SyncState byte
+
+const (
+	SyncStarted     SyncState = 0
+	SyncFinished    SyncState = 1
+	PersistFinished SyncState = 2
+)
 
 type Noder interface {
 	Version() uint32
@@ -82,13 +38,24 @@ type Noder interface {
 	Services() uint64
 	GetAddr() string
 	GetPort() uint16
-	GetHttpInfoPort() int
+	GetHttpInfoPort() uint16
 	SetHttpInfoPort(uint16)
+	GetHttpJsonPort() uint16
+	//TODO SetHttpJsonPort(uint16)
+	GetWebSockPort() uint16
+	//TODO SetWebSockPort(uint16)
+	GetChordPort() uint16
+	//TODO SetChordPort(uint16)
 	GetHttpInfoState() bool
 	SetHttpInfoState(bool)
 	GetState() uint32
-	GetRelay() bool
 	SetState(state uint32)
+	GetSyncState() SyncState
+	SetSyncState(s SyncState)
+	SetSyncStopHash(hash Uint256, height uint32)
+	SyncBlock()
+	SyncBlockMonitor()
+	GetRelay() bool
 	GetPubKey() *crypto.PubKey
 	CompareAndSetState(old, new uint32) bool
 	UpdateRXTime(t time.Time)
@@ -96,16 +63,15 @@ type Noder interface {
 	DelNbrNode(id uint64) (Noder, bool)
 	AddNbrNode(Noder)
 	CloseConn()
-	GetHeight() uint64
+	GetHeight() uint32
 	GetConnectionCnt() uint
-	GetTxnByCount(int) map[common.Uint256]*transaction.Transaction
-	GetTxnPool() *pool.TXNPool
+	GetTxnByCount(int) map[Uint256]*transaction.Transaction
+	GetTxnPool() *pool.TxnPool
 	AppendTxnPool(*transaction.Transaction) ErrCode
-	ExistedID(id common.Uint256) bool
+	ExistedID(id Uint256) bool
 	ReqNeighborList()
 	DumpInfo()
-	UpdateInfo(t time.Time, version uint32, services uint64,
-		port uint16, nonce uint64, relay uint8, height uint64)
+	UpdateInfo(t time.Time, version uint32, services uint64, port uint16, nonce uint64, relay uint8, height uint32)
 	ConnectNeighbors()
 	Connect(nodeAddr string) error
 	Tx(buf []byte)
@@ -113,7 +79,7 @@ type Noder interface {
 	NodeEstablished(uid uint64) bool
 	GetEvent(eventName string) *events.Event
 	GetNeighborAddrs() ([]NodeAddr, uint64)
-	GetTransaction(hash common.Uint256) *transaction.Transaction
+	GetTransaction(hash Uint256) *transaction.Transaction
 	IncRxTxnCnt()
 	GetTxnCnt() uint64
 	GetRxTxnCnt() uint64
@@ -122,8 +88,7 @@ type Noder interface {
 	GetBookKeeperAddr() *crypto.PubKey
 	GetBookKeepersAddrs() ([]*crypto.PubKey, uint64)
 	SetBookKeeperAddr(pk *crypto.PubKey)
-	GetNeighborHeights() ([]uint64, uint64)
-	SyncNodeHeight()
+	GetNeighborHeights() ([]uint32, uint64)
 	CleanSubmittedTransactions(txns []*transaction.Transaction) error
 
 	GetNeighborNoder() []Noder
@@ -133,8 +98,7 @@ type Noder interface {
 	RemoveFlightHeightLessThan(height uint32)
 	RemoveFlightHeight(height uint32)
 	GetLastRXTime() time.Time
-	SetHeight(height uint64)
-	WaitForFourPeersStart()
+	SetHeight(height uint32)
 	WaitForSyncBlkFinish()
 	GetFlightHeights() []uint32
 	IsAddrInNbrList(addr string) bool
@@ -146,9 +110,18 @@ type Noder interface {
 	RelSyncReqSem()
 
 	GetChordAddr() []byte
-	StartRelayer(wallet wallet.Wallet)
+	StartRelayer(wallet vault.Wallet)
 	NextHop(key []byte) (Noder, error)
 	SendRelayPacket(srcID, srcPubkey, destID, destPubkey, payload, signature []byte) error
+	SendRelayPacketsInBuffer(clientId []byte) error
+}
+
+type NodeAddr struct {
+	Time     int64
+	Services uint64
+	IpAddr   [16]byte
+	Port     uint16
+	ID       uint64
 }
 
 func (msg *NodeAddr) Deserialization(p []byte) error {

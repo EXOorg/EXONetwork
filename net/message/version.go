@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/nknorg/nkn/core/ledger"
@@ -13,7 +14,6 @@ import (
 	. "github.com/nknorg/nkn/net/protocol"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
-	"io"
 )
 
 const (
@@ -32,7 +32,7 @@ type version struct {
 		Nonce        uint64
 		// TODO remove tempory to get serilization function passed
 		UserAgent   uint8
-		StartHeight uint64
+		StartHeight uint32
 		// FIXME check with the specify relay type length
 		Relay uint8
 	}
@@ -44,9 +44,7 @@ func (msg *version) init(n Noder) {
 }
 
 func NewVersion(n Noder) ([]byte, error) {
-	log.Debug()
 	var msg version
-
 	msg.P.Version = n.Version()
 	msg.P.Services = n.Services()
 	msg.P.HttpInfoPort = config.Parameters.HttpInfoPort
@@ -61,7 +59,7 @@ func NewVersion(n Noder) ([]byte, error) {
 	msg.P.Port = n.GetPort()
 	msg.P.Nonce = n.GetID()
 	msg.P.UserAgent = 0x00
-	msg.P.StartHeight = uint64(ledger.DefaultLedger.GetLocalBlockChainHeight())
+	msg.P.StartHeight = ledger.DefaultLedger.GetLocalBlockChainHeight()
 	if n.GetRelay() {
 		msg.P.Relay = 1
 	} else {
@@ -69,11 +67,10 @@ func NewVersion(n Noder) ([]byte, error) {
 	}
 
 	msg.pk = n.GetBookKeeperAddr()
-	log.Debug("new version msg.pk is ", msg.pk)
 	// TODO the function to wrap below process
 	// msg.HDR.init("version", n.GetID(), uint32(len(p.Bytes())))
 
-	msg.Hdr.Magic = NETMAGIC
+	msg.Hdr.Magic = NetID
 	copy(msg.Hdr.CMD[0:7], "version")
 	p := bytes.NewBuffer([]byte{})
 	err := binary.Write(p, binary.LittleEndian, &(msg.P))
@@ -88,7 +85,6 @@ func NewVersion(n Noder) ([]byte, error) {
 	buf := bytes.NewBuffer(s[:4])
 	binary.Read(buf, binary.LittleEndian, &(msg.Hdr.Checksum))
 	msg.Hdr.Length = uint32(len(p.Bytes()))
-	log.Debug("The message payload length is ", msg.Hdr.Length)
 
 	versionBuff := bytes.NewBuffer(nil)
 	err = msg.Serialize(versionBuff)
@@ -101,7 +97,7 @@ func NewVersion(n Noder) ([]byte, error) {
 }
 
 func (msg version) Verify(buf []byte) error {
-	return  msg.Hdr.Verify(buf)
+	return msg.Hdr.Verify(buf)
 }
 
 func (msg version) Serialize(w io.Writer) error {
@@ -161,7 +157,6 @@ func (msg *version) Deserialize(r io.Reader) error {
  * |------------------------------------------------------------------------
  */
 func (msg version) Handle(node Noder) error {
-	log.Debug()
 	localNode := node.LocalNode()
 
 	// Exclude the node itself
@@ -186,7 +181,6 @@ func (msg version) Handle(node Noder) error {
 		n.CloseConn()
 	}
 
-	log.Debug("handle version msg.pk is ", msg.pk)
 	if msg.P.Cap[HTTPINFOFLAG] == 0x01 {
 		node.SetHttpInfoState(true)
 	} else {

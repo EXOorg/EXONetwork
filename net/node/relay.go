@@ -13,10 +13,10 @@ import (
 	"github.com/nknorg/nkn/por"
 	"github.com/nknorg/nkn/relay"
 	"github.com/nknorg/nkn/util/log"
-	"github.com/nknorg/nkn/wallet"
+	"github.com/nknorg/nkn/vault"
 )
 
-func (node *node) StartRelayer(wallet wallet.Wallet) {
+func (node *node) StartRelayer(wallet vault.Wallet) {
 	node.relayer = relay.NewRelayService(wallet, node)
 	node.relayer.Start()
 }
@@ -75,6 +75,7 @@ func (node *node) SendRelayPacket(srcID, srcPubkey, destID, destPubkey, payload,
 		uint32(len(payload)),
 		&payloadHash256,
 		&prevHeaderHash,
+		srcID,
 		srcPubkey,
 		destPubkey,
 		signature,

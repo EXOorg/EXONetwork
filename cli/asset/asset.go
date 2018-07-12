@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/nknorg/nkn/api/httpjson/client"
 	. "github.com/nknorg/nkn/cli/common"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto/util"
-	"github.com/nknorg/nkn/rpc/httpjson"
-	"github.com/nknorg/nkn/wallet"
+	"github.com/nknorg/nkn/vault"
 
 	"github.com/urfave/cli"
 )
@@ -67,20 +67,20 @@ func assetAction(c *cli.Context) error {
 	var resp []byte
 	switch {
 	case c.Bool("reg"):
-		resp, err = httpjson.Call(Address(), "registasset", 0, []interface{}{parseAssetName(c), value})
+		resp, err = client.Call(Address(), "registasset", 0, map[string]interface{}{"name": parseAssetName(c), "value": value})
 	case c.Bool("issue"):
-		resp, err = httpjson.Call(Address(), "issueasset", 0, []interface{}{parseAssetID(c), parseAddress(c), value})
+		resp, err = client.Call(Address(), "issueasset", 0, map[string]interface{}{"assetid": parseAssetID(c), "address": parseAddress(c), "value": value})
 	case c.Bool("transfer"):
-		resp, err = httpjson.Call(Address(), "sendtoaddress", 0, []interface{}{parseAssetID(c), parseAddress(c), value})
+		resp, err = client.Call(Address(), "sendtoaddress", 0, map[string]interface{}{"assetid": parseAssetID(c), "address": parseAddress(c), "value": value})
 	case c.Bool("prepaid"):
 		rates := c.String("rates")
 		if rates == "" {
 			fmt.Println("rates is required with [--rates]")
 			return nil
 		}
-		resp, err = httpjson.Call(Address(), "prepaidasset", 0, []interface{}{parseAssetID(c), value, rates})
+		resp, err = client.Call(Address(), "prepaidasset", 0, map[string]interface{}{"assetid": parseAssetID(c), "value": value, "rates": rates})
 	case c.Bool("withdraw"):
-		resp, err = httpjson.Call(Address(), "withdrawasset", 0, []interface{}{parseAssetID(c), value})
+		resp, err = client.Call(Address(), "withdrawasset", 0, map[string]interface{}{"assetid": parseAssetID(c), "value": value})
 	default:
 		cli.ShowSubcommandHelp(c)
 		return nil
@@ -124,7 +124,7 @@ func NewCommand() *cli.Command {
 			cli.StringFlag{
 				Name:  "wallet, w",
 				Usage: "wallet name",
-				Value: wallet.WalletFileName,
+				Value: vault.WalletFileName,
 			},
 			cli.StringFlag{
 				Name:  "password, p",

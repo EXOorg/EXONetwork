@@ -13,10 +13,10 @@ type BlockVoting struct {
 	sync.RWMutex
 	pstate         map[Uint256]*State            // consensus state for proposer
 	vstate         map[uint64]map[Uint256]*State // consensus state for voter
-	height         uint32			// voting height
-	blockCache     *BlockCache      // received blocks
-	pool           *BlockVotingPool // block voting pool
-	confirmingHash Uint256          // block hash in process
+	height         uint32                        // voting height
+	blockCache     *BlockCache                   // received blocks
+	pool           *BlockVotingPool              // block voting pool
+	confirmingHash Uint256                       // block hash in process
 }
 
 func NewBlockVoting(totalWeight int) *BlockVoting {
@@ -24,7 +24,7 @@ func NewBlockVoting(totalWeight int) *BlockVoting {
 		pstate:     make(map[Uint256]*State),
 		vstate:     make(map[uint64]map[Uint256]*State),
 		height:     ledger.DefaultLedger.Store.GetHeight() + 1,
-		blockCache: NewCache(),
+		blockCache: NewBlockCache(),
 		pool:       NewBlockVotingPool(totalWeight),
 	}
 
@@ -90,12 +90,8 @@ func (bv *BlockVoting) SetVotingHeight(height uint32) {
 	bv.height = height
 }
 
-func (bv *BlockVoting) UpdateVotingHeight() {
-	bv.height = ledger.DefaultLedger.Store.GetHeight() + 1
-}
-
 func (bv *BlockVoting) GetVotingHeight() uint32 {
-	return bv.height
+	return ledger.DefaultLedger.Store.GetHeight() + 1
 }
 
 func (bv *BlockVoting) SetConfirmingHash(hash Uint256) {
@@ -152,10 +148,24 @@ func (bv *BlockVoting) VotingType() VotingContentType {
 	return BlockVote
 }
 
-func (bv *BlockVoting) Preparing(content VotingContent) error {
-	err := bv.blockCache.AddBlockToCache(content.(*ledger.Block))
-	if err != nil {
-		return err
+func (bv *BlockVoting) AddToCache(content VotingContent) error {
+	var err error
+	if block, ok := content.(*ledger.Block); !ok {
+		return errors.New("invalid voting content type")
+	} else {
+		blockHeight := block.Header.Height
+		localHeight := ledger.DefaultLedger.Store.GetHeight()
+		if blockHeight != localHeight+1 {
+			return errors.New("invalid block height")
+		}
+		err = ledger.BlockFullyCheck(block, ledger.DefaultLedger)
+		if err != nil {
+			return err
+		}
+		err = bv.blockCache.AddBlockToCache(block)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

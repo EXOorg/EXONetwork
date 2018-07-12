@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +27,18 @@ import (
 	"github.com/nknorg/nkn/util/log"
 )
 
+const (
+	MaxSyncHeaderReq     = 2               // max concurrent sync header request count
+	ConnectionMaxBackoff = 4000            // back off for retry
+	MaxRetryCount        = 3               // max retry count
+	KeepAliveTicker      = 3 * time.Second // ticker for ping/pong and keepalive message
+	KeepaliveTimeout     = 9 * time.Second // timeout for keeping alive
+	BlockSyncingTicker   = 3 * time.Second // ticker for syncing block
+	ProtocolVersion      = 0               // protocol version
+	ConnectionTicker     = 6 * time.Second // ticker for connection
+	MaxReqBlkOnce        = 16              // max block count requested
+)
+
 type Semaphore chan struct{}
 
 func MakeSemaphore(n int) Semaphore {
@@ -37,37 +49,33 @@ func (s Semaphore) acquire() { s <- struct{}{} }
 func (s Semaphore) release() { <-s }
 
 type node struct {
-	//sync.RWMutex	//The Lock not be used as expected to use function channel instead of lock
-	state     uint32   // node state
-	id        uint64   // The nodes's id
-	cap       [32]byte // The node capability set
-	version   uint32   // The network protocol the node used
-	services  uint64   // The services the node supplied
-	relay     bool     // The relay capability of the node (merge into capbility flag)
-	height    uint64   // The node latest block height
-	txnCnt    uint64   // The transactions be transmit by this node
-	rxTxnCnt  uint64   // The transaction received by this node
-	publicKey *crypto.PubKey
-	// TODO does this channel should be a buffer channel
-	chF           chan func() error // Channel used to operate the node without lock
-	link                            // The link status and infomation
-	local         *node             // The pointer to local node
-	nbrNodes                        // The neighbor node connect with currently node except itself
-	eventQueue                      // The event queue to notice notice other modules
-	*pool.TXNPool                   // Unconfirmed transaction pool
-	idCache                         // The buffer to store the id of the items which already be processed
-	/*
-	 * |--|--|--|--|--|--|isSyncFailed|isSyncHeaders|
-	 */
-	flightHeights            []uint32
-	lastContact              time.Time
-	nodeDisconnectSubscriber events.Subscriber
-	tryTimes                 uint32
-	ConnectingNodes
-	RetryConnAddrs
-	SyncReqSem Semaphore
-	ring       *chord.Ring
-	relayer    *relay.RelayService
+	state                    uint32              // node connection state
+	id                       uint64              // node ID
+	cap                      [32]byte            // node capability
+	version                  uint32              // network protocol version
+	services                 uint64              // supplied services
+	relay                    bool                // relay capability (merge into capbility flag)
+	height                   uint32              // node latest block height
+	local                    *node               // local node
+	txnCnt                   uint64              // transmitted transaction count
+	rxTxnCnt                 uint64              // received transaction count
+	publicKey                *crypto.PubKey      // node public key
+	flightHeights            []uint32            // flight height
+	SyncReqSem               Semaphore           // semaphore for connection counts
+	ring                     *chord.Ring         // chord ring
+	relayer                  *relay.RelayService // relay service
+	syncStopHash             Uint256             // block syncing stop hash
+	syncState                SyncState           // block syncing state
+	quit                     chan struct{}       // block syncing channel
+	stopHashChan             chan struct{}       // wait for block stop hash set
+	nodeDisconnectSubscriber events.Subscriber   // disconnect event
+	link                                         // link status and information
+	nbrNodes                                     // neighbor nodes
+	eventQueue                                   // event queue
+	*pool.TxnPool                                // transaction pool of local node
+	idCache                                      // entity ID cache
+	ConnectingNodes                              // connecting nodes cache
+	RetryConnAddrs                               // retry connection cache
 }
 
 type RetryConnAddrs struct {
@@ -85,7 +93,6 @@ func (node *node) DumpInfo() {
 	log.Info("\t state = ", node.state)
 	log.Info(fmt.Sprintf("\t id = 0x%x", node.id))
 	log.Info("\t addr = ", node.addr)
-	log.Info("\t conn = ", node.conn)
 	log.Info("\t cap = ", node.cap)
 	log.Info("\t version = ", node.version)
 	log.Info("\t services = ", node.services)
@@ -136,7 +143,7 @@ func (node *node) RemoveAddrInConnectingList(addr string) {
 }
 
 func (node *node) UpdateInfo(t time.Time, version uint32, services uint64,
-	port uint16, nonce uint64, relay uint8, height uint64) {
+	port uint16, nonce uint64, relay uint8, height uint32) {
 
 	node.UpdateRXTime(t)
 	node.id = nonce
@@ -148,35 +155,29 @@ func (node *node) UpdateInfo(t time.Time, version uint32, services uint64,
 	} else {
 		node.relay = true
 	}
-	node.height = uint64(height)
+	node.height = height
 }
 
 func NewNode() *node {
 	n := node{
 		state: INIT,
-		chF:   make(chan func() error),
 	}
-	runtime.SetFinalizer(&n, rmNode)
-	go n.backend()
 	return &n
 }
 
 func InitNode(pubKey *crypto.PubKey, ring *chord.Ring) Noder {
 	n := NewNode()
-	n.version = PROTOCOLVERSION
-	if Parameters.NodeType == SERVICENODENAME {
-		n.services = uint64(SERVICENODE)
-	} else if Parameters.NodeType == VERIFYNODENAME {
-		n.services = uint64(VERIFYNODE)
-	}
-
+	n.version = ProtocolVersion
 	if Parameters.MaxHdrSyncReqs <= 0 {
-		n.SyncReqSem = MakeSemaphore(MAXSYNCHDRREQ)
+		n.SyncReqSem = MakeSemaphore(MaxSyncHeaderReq)
 	} else {
 		n.SyncReqSem = MakeSemaphore(Parameters.MaxHdrSyncReqs)
 	}
-
-	n.link.port = uint16(Parameters.NodePort)
+	n.link.addr = Parameters.Hostname
+	n.link.port = Parameters.NodePort
+	n.link.chordPort = Parameters.ChordPort
+	n.link.webSockPort = Parameters.HttpWsPort
+	n.link.httpJSONPort = Parameters.HttpJsonPort
 	n.relay = true
 
 	key, err := pubKey.EncodePoint(true)
@@ -191,15 +192,17 @@ func InitNode(pubKey *crypto.PubKey, ring *chord.Ring) Noder {
 	n.nbrNodes.init()
 	n.local = n
 	n.publicKey = pubKey
-	n.TXNPool = pool.NewTxnPool()
+	n.TxnPool = pool.NewTxnPool()
+	n.syncState = SyncStarted
+	n.syncStopHash = Uint256{}
+	n.quit = make(chan struct{}, 1)
+	n.stopHashChan = make(chan struct{})
 	n.eventQueue.init()
 	n.nodeDisconnectSubscriber = n.eventQueue.GetEvent("disconnect").Subscribe(events.EventNodeDisconnect, n.NodeDisconnect)
-
 	n.ring = ring
-
 	go n.initConnection()
 	go n.updateConnection()
-	go n.updateNodeInfo()
+	go n.keepalive()
 
 	return n
 }
@@ -209,17 +212,6 @@ func (n *node) NodeDisconnect(v interface{}) {
 		node.SetState(INACTIVITY)
 		conn := node.getConn()
 		conn.Close()
-	}
-}
-
-func rmNode(node *node) {
-	log.Debug(fmt.Sprintf("Remove unused/deuplicate node: 0x%0x", node.id))
-}
-
-// TODO pass pointer to method only need modify it
-func (node *node) backend() {
-	for f := range node.chF {
-		f()
 	}
 }
 
@@ -239,8 +231,20 @@ func (node *node) GetPort() uint16 {
 	return node.port
 }
 
-func (node *node) GetHttpInfoPort() int {
-	return int(node.httpInfoPort)
+func (node *node) GetHttpJsonPort() uint16 {
+	return node.httpJSONPort
+}
+
+func (node *node) GetWebSockPort() uint16 {
+	return node.webSockPort
+}
+
+func (node *node) GetChordPort() uint16 {
+	return node.chordPort
+}
+
+func (node *node) GetHttpInfoPort() uint16 {
+	return node.httpInfoPort
 }
 
 func (node *node) SetHttpInfoPort(nodeInfoPort uint16) {
@@ -303,15 +307,15 @@ func (node *node) LocalNode() Noder {
 	return node.local
 }
 
-func (node *node) GetTxnPool() *pool.TXNPool {
-	return node.TXNPool
+func (node *node) GetTxnPool() *pool.TxnPool {
+	return node.TxnPool
 }
 
-func (node *node) GetHeight() uint64 {
+func (node *node) GetHeight() uint32 {
 	return node.height
 }
 
-func (node *node) SetHeight(height uint64) {
+func (node *node) SetHeight(height uint32) {
 	//TODO read/write lock
 	node.height = height
 }
@@ -321,12 +325,10 @@ func (node *node) UpdateRXTime(t time.Time) {
 }
 
 func (node *node) Xmit(message interface{}) error {
-	log.Debug()
 	var buffer []byte
 	var err error
 	switch message.(type) {
 	case *transaction.Transaction:
-		log.Debug("TX transaction message")
 		txn := message.(*transaction.Transaction)
 		buffer, err = NewTxn(txn)
 		if err != nil {
@@ -335,7 +337,6 @@ func (node *node) Xmit(message interface{}) error {
 		}
 		node.txnCnt++
 	case *ledger.Block:
-		log.Debug("TX block message")
 		block := message.(*ledger.Block)
 		buffer, err = NewBlock(block)
 		if err != nil {
@@ -343,7 +344,6 @@ func (node *node) Xmit(message interface{}) error {
 			return err
 		}
 	case *ConsensusPayload:
-		log.Debug("TX consensus message")
 		consensusPayload := message.(*ConsensusPayload)
 		buffer, err = NewConsensus(consensusPayload)
 		if err != nil {
@@ -358,7 +358,6 @@ func (node *node) Xmit(message interface{}) error {
 			return err
 		}
 	case Uint256:
-		log.Debug("TX block hash message")
 		hash := message.(Uint256)
 		buf := bytes.NewBuffer([]byte{})
 		hash.Serialize(buf)
@@ -411,7 +410,7 @@ func (node *node) GetBookKeepersAddrs() ([]*crypto.PubKey, uint64) {
 	i = 1
 	//TODO read lock
 	for _, n := range node.nbrNodes.List {
-		if n.GetState() == ESTABLISH && n.services != SERVICENODE {
+		if n.GetState() == ESTABLISH {
 			pktmp := n.GetBookKeeperAddr()
 			pks = append(pks, pktmp)
 			i++
@@ -424,10 +423,16 @@ func (node *node) SetBookKeeperAddr(pk *crypto.PubKey) {
 	node.publicKey = pk
 }
 
-func (node *node) SyncNodeHeight() {
+func (node *node) WaitForSyncHeaderFinish() {
 	for {
+		// return if local height is same with the highest neighbor
 		heights, _ := node.GetNeighborHeights()
-		if CompareHeight(uint64(ledger.DefaultLedger.Blockchain.BlockHeight), heights) {
+		if CompareHeight(ledger.DefaultLedger.Blockchain.BlockHeight, heights) {
+			break
+		}
+		// return if the stop hash has been saved
+		header, err := ledger.DefaultLedger.Blockchain.GetHeader(node.syncStopHash)
+		if err == nil && header != nil {
 			break
 		}
 		<-time.After(time.Second)
@@ -440,16 +445,6 @@ func (node *node) WaitForSyncBlkFinish() {
 		currentBlkHeight := ledger.DefaultLedger.Blockchain.BlockHeight
 		log.Info("WaitForSyncBlkFinish... current block height is ", currentBlkHeight, " ,current header height is ", headerHeight)
 		if currentBlkHeight >= headerHeight {
-			break
-		}
-		<-time.After(2 * time.Second)
-	}
-}
-func (node *node) WaitForFourPeersStart() {
-	for {
-		log.Debug("WaitForFourPeersStart...")
-		cnt := node.local.GetNbrNodeCnt()
-		if cnt >= MINCONNCNT {
 			break
 		}
 		<-time.After(2 * time.Second)
@@ -506,7 +501,7 @@ func (node *node) AddInRetryList(addr string) {
 	}
 	if _, ok := node.RetryAddrs[addr]; ok {
 		delete(node.RetryAddrs, addr)
-		log.Debug("remove exsit addr from retry list", addr)
+		log.Debug("remove addr from retry list", addr)
 	}
 	//alway set retry to 0
 	node.RetryAddrs[addr] = 0
@@ -541,4 +536,267 @@ func (node *node) GetChordAddr() []byte {
 		return nil
 	}
 	return chordVnode.Id
+}
+
+func (node *node) blockHeaderSyncing() {
+	noders := node.local.GetNeighborNoder()
+	if len(noders) == 0 {
+		return
+	}
+	nodelist := []Noder{}
+	for _, v := range noders {
+		if ledger.DefaultLedger.Store.GetHeaderHeight() < v.GetHeight() {
+			nodelist = append(nodelist, v)
+		}
+	}
+	ncout := len(nodelist)
+	if ncout == 0 {
+		return
+	}
+	index := rand.Intn(ncout)
+	n := nodelist[index]
+	SendMsgSyncHeaders(n, node.syncStopHash)
+}
+
+func (node *node) blockSyncing() {
+	headerHeight := ledger.DefaultLedger.Store.GetHeaderHeight()
+	currentBlkHeight := ledger.DefaultLedger.Blockchain.BlockHeight
+	if currentBlkHeight >= headerHeight {
+		return
+	}
+	var dValue int32
+	var reqCnt uint32
+	var i uint32
+	noders := node.local.GetNeighborNoder()
+
+	for _, n := range noders {
+		if uint32(n.GetHeight()) <= currentBlkHeight {
+			continue
+		}
+		n.RemoveFlightHeightLessThan(currentBlkHeight)
+		count := MaxReqBlkOnce - uint32(n.GetFlightHeightCnt())
+		dValue = int32(headerHeight - currentBlkHeight - reqCnt)
+		flights := n.GetFlightHeights()
+		if count == 0 {
+			for _, f := range flights {
+				hash := ledger.DefaultLedger.Store.GetHeaderHashByHeight(f)
+				if ledger.DefaultLedger.Store.BlockInCache(hash) == false {
+					ReqBlkData(n, hash)
+				}
+			}
+
+		}
+		for i = 1; i <= count && dValue >= 0; i++ {
+			hash := ledger.DefaultLedger.Store.GetHeaderHashByHeight(currentBlkHeight + reqCnt)
+
+			if ledger.DefaultLedger.Store.BlockInCache(hash) == false {
+				ReqBlkData(n, hash)
+				n.StoreFlightHeight(currentBlkHeight + reqCnt)
+			}
+			reqCnt++
+			dValue--
+		}
+	}
+}
+
+func (node *node) SendPingToNbr() {
+	noders := node.local.GetNeighborNoder()
+	for _, n := range noders {
+		if n.GetState() == ESTABLISH {
+			buf, err := NewPingMsg()
+			if err != nil {
+				log.Error("failed build a new ping message")
+			} else {
+				go n.Tx(buf)
+			}
+		}
+	}
+}
+
+func (node *node) HeartBeatMonitor() {
+	noders := node.local.GetNeighborNoder()
+	for _, n := range noders {
+		if n.GetState() == ESTABLISH {
+			t := n.GetLastRXTime()
+			if time.Now().Sub(t) > KeepaliveTimeout {
+				log.Warn("keepalive timeout")
+				n.SetState(INACTIVITY)
+				n.CloseConn()
+			}
+		}
+	}
+}
+
+func (node *node) ReqNeighborList() {
+	buf, _ := NewMsg("getaddr", node.local)
+	go node.Tx(buf)
+}
+
+func (node *node) ConnectNeighbors() {
+	chordNode, err := node.ring.GetFirstVnode()
+	if err != nil || chordNode == nil {
+		return
+	}
+	neighbors := chordNode.Neighbors()
+	for _, nbr := range neighbors {
+		nodeAddr, err := nbr.NodeAddr()
+		if err != nil {
+			continue
+		}
+		found := false
+		var ip net.IP
+		node.nbrNodes.Lock()
+		for _, tn := range node.nbrNodes.List {
+			addr := getNodeAddr(tn)
+			ip = addr.IpAddr[:]
+			addrstring := ip.To16().String() + ":" + strconv.Itoa(int(addr.Port))
+			if nodeAddr == addrstring {
+				found = true
+				break
+			}
+		}
+		node.nbrNodes.Unlock()
+		if !found {
+			go node.Connect(nodeAddr)
+		}
+	}
+}
+
+func getNodeAddr(n *node) NodeAddr {
+	var addr NodeAddr
+	addr.IpAddr, _ = n.GetAddr16()
+	addr.Time = n.GetTime()
+	addr.Services = n.Services()
+	addr.Port = n.GetPort()
+	addr.ID = n.GetID()
+	return addr
+}
+
+func (node *node) reconnect() {
+	node.RetryConnAddrs.Lock()
+	defer node.RetryConnAddrs.Unlock()
+	lst := make(map[string]int)
+	for addr := range node.RetryAddrs {
+		node.RetryAddrs[addr] = node.RetryAddrs[addr] + 1
+		rand.Seed(time.Now().UnixNano())
+		log.Info("Try to reconnect peer, peer addr is ", addr)
+		<-time.After(time.Duration(rand.Intn(ConnectionMaxBackoff)) * time.Millisecond)
+		log.Info("Back off time`s up, start connect node")
+		node.Connect(addr)
+		if node.RetryAddrs[addr] < MaxRetryCount {
+			lst[addr] = node.RetryAddrs[addr]
+		}
+	}
+	node.RetryAddrs = lst
+
+}
+
+func (n *node) TryConnect() {
+	if n.fetchRetryNodeFromNeighborList() > 0 {
+		n.reconnect()
+	}
+}
+
+func (n *node) fetchRetryNodeFromNeighborList() int {
+	n.nbrNodes.Lock()
+	defer n.nbrNodes.Unlock()
+	var ip net.IP
+	neighbornodes := make(map[uint64]*node)
+	for _, tn := range n.nbrNodes.List {
+		addr := getNodeAddr(tn)
+		ip = addr.IpAddr[:]
+		nodeAddr := ip.To16().String() + ":" + strconv.Itoa(int(addr.Port))
+		if tn.GetState() == INACTIVITY {
+			//add addr to retry list
+			n.AddInRetryList(nodeAddr)
+			//close legacy node
+			if tn.conn != nil {
+				tn.CloseConn()
+			}
+		} else {
+			//add others to tmp node map
+			n.RemoveFromRetryList(nodeAddr)
+			neighbornodes[tn.GetID()] = tn
+		}
+	}
+	n.nbrNodes.List = neighbornodes
+	return len(n.RetryAddrs)
+}
+
+func (node *node) keepalive() {
+	ticker := time.NewTicker(KeepAliveTicker)
+	for {
+		select {
+		case <-ticker.C:
+			node.SendPingToNbr()
+			node.HeartBeatMonitor()
+		}
+	}
+}
+
+func (node *node) updateConnection() {
+	t := time.NewTicker(ConnectionTicker)
+	for {
+		select {
+		case <-t.C:
+			node.ConnectNeighbors()
+			node.TryConnect()
+		}
+	}
+}
+
+func (node *node) SyncBlock() {
+	// wait for stop block hash set in consensus
+	<-node.stopHashChan
+	ticker := time.NewTicker(BlockSyncingTicker)
+	for {
+		select {
+		case <-ticker.C:
+			node.blockHeaderSyncing()
+			node.blockSyncing()
+		case <-node.quit:
+			log.Info("block syncing finished")
+			ticker.Stop()
+		}
+	}
+}
+
+func (node *node) SyncBlockMonitor() {
+	// wait for header syncing finished
+	node.WaitForSyncHeaderFinish()
+	// wait for block syncing finished
+	node.WaitForSyncBlkFinish()
+	// switch syncing state
+	node.SetSyncState(SyncFinished)
+	// stop block syncing
+	node.quit <- struct{}{}
+	// notify block syncing finished event
+	node.LocalNode().GetEvent("sync").Notify(events.EventBlockSyncingFinished, nil)
+}
+
+func (node *node) SendRelayPacketsInBuffer(clientId []byte) error {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Error("SendRelayPacketsInBuffer recover:", err)
+		}
+	}()
+	return node.relayer.SendRelayPacketsInBuffer(clientId)
+}
+
+func (node *node) GetSyncState() SyncState {
+	return node.syncState
+}
+
+func (node *node) SetSyncState(s SyncState) {
+	node.syncState = s
+}
+
+func (node *node) SetSyncStopHash(hash Uint256, height uint32) {
+	var emptyHash Uint256
+	if node.syncStopHash == emptyHash {
+		log.Infof("block syncing will stop when receive block: %s, height: %d",
+			BytesToHexString(hash.ToArrayReverse()), height)
+		node.syncStopHash = hash
+		node.stopHashChan <- struct{}{}
+	}
 }

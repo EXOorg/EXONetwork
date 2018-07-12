@@ -7,16 +7,16 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto"
-	"github.com/nknorg/nkn/wallet"
+	"github.com/nknorg/nkn/vault"
 )
 
 func TestSigChain(t *testing.T) {
 	crypto.SetAlg("P256R1")
 
-	from, _ := wallet.NewAccount()
-	to, _ := wallet.NewAccount()
-	relay1, _ := wallet.NewAccount()
-	relay2, _ := wallet.NewAccount()
+	from, _ := vault.NewAccount()
+	to, _ := vault.NewAccount()
+	relay1, _ := vault.NewAccount()
+	relay2, _ := vault.NewAccount()
 
 	fromPk, _ := from.PubKey().EncodePoint(true)
 	toPk, _ := to.PubKey().EncodePoint(true)
@@ -24,9 +24,10 @@ func TestSigChain(t *testing.T) {
 	relay2Pk, _ := relay2.PubKey().EncodePoint(true)
 
 	// test Sign & Verify
+	var srcID []byte
 	dataHash := common.Uint256{1, 2, 3}
 	blockHash := common.Uint256{4, 5, 6}
-	sc, err := NewSigChain(from, 1, dataHash[:], blockHash[:], toPk, relay1Pk)
+	sc, err := NewSigChain(from, 1, dataHash[:], blockHash[:], srcID, toPk, relay1Pk)
 	if err != nil || sc.Verify() != nil {
 		t.Error("[TestSigChain] 'from' create new SigChain in error")
 	}

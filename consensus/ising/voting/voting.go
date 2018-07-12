@@ -16,8 +16,8 @@ type VotingContent interface {
 }
 
 type Voting interface {
-	// prepare to do voting
-	Preparing(content VotingContent) error
+	// add voting entity to cache
+	AddToCache(content VotingContent) error
 	// get voting content type
 	VotingType() VotingContentType
 	// set hash in process
@@ -34,8 +34,6 @@ type Voting interface {
 	HasNeighborState(nid uint64, hash Uint256, s State) bool
 	// get current voting height
 	GetVotingHeight() uint32
-	// update voting height for next round
-	UpdateVotingHeight()
 	// get best voting content
 	GetBestVotingContent(height uint32) (VotingContent, error)
 	// get worse voting content for testing mind changing

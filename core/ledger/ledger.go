@@ -1,6 +1,8 @@
 package ledger
 
 import (
+	"errors"
+
 	"github.com/nknorg/nkn/common"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/asset"
@@ -8,7 +10,6 @@ import (
 	tx "github.com/nknorg/nkn/core/transaction"
 	"github.com/nknorg/nkn/crypto"
 	. "github.com/nknorg/nkn/errors"
-	"errors"
 )
 
 var DefaultLedger *Ledger
@@ -19,13 +20,12 @@ type Ledger struct {
 	Store      ILedgerStore
 }
 
-//check weather the transaction contains the doubleSpend.
+// double spend checking for transaction
 func (l *Ledger) IsDoubleSpend(Tx *tx.Transaction) bool {
 	return DefaultLedger.Store.IsDoubleSpend(Tx)
 }
 
-//Get the DefaultLedger.
-//Note: the later version will support the mutiLedger.So this func mybe expired later.
+// get the default ledger
 func GetDefaultLedger() (*Ledger, error) {
 	if DefaultLedger == nil {
 		return nil, NewDetailErr(errors.New("[Ledger], GetDefaultLedger failed, DefaultLedger not Exist."), ErrNoCode, "")
@@ -35,9 +35,6 @@ func GetDefaultLedger() (*Ledger, error) {
 
 //Calc the BookKeepers address by bookKeepers pubkey.
 func GetBookKeeperAddress(bookKeepers []*crypto.PubKey) (Uint160, error) {
-	//TODO: GetBookKeeperAddress()
-	//return Uint160{}
-	//CreateSignatureRedeemScript
 	if len(bookKeepers) < 1 {
 		return Uint160{}, NewDetailErr(errors.New("[Ledger] , GetBookKeeperAddress with no bookKeeper"), ErrNoCode, "")
 	}

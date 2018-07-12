@@ -13,7 +13,7 @@ import (
 	"github.com/nknorg/nkn/core/ledger"
 	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/util/log"
-	"github.com/nknorg/nkn/wallet"
+	"github.com/nknorg/nkn/vault"
 )
 
 // for the first relay node
@@ -23,10 +23,15 @@ import (
 // 1. Sign: sign the element created in Sign
 
 // TODO: move sigAlgo to config.json
-const sigAlgo SigAlgo = SigAlgo_ECDSA
+const sigAlgo = SigAlgo_ECDSA
 
-func (sc *SigChainElem) SerializationUnsigned(w io.Writer) error {
-	err := serialization.WriteVarBytes(w, sc.NextPubkey)
+func (sce *SigChainElem) SerializationUnsigned(w io.Writer) error {
+	err := serialization.WriteVarBytes(w, sce.Addr)
+	if err != nil {
+		return err
+	}
+
+	err = serialization.WriteVarBytes(w, sce.NextPubkey)
 	if err != nil {
 		return err
 	}
@@ -78,7 +83,7 @@ func (sc *SigChain) SerializationMetadata(w io.Writer) error {
 	return nil
 }
 
-func NewSigChainWithSignature(dataSize uint32, dataHash, blockHash, srcPubkey, destPubkey, nextPubkey, signature []byte, algo SigAlgo) (*SigChain, error) {
+func NewSigChainWithSignature(dataSize uint32, dataHash, blockHash, srcID, srcPubkey, destPubkey, nextPubkey, signature []byte, algo SigAlgo) (*SigChain, error) {
 	sc := &SigChain{
 		DataSize:   dataSize,
 		DataHash:   dataHash,
@@ -87,8 +92,9 @@ func NewSigChainWithSignature(dataSize uint32, dataHash, blockHash, srcPubkey, d
 		DestPubkey: destPubkey,
 		Elems: []*SigChainElem{
 			&SigChainElem{
-				SigAlgo:    algo,
+				Addr:       srcID,
 				NextPubkey: nextPubkey,
+				SigAlgo:    algo,
 				Signature:  signature,
 			},
 		},
@@ -97,9 +103,8 @@ func NewSigChainWithSignature(dataSize uint32, dataHash, blockHash, srcPubkey, d
 }
 
 // first relay node starts a new signature chain which consists of meta data and the first element.
-func NewSigChain(owner *wallet.Account, dataSize uint32, dataHash, blockHash, destPubkey, nextPubkey []byte) (*SigChain, error) {
-	ownPk := owner.PubKey()
-	srcPubkey, err := ownPk.EncodePoint(true)
+func NewSigChain(srcAccount *vault.Account, dataSize uint32, dataHash, blockHash, srcID, destPubkey, nextPubkey []byte) (*SigChain, error) {
+	srcPubkey, err := srcAccount.PubKey().EncodePoint(true)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +117,7 @@ func NewSigChain(owner *wallet.Account, dataSize uint32, dataHash, blockHash, de
 		DestPubkey: destPubkey,
 		Elems: []*SigChainElem{
 			&SigChainElem{
+				Addr:       srcID,
 				SigAlgo:    sigAlgo,
 				NextPubkey: nextPubkey,
 			},
@@ -135,7 +141,7 @@ func NewSigChain(owner *wallet.Account, dataSize uint32, dataHash, blockHash, de
 	}
 
 	hash := sha256.Sum256(buff.Bytes())
-	signature, err := crypto.Sign(owner.PrivKey(), hash[:])
+	signature, err := crypto.Sign(srcAccount.PrivKey(), hash[:])
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +187,7 @@ func (sc *SigChain) AddLastSignature(signature []byte) error {
 }
 
 // Sign new created signature chain with local wallet.
-func (sc *SigChain) Sign(nextPubkey []byte, signer *wallet.Account) error {
+func (sc *SigChain) Sign(nextPubkey []byte, signer *vault.Account) error {
 	sigNum := sc.Length()
 	if sigNum < 1 {
 		return errors.New("there are not enough signatures")
@@ -353,7 +359,19 @@ func (sc *SigChain) GetLastPubkey() ([]byte, error) {
 		return nil, err
 	}
 	return e.NextPubkey, nil
+}
 
+func (sc *SigChain) GetLedgerNodePubkey() ([]byte, error) {
+	if !sc.IsFinal() {
+		return nil, errors.New("not final")
+	}
+
+	n := sc.Length()
+	if n < 3 {
+		return nil, errors.New("not enough elements")
+	}
+
+	return sc.Elems[n-3].NextPubkey, nil
 }
 
 func (sc *SigChain) nextSigner() ([]byte, error) {

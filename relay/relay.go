@@ -5,30 +5,36 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sync"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/nknorg/nkn/api/common"
+	"github.com/nknorg/nkn/api/websocket"
+	"github.com/nknorg/nkn/api/websocket/session"
+	nknErrors "github.com/nknorg/nkn/errors"
 	"github.com/nknorg/nkn/events"
 	"github.com/nknorg/nkn/net/message"
 	"github.com/nknorg/nkn/net/protocol"
 	"github.com/nknorg/nkn/por"
-	"github.com/nknorg/nkn/rpc/httpjson"
 	"github.com/nknorg/nkn/util/log"
-	"github.com/nknorg/nkn/wallet"
-	"github.com/nknorg/nkn/websocket"
+	"github.com/nknorg/nkn/vault"
 )
 
 type RelayService struct {
-	wallet           wallet.Wallet     // wallet
-	localNode        protocol.Noder    // local node
-	porServer        *por.PorServer    // por server to handle signature chain
-	relayMsgReceived events.Subscriber // consensus events listening
+	sync.Mutex
+	wallet            vault.Wallet                      // wallet
+	localNode         protocol.Noder                    // local node
+	porServer         *por.PorServer                    // por server to handle signature chain
+	relayMsgReceived  events.Subscriber                 // consensus events listening
+	relayPacketBuffer map[string][]*message.RelayPacket // for offline clients
 }
 
-func NewRelayService(wallet wallet.Wallet, node protocol.Noder) *RelayService {
+func NewRelayService(wallet vault.Wallet, node protocol.Noder) *RelayService {
 	service := &RelayService{
-		wallet:    wallet,
-		localNode: node,
-		porServer: por.GetPorServer(),
+		wallet:            wallet,
+		localNode:         node,
+		porServer:         por.GetPorServer(),
+		relayPacketBuffer: make(map[string][]*message.RelayPacket),
 	}
 	return service
 }
@@ -38,11 +44,18 @@ func (rs *RelayService) Start() error {
 	return nil
 }
 
-func (rs *RelayService) SendPacketToClient(client Client, packet *message.RelayPacket) error {
-	destPubKey := packet.SigChain.GetDestPubkey()
-	if !bytes.Equal(client.GetPubKey(), destPubKey) {
-		return errors.New("Client pubkey is different from destination pubkey")
+func (rs *RelayService) SendPacketToClients(clients []*session.Session, packet *message.RelayPacket) error {
+	if len(clients) == 0 {
+		return nil
 	}
+
+	destPubKey := packet.SigChain.GetDestPubkey()
+	for _, client := range clients {
+		if !bytes.Equal(client.GetPubKey(), destPubKey) {
+			return errors.New("Client pubkey is different from destination pubkey")
+		}
+	}
+
 	err := rs.porServer.Sign(packet.SigChain, destPubKey)
 	if err != nil {
 		log.Error("Signing signature chain error: ", err)
@@ -65,19 +78,38 @@ func (rs *RelayService) SendPacketToClient(client Client, packet *message.RelayP
 	if err != nil {
 		return err
 	}
-	err = client.Send(responseJSON)
-	if err != nil {
-		log.Error("Send to client error: ", err)
-		return err
+
+	ok := false
+	for _, client := range clients {
+		err = client.Send(responseJSON)
+		if err != nil {
+			log.Error("Send to client error: ", err)
+		} else {
+			ok = true
+		}
+	}
+
+	if !ok {
+		return errors.New("Send packet to clients all failed")
 	}
 
 	// TODO: create and send tx only after client sign
 	buf, err := proto.Marshal(packet.SigChain)
-	txn, err := httpjson.MakeCommitTransaction(rs.wallet, buf)
 	if err != nil {
 		return err
 	}
-	rs.localNode.Xmit(txn)
+	txn, err := common.MakeCommitTransaction(rs.wallet, buf)
+	if err != nil {
+		return err
+	}
+	errCode := rs.localNode.AppendTxnPool(txn)
+	if errCode != nknErrors.ErrNoError {
+		return errCode
+	}
+	err = rs.localNode.Xmit(txn)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -104,12 +136,12 @@ func (rs *RelayService) SendPacketToNode(nextHop protocol.Noder, packet *message
 		return err
 	}
 	log.Infof(
-		"Relay packet:\nSrcID: %x\nDestID: %x\nNext Hop: %s:%d\nPayload %x",
+		"Relay packet:\nSrcID: %x\nDestID: %x\nNext Hop: %s:%d\nPayload Size: %d",
 		packet.SrcID,
 		packet.DestID,
 		nextHop.GetAddr(),
 		nextHop.GetPort(),
-		packet.Payload,
+		len(packet.Payload),
 	)
 	nextHop.Tx(msgBytes)
 	return nil
@@ -119,10 +151,10 @@ func (rs *RelayService) HandleMsg(packet *message.RelayPacket) error {
 	destID := packet.DestID
 	if bytes.Equal(rs.localNode.GetChordAddr(), destID) {
 		log.Infof(
-			"Receive packet:\nSrcID: %x\nDestID: %x\nPayload %x",
+			"Receive packet:\nSrcID: %x\nDestID: %x\nPayload Size: %d",
 			packet.SrcID,
 			destID,
-			packet.Payload,
+			len(packet.Payload),
 		)
 		// TODO: handle packet send to self
 		return nil
@@ -133,15 +165,13 @@ func (rs *RelayService) HandleMsg(packet *message.RelayPacket) error {
 		return err
 	}
 	if nextHop == nil {
-		client := websocket.GetServer().GetClientById(destID)
-		if client == nil {
-			// TODO: handle client not exists
-			return errors.New("Client Not Exists: " + hex.EncodeToString(destID))
+		clients := websocket.GetServer().GetClientsById(destID)
+		if clients == nil {
+			log.Info("Client Not Online:", hex.EncodeToString(destID))
+			rs.addRelayPacketToBuffer(destID, packet)
+			return nil
 		}
-		err = rs.SendPacketToClient(client, packet)
-		if err != nil {
-			return err
-		}
+		rs.SendPacketToClients(clients, packet)
 		return nil
 	}
 	err = rs.SendPacketToNode(nextHop, packet)
@@ -164,4 +194,32 @@ func (rs *RelayService) ReceiveRelayMsgNoError(v interface{}) {
 	if err != nil {
 		log.Error(err.Error())
 	}
+}
+
+func (rs *RelayService) addRelayPacketToBuffer(clientID []byte, packet *message.RelayPacket) {
+	clientIDStr := hex.EncodeToString(clientID)
+	rs.Lock()
+	defer rs.Unlock()
+	rs.relayPacketBuffer[clientIDStr] = append(rs.relayPacketBuffer[clientIDStr], packet)
+}
+
+func (rs *RelayService) SendRelayPacketsInBuffer(clientID []byte) error {
+	clientIDStr := hex.EncodeToString(clientID)
+	clients := websocket.GetServer().GetClientsById(clientID)
+	if clients == nil {
+		return nil
+	}
+
+	rs.Lock()
+	defer rs.Unlock()
+	packets := rs.relayPacketBuffer[clientIDStr]
+	if len(packets) == 0 {
+		return nil
+	}
+
+	for _, packet := range packets {
+		rs.SendPacketToClients(clients, packet)
+	}
+	rs.relayPacketBuffer[clientIDStr] = nil
+	return nil
 }

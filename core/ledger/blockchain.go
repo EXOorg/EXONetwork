@@ -13,19 +13,21 @@ import (
 
 type Blockchain struct {
 	BlockHeight uint32
+	AssetID     Uint256
 	BCEvents    *events.Event
 	mutex       sync.Mutex
 }
 
-func NewBlockchain(height uint32) *Blockchain {
+func NewBlockchain(height uint32, asset Uint256) *Blockchain {
 	return &Blockchain{
 		BlockHeight: height,
+		AssetID:     asset,
 		BCEvents:    events.NewEvent(),
 	}
 }
 
 func NewBlockchainWithGenesisBlock(store ILedgerStore, defaultBookKeeper []*crypto.PubKey) (*Blockchain, error) {
-	genesisBlock, err := GenesisBlockInit(defaultBookKeeper)
+	genesisBlock, err := GenesisBlockInit()
 	if err != nil {
 		return nil, NewDetailErr(err, ErrNoCode, "[Blockchain], NewBlockchainWithGenesisBlock failed.")
 	}
@@ -37,12 +39,12 @@ func NewBlockchainWithGenesisBlock(store ILedgerStore, defaultBookKeeper []*cryp
 	if err != nil {
 		return nil, NewDetailErr(err, ErrNoCode, "[Blockchain], InitLevelDBStoreWithGenesisBlock failed.")
 	}
-	blockchain := NewBlockchain(height)
+	blockchain := NewBlockchain(height, genesisBlock.Transactions[0].Hash())
+
 	return blockchain, nil
 }
 
 func (bc *Blockchain) AddBlock(block *Block) error {
-	log.Debug()
 	bc.mutex.Lock()
 	defer bc.mutex.Unlock()
 
@@ -63,7 +65,6 @@ func (bc *Blockchain) GetHeader(hash Uint256) (*Header, error) {
 }
 
 func (bc *Blockchain) SaveBlock(block *Block) error {
-	log.Debugf("Save block, block hash %x", block.Hash())
 	err := DefaultLedger.Store.SaveBlock(block, DefaultLedger)
 	if err != nil {
 		log.Warn("Save block failure , ", err)

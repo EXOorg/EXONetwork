@@ -1,10 +1,9 @@
 package message
 
 import (
+	"bytes"
 	"errors"
 	"strconv"
-
-	"bytes"
 
 	. "github.com/nknorg/nkn/net/protocol"
 	"github.com/nknorg/nkn/util/log"
@@ -50,8 +49,6 @@ func NewVerack() ([]byte, error) {
  */
 // TODO The process should be adjusted based on above table
 func (msg verACK) Handle(node Noder) error {
-	log.Debug()
-
 	s := node.GetState()
 	if s != HANDSHAKE && s != HANDSHAKED {
 		log.Warn("Unknown status to received verack")

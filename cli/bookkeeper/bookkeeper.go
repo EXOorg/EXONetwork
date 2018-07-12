@@ -8,21 +8,21 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/nknorg/nkn/api/httpjson/client"
 	. "github.com/nknorg/nkn/cli/common"
 	"github.com/nknorg/nkn/core/contract"
 	"github.com/nknorg/nkn/core/signature"
 	"github.com/nknorg/nkn/core/transaction"
 	"github.com/nknorg/nkn/crypto"
-	"github.com/nknorg/nkn/rpc/httpjson"
-	"github.com/nknorg/nkn/wallet"
+	"github.com/nknorg/nkn/vault"
 
 	"github.com/urfave/cli"
 )
 
-func makeBookkeeperTransaction(pubkey *crypto.PubKey, op bool, cert []byte, issuer *wallet.Account) (string, error) {
+func makeBookkeeperTransaction(pubkey *crypto.PubKey, op bool, cert []byte, issuer *vault.Account) (string, error) {
 	tx, _ := transaction.NewBookKeeperTransaction(pubkey, op, cert, issuer.PubKey())
 	attr := transaction.NewTxAttribute(transaction.Nonce, []byte(strconv.FormatInt(rand.Int63(), 10)))
-	tx.Attributes = make([]*transaction.TxAttribute, 0)
+	tx.Attributes = make([]*transaction.TxnAttribute, 0)
 	tx.Attributes = append(tx.Attributes, &attr)
 	if err := signTransaction(issuer, tx); err != nil {
 		fmt.Println("Sign regist transaction failed.")
@@ -36,7 +36,7 @@ func makeBookkeeperTransaction(pubkey *crypto.PubKey, op bool, cert []byte, issu
 	return hex.EncodeToString(buffer.Bytes()), nil
 }
 
-func signTransaction(signer *wallet.Account, tx *transaction.Transaction) error {
+func signTransaction(signer *vault.Account, tx *transaction.Transaction) error {
 	signature, err := signature.SignBySigner(tx, signer)
 	if err != nil {
 		fmt.Println("SignBySigner failed.")
@@ -94,7 +94,7 @@ func assetAction(c *cli.Context) error {
 	}
 	cert := c.String("cert")
 
-	wallet, err := wallet.OpenWallet(wallet.WalletFileName, WalletPassword(c.String("password")))
+	wallet, err := vault.OpenWallet(vault.WalletFileName, WalletPassword(c.String("password")))
 	if err != nil {
 		fmt.Println("Failed to open wallet.")
 		os.Exit(1)
@@ -106,7 +106,7 @@ func assetAction(c *cli.Context) error {
 		return err
 	}
 
-	resp, err := httpjson.Call(Address(), "sendrawtransaction", 0, []interface{}{txHex})
+	resp, err := client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": txHex})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return err

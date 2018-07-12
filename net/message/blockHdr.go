@@ -5,21 +5,21 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"io"
 
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
 	"github.com/nknorg/nkn/core/ledger"
 	. "github.com/nknorg/nkn/net/protocol"
 	"github.com/nknorg/nkn/util/log"
-	"io"
 )
 
 type headersReq struct {
 	hdr msgHdr
 	p   struct {
 		len       uint8
-		hashStart [HASHLEN]byte
-		hashEnd   [HASHLEN]byte
+		hashStart [HashLen]byte
+		hashEnd   [HashLen]byte
 	}
 }
 
@@ -29,12 +29,13 @@ type blkHeader struct {
 	blkHdr []ledger.Header
 }
 
-func NewHeadersReq() ([]byte, error) {
+func NewHeadersReq(stopHash common.Uint256) ([]byte, error) {
 	var h headersReq
 
 	h.p.len = 1
 	buf := ledger.DefaultLedger.Store.GetCurrentHeaderHash()
-	copy(h.p.hashEnd[:], buf[:])
+	copy(h.p.hashStart[:], buf[:])
+	copy(h.p.hashEnd[:], stopHash[:])
 
 	p := new(bytes.Buffer)
 	err := binary.Write(p, binary.LittleEndian, &(h.p))
@@ -146,12 +147,10 @@ func (msg *blkHeader) Deserialize(r io.Reader) error {
 }
 
 func (msg headersReq) Handle(node Noder) error {
-	log.Debug()
-	// lock
 	node.LocalNode().AcqSyncReqSem()
 	defer node.LocalNode().RelSyncReqSem()
-	var startHash [HASHLEN]byte
-	var stopHash [HASHLEN]byte
+	var startHash [HashLen]byte
+	var stopHash [HashLen]byte
 	startHash = msg.p.hashStart
 	stopHash = msg.p.hashEnd
 	//FIXME if HeaderHashCount > 1
@@ -167,8 +166,8 @@ func (msg headersReq) Handle(node Noder) error {
 	return nil
 }
 
-func SendMsgSyncHeaders(node Noder) {
-	buf, err := NewHeadersReq()
+func SendMsgSyncHeaders(node Noder, stopHash common.Uint256) {
+	buf, err := NewHeadersReq(stopHash)
 	if err != nil {
 		log.Error("failed build a new headersReq")
 	} else {
@@ -177,7 +176,6 @@ func SendMsgSyncHeaders(node Noder) {
 }
 
 func (msg blkHeader) Handle(node Noder) error {
-	log.Debug()
 	err := ledger.DefaultLedger.Store.AddHeaders(msg.blkHdr, ledger.DefaultLedger)
 	if err != nil {
 		log.Warn("Add block Header error")
@@ -188,65 +186,45 @@ func (msg blkHeader) Handle(node Noder) error {
 
 func GetHeadersFromHash(startHash common.Uint256, stopHash common.Uint256) ([]ledger.Header, uint32, error) {
 	var count uint32 = 0
-	var empty [HASHLEN]byte
+	var empty [HashLen]byte
 	headers := []ledger.Header{}
 	var startHeight uint32
 	var stopHeight uint32
-	curHeight := ledger.DefaultLedger.Store.GetHeaderHeight()
 	if startHash == empty {
-		if stopHash == empty {
-			if curHeight > MAXBLKHDRCNT {
-				count = MAXBLKHDRCNT
-			} else {
-				count = curHeight
-			}
-		} else {
-			bkstop, err := ledger.DefaultLedger.Store.GetHeader(stopHash)
-			if err != nil {
-				return nil, 0, err
-			}
-			stopHeight = bkstop.Height
-			count = curHeight - stopHeight
-			if count > MAXBLKHDRCNT {
-				count = MAXBLKHDRCNT
-			}
-		}
+		return nil, 0, errors.New("invalid start hash for getting headers")
+	}
+	// get start height
+	bkstart, err := ledger.DefaultLedger.Store.GetHeader(startHash)
+	if err != nil {
+		return nil, 0, err
+	}
+	startHeight = bkstart.Height
+
+	// get stop height
+	if stopHash == empty {
+		stopHeight = ledger.DefaultLedger.Store.GetHeaderHeight()
 	} else {
-		bkstart, err := ledger.DefaultLedger.Store.GetHeader(startHash)
+		bkstop, err := ledger.DefaultLedger.Store.GetHeader(stopHash)
 		if err != nil {
 			return nil, 0, err
 		}
-		startHeight = bkstart.Height
-		if stopHash != empty {
-			bkstop, err := ledger.DefaultLedger.Store.GetHeader(stopHash)
-			if err != nil {
-				return nil, 0, err
-			}
-			stopHeight = bkstop.Height
+		stopHeight = bkstop.Height
+	}
 
-			// avoid unsigned integer underflow
-			if startHeight < stopHeight {
-				return nil, 0, errors.New("do not have header to send")
-			}
-			count = startHeight - stopHeight
+	if startHeight > stopHeight {
+		return nil, 0, errors.New("do not have header to send")
+	}
 
-			if count >= MAXBLKHDRCNT {
-				count = MAXBLKHDRCNT
-				stopHeight = startHeight - MAXBLKHDRCNT
-			}
-		} else {
-
-			if startHeight > MAXBLKHDRCNT {
-				count = MAXBLKHDRCNT
-			} else {
-				count = startHeight
-			}
-		}
+	// get header counts to be sent
+	count = stopHeight - startHeight
+	if count >= MaxHdrCnt {
+		count = MaxHdrCnt
+		stopHeight = startHeight - MaxHdrCnt
 	}
 
 	var i uint32
 	for i = 1; i <= count; i++ {
-		hash, err := ledger.DefaultLedger.Store.GetBlockHash(stopHeight + i)
+		hash, err := ledger.DefaultLedger.Store.GetBlockHash(startHeight + i)
 		hd, err := ledger.DefaultLedger.Store.GetHeader(hash)
 		if err != nil {
 			log.Error("GetBlockWithHeight failed ", err.Error())
@@ -262,7 +240,7 @@ func NewHeaders(headers []ledger.Header, count uint32) ([]byte, error) {
 	var msg blkHeader
 	msg.cnt = count
 	msg.blkHdr = headers
-	msg.hdr.Magic = NETMAGIC
+	msg.hdr.Magic = NetID
 	cmd := "headers"
 	copy(msg.hdr.CMD[0:len(cmd)], cmd)
 
