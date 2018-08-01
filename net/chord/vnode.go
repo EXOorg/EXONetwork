@@ -1,13 +1,14 @@
 package chord
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/nknorg/nkn/util/config"
@@ -20,21 +21,23 @@ func (vn *Vnode) String() string {
 }
 
 func (vn *Vnode) NodeAddr() (string, error) {
-	i := strings.Index(vn.Host, ":")
-	if i < 0 {
-		nlog.Error("Parse IP address error\n")
-		return "", errors.New("Parse IP address error")
+	host, _, err := net.SplitHostPort(vn.Host)
+	if err != nil {
+		nlog.Error(err)
+		return "", err
 	}
-	return vn.Host[:i] + ":" + strconv.Itoa(int(vn.NodePort)), nil
+
+	return net.JoinHostPort(host, strconv.Itoa(int(vn.NodePort))), nil
 }
 
 func (vn *Vnode) HttpWsAddr() (string, error) {
-	i := strings.Index(vn.Host, ":")
-	if i < 0 {
-		nlog.Error("Parse IP address error\n")
-		return "", errors.New("Parse IP address error")
+	host, _, err := net.SplitHostPort(vn.Host)
+	if err != nil {
+		nlog.Error(err)
+		return "", err
 	}
-	return vn.Host[:i] + ":" + strconv.Itoa(int(vn.HttpWsPort)), nil
+
+	return net.JoinHostPort(host, strconv.Itoa(int(vn.HttpWsPort))), nil
 }
 
 // Initializes a local vnode
@@ -153,6 +156,13 @@ func (vn *localVnode) checkNewSuccessor() error {
 		if alive {
 			copy(vn.successors[1:], vn.successors[0:len(vn.successors)-1])
 			vn.successors[0] = maybe_suc
+			_, err := vn.fixFingerTableAtIndex(0)
+			if err != nil {
+				return err
+			}
+			if vn.OnNewSuccessor != nil {
+				vn.OnNewSuccessor()
+			}
 		} else {
 			// TODO: notify successor to update its predecessor
 		}
@@ -182,13 +192,13 @@ func (vn *localVnode) notifySuccessor() error {
 
 	// Update local successors list
 	for idx, s := range succ_list {
-		if s == nil {
-			break
-		}
-		// Ensure we don't set ourselves as a successor!
-		if s == nil || s.String() == vn.String() {
-			break
-		}
+		// if s == nil {
+		// 	break
+		// }
+		// // Ensure we don't set ourselves as a successor!
+		// if s == nil || s.String() == vn.String() {
+		// 	break
+		// }
 		vn.successors[idx+1] = s
 	}
 	return nil
@@ -196,41 +206,53 @@ func (vn *localVnode) notifySuccessor() error {
 
 // RPC: Notify is invoked when a Vnode gets notified
 func (vn *localVnode) Notify(maybe_pred *Vnode) ([]*Vnode, error) {
+	shouldUpdate := false
 	// Check if we should update our predecessor
 	if vn.predecessor == nil || between(vn.predecessor.Id, vn.Id, maybe_pred.Id) {
-		// Inform the delegate
-		conf := vn.ring.config
-		old := vn.predecessor
-		vn.ring.invokeDelegate(func() {
-			conf.Delegate.NewPredecessor(&vn.Vnode, maybe_pred, old)
-		})
+		shouldUpdate = true
+	} else if bytes.Compare(vn.predecessor.Id, maybe_pred.Id) != 0 {
+		alive, err := vn.ring.transport.Ping(vn.predecessor)
+		if err == nil && !alive {
+			shouldUpdate = true
+		}
+	}
 
-		vn.predecessor = maybe_pred
+	if shouldUpdate {
+		alive, err := vn.ring.transport.Ping(maybe_pred)
+		if err == nil && alive {
+			// Inform the delegate
+			conf := vn.ring.config
+			old := vn.predecessor
+			vn.ring.invokeDelegate(func() {
+				conf.Delegate.NewPredecessor(&vn.Vnode, maybe_pred, old)
+			})
+
+			vn.predecessor = maybe_pred
+		}
 	}
 
 	// Return our successors list
 	return vn.successors, nil
 }
 
-// Fixes up the finger table
-func (vn *localVnode) fixFingerTable() error {
+func (vn *localVnode) fixFingerTableAtIndex(idx int) (int, error) {
 	// Determine the offset
 	hb := vn.ring.config.hashBits
-	offset := powerOffset(vn.Id, vn.last_finger, hb)
+	offset := powerOffset(vn.Id, idx, hb)
 
 	// Find the successor
 	nodes, err := vn.FindSuccessors(1, offset)
 	if nodes == nil || len(nodes) == 0 || err != nil {
-		return err
+		return idx, err
 	}
 	node := nodes[0]
 
 	// Update the finger table
-	vn.finger[vn.last_finger] = node
+	vn.finger[idx] = node
 
 	// Try to skip as many finger entries as possible
 	for {
-		next := vn.last_finger + 1
+		next := idx + 1
 		if next >= hb {
 			break
 		}
@@ -239,18 +261,30 @@ func (vn *localVnode) fixFingerTable() error {
 		// While the node is the successor, update the finger entries
 		if betweenRightIncl(vn.Id, node.Id, offset) {
 			vn.finger[next] = node
-			vn.last_finger = next
+			idx = next
 		} else {
 			break
 		}
 	}
 
-	// Increment to the index to repair
-	if vn.last_finger+1 == hb {
-		vn.last_finger = 0
+	var nextIdx int
+	if idx+1 == hb {
+		nextIdx = 0
 	} else {
-		vn.last_finger++
+		nextIdx = idx + 1
 	}
+
+	return nextIdx, nil
+}
+
+// Fixes up the finger table
+func (vn *localVnode) fixFingerTable() error {
+	nextIdx, err := vn.fixFingerTableAtIndex(vn.last_finger)
+	if err != nil {
+		return err
+	}
+
+	vn.last_finger = nextIdx
 
 	return nil
 }

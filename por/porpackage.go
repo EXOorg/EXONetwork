@@ -13,14 +13,14 @@ import (
 )
 
 const (
-	// The height of signature chain which run for block proposer should be (local block height -1 + 4)
+	// The height of signature chain which run for block proposer should be (local block height -1 + 5)
 	// -1 means that:
 	//  local block height may heigher than neighbor node at most 1
-	// +4 means that:
-	//  2 (if local block height is n, then n + 2 signature chain is in consensus) +
+	// +5 means that:
+	// if local block height is n, then n + 3 signature chain is in consensus) +
 	//  1 (since local node height may lower than neighbors at most 1) +
 	//  1 (for fully propagate)
-	HeightThreshold = 4
+	HeightThreshold = 5
 )
 
 type PorPackages []*PorPackage
@@ -55,6 +55,18 @@ func NewPorPackage(txn *transaction.Transaction) (*PorPackage, error) {
 	}
 
 	//TODO threshold
+	found := false
+	for _, elem := range sigChain.Elems {
+		if elem.Mining == true {
+			found = true
+			break
+		}
+	}
+	if !found {
+		err := errors.New("no miner node in signature chain")
+		log.Error(err)
+		return nil, err
+	}
 
 	blockHash, err := common.Uint256ParseFromBytes(sigChain.BlockHash)
 	if err != nil {

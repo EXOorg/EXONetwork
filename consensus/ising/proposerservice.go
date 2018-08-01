@@ -2,27 +2,20 @@ package ising
 
 import (
 	"fmt"
-	"math/rand"
+	"os"
 	"sync"
 	"time"
 
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/consensus/ising/voting"
-	"github.com/nknorg/nkn/core/contract/program"
 	"github.com/nknorg/nkn/core/ledger"
 	"github.com/nknorg/nkn/core/transaction"
-	"github.com/nknorg/nkn/core/transaction/payload"
 	"github.com/nknorg/nkn/crypto"
-	"github.com/nknorg/nkn/crypto/util"
 	"github.com/nknorg/nkn/events"
 	"github.com/nknorg/nkn/net/message"
 	"github.com/nknorg/nkn/net/protocol"
-	"github.com/nknorg/nkn/por"
-	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
-
-	"github.com/golang/protobuf/proto"
 )
 
 const (
@@ -31,6 +24,7 @@ const (
 	WaitingForFloodingFinished = time.Second * 1
 	WaitingForVotingFinished   = time.Second * 5
 	TimeoutTolerance           = time.Second * 2
+	ProposerChangeTime         = time.Minute
 )
 
 type ProposerService struct {
@@ -38,14 +32,17 @@ type ProposerService struct {
 	account              *vault.Account            // local account
 	timer                *time.Timer               // timer for proposer node
 	timeout              *time.Timer               // timeout for next round consensus
-	blockProposer        map[uint32][]byte         // height and public key mapping for block proposer
+	proposerChangeTimer  *time.Timer               // timer for proposer change
+	proposerChangeIndex  uint32                    // block index for proposer change
 	localNode            protocol.Noder            // local node
 	neighbors            []protocol.Noder          // neighbor nodes
 	txnCollector         *transaction.TxnCollector // collect transaction from where
+	mining               Mining                    // built-in mining
 	msgChan              chan interface{}          // get notice from probe thread
 	consensusMsgReceived events.Subscriber         // consensus events listening
 	blockPersisted       events.Subscriber         // block saved events
 	syncFinished         events.Subscriber         // block syncing finished event
+	proposerCache        *ProposerCache            // cache for block proposer
 	syncCache            *SyncCache                // cache for block syncing
 	voting               []voting.Voting           // array for sigchain and block voting
 }
@@ -55,15 +52,18 @@ func NewProposerService(account *vault.Account, node protocol.Noder) *ProposerSe
 	txnCollector := transaction.NewTxnCollector(node.GetTxnPool(), TxnAmountToBePackaged)
 
 	service := &ProposerService{
-		timer:         time.NewTimer(ConsensusTime),
-		timeout:       time.NewTimer(ConsensusTime + TimeoutTolerance),
-		account:       account,
-		localNode:     node,
-		neighbors:     node.GetNeighborNoder(),
-		blockProposer: make(map[uint32][]byte),
-		txnCollector:  txnCollector,
-		msgChan:       make(chan interface{}, MsgChanCap),
-		syncCache:     NewSyncBlockCache(),
+		timer:               time.NewTimer(ConsensusTime),
+		timeout:             time.NewTimer(ConsensusTime + TimeoutTolerance),
+		proposerChangeTimer: time.NewTimer(ProposerChangeTime),
+		proposerChangeIndex: 0,
+		account:             account,
+		localNode:           node,
+		neighbors:           node.GetNeighborNoder(),
+		txnCollector:        txnCollector,
+		mining:              NewBuiltinMining(account, txnCollector),
+		msgChan:             make(chan interface{}, MsgChanCap),
+		syncCache:           NewSyncBlockCache(),
+		proposerCache:       NewProposerCache(),
 		voting: []voting.Voting{
 			voting.NewBlockVoting(totalWeight),
 			voting.NewSigChainVoting(totalWeight, txnCollector),
@@ -74,6 +74,9 @@ func NewProposerService(account *vault.Account, node protocol.Noder) *ProposerSe
 	}
 	if !service.timeout.Stop() {
 		<-service.timeout.C
+	}
+	if !service.proposerChangeTimer.Stop() {
+		<-service.proposerChangeTimer.C
 	}
 
 	return service
@@ -125,22 +128,9 @@ func (ps *ProposerService) ConsensusRoutine(vType voting.VotingContentType) {
 		// process final block and signature chain
 		switch vType {
 		case voting.SigChainTxnVote:
-			txn := content.(*transaction.Transaction)
-			payload := txn.Payload.(*payload.Commit)
-			sigchain := &por.SigChain{}
-			proto.Unmarshal(payload.SigChain, sigchain)
-			// TODO: get a determinate public key on signature chain
-			pbk, err := sigchain.GetLedgerNodePubkey()
-			if err != nil {
-				log.Warn("Get last public key error", err)
-				return
+			if txn, ok := content.(*transaction.Transaction); ok {
+				ps.proposerCache.Add(votingHeight, txn)
 			}
-			ps.Lock()
-			ps.blockProposer[votingHeight] = pbk
-			ps.Unlock()
-			sigChainTxnHash := content.Hash()
-			log.Infof("sigchain transaction consensus: %s, %s will be block proposer for height %d",
-				BytesToHexString(sigChainTxnHash.ToArrayReverse()), BytesToHexString(pbk), votingHeight)
 		case voting.BlockVote:
 			if block, ok := content.(*ledger.Block); ok {
 				err = ledger.DefaultLedger.Blockchain.AddBlock(block)
@@ -212,8 +202,13 @@ func (ps *ProposerService) ProduceNewBlock() {
 	current := ps.CurrentVoting(voting.BlockVote)
 	votingPool := current.GetVotingPool()
 	votingHeight := current.GetVotingHeight()
+	proposerInfo, err := ps.proposerCache.Get(votingHeight)
+	if err != nil {
+		log.Error("get proposer info for producing new block error: ", err)
+		return
+	}
 	// build new block to be proposed
-	block, err := ps.BuildBlock()
+	block, err := ps.mining.BuildBlock(votingHeight, proposerInfo.winningHash, proposerInfo.winningHashType)
 	if err != nil {
 		log.Error("building block error: ", err)
 	}
@@ -238,28 +233,17 @@ func (ps *ProposerService) ProduceNewBlock() {
 }
 
 func (ps *ProposerService) IsBlockProposer() bool {
-	var err error
-	var proposer []byte
 	localPublicKey, err := ps.account.PublicKey.EncodePoint(true)
 	if err != nil {
 		return false
 	}
 	current := ps.CurrentVoting(voting.BlockVote)
 	votingHeight := current.GetVotingHeight()
-	if v, ok := ps.blockProposer[votingHeight]; ok {
-		proposer = v
-	} else {
-		if len(config.Parameters.GenesisBlockProposer) < 1 {
-			log.Warn("no GenesisBlockProposer configured")
-			return false
-		}
-		proposer, err = HexStringToBytes(config.Parameters.GenesisBlockProposer[0])
-		if err != nil || len(proposer) != crypto.COMPRESSEDLEN {
-			log.Error("invalid GenesisBlockProposer configured")
-			return false
-		}
+	proposerInfo, err := ps.proposerCache.Get(votingHeight)
+	if err != nil {
+		return false
 	}
-	if !IsEqualBytes(localPublicKey, proposer) {
+	if !IsEqualBytes(localPublicKey, proposerInfo.publicKey) {
 		return false
 	}
 
@@ -316,29 +300,97 @@ func (ps *ProposerService) ProbeRoutine() {
 func (ps *ProposerService) BlockPersistCompleted(v interface{}) {
 	if block, ok := v.(*ledger.Block); ok {
 		ps.txnCollector.Cleanup(block.Transactions)
+		// reset index when block persisted
+		ps.proposerChangeIndex = 0
+		// reset timer when block persisted
+		ps.proposerChangeTimer.Stop()
+		t := block.Header.Timestamp + int64(ProposerChangeTime) - time.Now().Unix()
+		ps.proposerChangeTimer.Reset(time.Duration(t))
+	}
+}
+
+func (ps *ProposerService) ChangeProposer() {
+	for {
+		select {
+		case <-ps.proposerChangeTimer.C:
+			height := ledger.DefaultLedger.Store.GetHeight() - ps.proposerChangeIndex
+			hash, err := ledger.DefaultLedger.Store.GetBlockHash(height)
+			if err != nil {
+				log.Error("get block hash error when change proposer: ", err)
+			}
+			block, err := ledger.DefaultLedger.Store.GetBlock(hash)
+			if err != nil {
+				log.Error("get block error when change proposer: ", err)
+			}
+			nextBlockHeight := ledger.DefaultLedger.Store.GetHeight() + 1
+			ps.proposerCache.Add(nextBlockHeight, block)
+			ps.timer.Stop()
+			ps.timer.Reset(0)
+			ps.proposerChangeTimer.Reset(ProposerChangeTime)
+			if height > 1 {
+				ps.proposerChangeIndex++
+			}
+		}
 	}
 }
 
 func (ps *ProposerService) BlockSyncingFinished(v interface{}) {
-	var err error
-	block := ps.syncCache.GetBlockFromSyncCache()
-	for block != nil {
+	for i := ps.syncCache.startHeight; i < ps.syncCache.nextHeight; i++ {
+		block, err := ps.syncCache.GetBlockFromSyncCache(i)
+		if err != nil {
+			//TODO: if found ambiguous block then re-sync block
+			log.Error("persist cached block error: ", err)
+			return
+		}
 		err = ledger.BlockFullyCheck(block, ledger.DefaultLedger)
 		if err != nil {
 			log.Error("verifying cached block error: ", err)
+			return
 		}
 		err = ledger.DefaultLedger.Blockchain.AddBlock(block)
 		if err != nil {
 			log.Error("saving cached block error: ", err)
+			return
 		}
-		ps.syncCache.RemoveBlockFromCache()
-		block = ps.syncCache.GetBlockFromSyncCache()
+		ps.syncCache.RemoveBlockFromCache(i)
+		ps.syncCache.timeLock.RemoveForHeight(i)
 		// Fixme: wait for block persisted
 		time.Sleep(time.Millisecond * 300)
 	}
 	log.Info("cached block saving finished")
 	// switch syncing state
 	ps.localNode.SetSyncState(protocol.PersistFinished)
+}
+func (ps *ProposerService) SyncBlock(isProposer bool) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	// start block syncing
+	go func() {
+		defer wg.Done()
+		ps.localNode.SyncBlock(isProposer)
+	}()
+	wg.Add(1)
+	// start monitor routine for block syncing
+	go func() {
+		defer wg.Done()
+		ps.localNode.SyncBlockMonitor(isProposer)
+	}()
+	wg.Wait()
+}
+
+func (ps *ProposerService) StartConsensus(isProposer bool) {
+	// start block proposer routine
+	go ps.ProposerRoutine()
+	// start timeout routine
+	go ps.TimeoutRoutine()
+	// change proposer
+	go ps.ChangeProposer()
+	// trigger block proposer routine
+	if isProposer {
+		ps.timer.Reset(0)
+	}
+	// start probe routine
+	go ps.ProbeRoutine()
 }
 
 func (ps *ProposerService) Start() error {
@@ -351,20 +403,12 @@ func (ps *ProposerService) Start() error {
 	// register block syncing event
 	ps.syncFinished = ps.localNode.GetEvent("sync").Subscribe(events.EventBlockSyncingFinished,
 		ps.BlockSyncingFinished)
+
+	isProposer := ps.IsBlockProposer()
 	// start block syncing
-	go ps.localNode.SyncBlock()
-	// start monitor routine for block syncing
-	go ps.localNode.SyncBlockMonitor()
-	// start block proposer routine
-	go ps.ProposerRoutine()
-	// start timeout routine
-	go ps.TimeoutRoutine()
-	// trigger block proposer routine
-	if ps.IsBlockProposer() {
-		ps.timer.Reset(0)
-	}
-	// start probe routine
-	go ps.ProbeRoutine()
+	ps.SyncBlock(isProposer)
+	// start consensus
+	ps.StartConsensus(isProposer)
 
 	return nil
 }
@@ -393,67 +437,6 @@ func (ps *ProposerService) SendConsensusMsg(msg IsingMessage, to []protocol.Node
 	}
 
 	return nil
-}
-
-func (ps *ProposerService) CreateCoinbaseTransaction() *transaction.Transaction {
-	return &transaction.Transaction{
-		TxType:         transaction.Coinbase,
-		PayloadVersion: 0,
-		Payload:        &payload.Coinbase{},
-		Attributes: []*transaction.TxnAttribute{
-			{
-				Usage: transaction.Nonce,
-				Data:  util.RandomBytes(transaction.TransactionNonceLength),
-			},
-		},
-		Inputs: []*transaction.TxnInput{},
-		Outputs: []*transaction.TxnOutput{
-			{
-				AssetID:     ledger.DefaultLedger.Blockchain.AssetID,
-				Value:       10 * StorageFactor,
-				ProgramHash: ps.account.ProgramHash,
-			},
-		},
-		Programs: []*program.Program{},
-	}
-}
-
-func (ps *ProposerService) BuildBlock() (*ledger.Block, error) {
-	var txnList []*transaction.Transaction
-	var txnHashList []Uint256
-	coinbase := ps.CreateCoinbaseTransaction()
-	txnList = append(txnList, coinbase)
-	txnHashList = append(txnHashList, coinbase.Hash())
-	txns := ps.txnCollector.Collect()
-	for txnHash, txn := range txns {
-		if !ledger.DefaultLedger.Store.IsTxHashDuplicate(txnHash) {
-			txnList = append(txnList, txn)
-			txnHashList = append(txnHashList, txnHash)
-		}
-	}
-	txnRoot, err := crypto.ComputeRoot(txnHashList)
-	if err != nil {
-		return nil, err
-	}
-	header := &ledger.Header{
-		Version:          0,
-		PrevBlockHash:    ledger.DefaultLedger.Store.GetCurrentBlockHash(),
-		Timestamp:        uint32(time.Now().Unix()),
-		Height:           ledger.DefaultLedger.Store.GetHeight() + 1,
-		ConsensusData:    rand.Uint64(),
-		TransactionsRoot: txnRoot,
-		NextBookKeeper:   Uint160{},
-		Program: &program.Program{
-			Code:      []byte{0x00},
-			Parameter: []byte{0x00},
-		},
-	}
-	block := &ledger.Block{
-		Header:       header,
-		Transactions: txnList,
-	}
-
-	return block, nil
 }
 
 func (ps *ProposerService) ReceiveConsensusMsg(v interface{}) {
@@ -508,13 +491,11 @@ func (ps *ProposerService) HandleBlockFloodingMsg(bfMsg *BlockFlooding, sender *
 
 	// if block syncing is not finished, cache received blocks in order
 	if ps.localNode.GetSyncState() != protocol.PersistFinished {
-		// set syncing stop block hash
-		ps.localNode.SetSyncStopHash(bfMsg.block.Header.PrevBlockHash, height-1)
-		err := ps.syncCache.AddBlockToSyncCache(bfMsg.block)
+		err := ps.syncCache.AddBlockToSyncCache(bfMsg.block, len(ps.localNode.GetSyncFinishedNeighbors()))
 		if err != nil {
 			log.Error("add received block to sync cache error: ", err)
 		}
-		log.Debugf("cached block: %s, block height: %d,  totally cached: %d",
+		log.Infof("cached block: %s, block height: %d,  totally cached: %d",
 			BytesToHexString(blockHash.ToArrayReverse()), height, ps.syncCache.CachedBlockHeight())
 		return
 	}
@@ -587,6 +568,7 @@ func (ps *ProposerService) Initialize(vType voting.VotingContentType, totalWeigh
 	// initial total voting weight
 	for _, v := range ps.voting {
 		v.GetVotingPool().Reset(totalWeight)
+		v.Reset()
 	}
 	// initial neighbor nodes
 	ps.neighbors = ps.localNode.GetNeighborNoder()
@@ -679,22 +661,43 @@ func (ps *ProposerService) SetOrChangeMind(votingType voting.VotingContentType,
 }
 
 func (ps *ProposerService) HandleProposalMsg(proposal *Proposal, sender *crypto.PubKey) {
-	// TODO: vote counting for cached blocks
+	hash := *proposal.hash
+	height := proposal.height
+	nodeID := publickKeyToNodeID(sender)
+
+	// handle proposal when block syncing
 	if ps.localNode.GetSyncState() != protocol.PersistFinished {
+		err := ps.syncCache.AddVoteForBlock(hash, height, nodeID)
+		if err != nil {
+			return
+		}
+		block, err := ps.syncCache.GetBlockFromSyncCache(height)
+		if err != nil {
+			return
+		}
+		ps.localNode.SetSyncStopHash(block.Header.PrevBlockHash, block.Header.Height-1)
 		return
 	}
+
 	current := ps.CurrentVoting(proposal.contentType)
 	votingType := current.VotingType()
 	votingHeight := current.GetVotingHeight()
-	hash := *proposal.hash
-	height := proposal.height
-	if height < votingHeight-1 {
+	if height < votingHeight {
 		log.Warnf("receive invalid proposal, consensus height: %d, proposal height: %d,"+
 			" hash: %s\n", votingHeight, height, BytesToHexString(hash.ToArrayReverse()))
 		return
 	}
+	if height > votingHeight {
+		neighborHeight, count := current.CacheProposal(height)
+		if 2*count > len(ps.neighbors) {
+			log.Errorf("state is different with neighbors, "+
+				"current voting height: %d, neighbor height: %d (%d/%d), exits.",
+				votingHeight, neighborHeight, count, len(ps.neighbors))
+			os.Exit(1)
+		}
+		return
+	}
 	// TODO check if the sender is neighbor
-	nodeID := publickKeyToNodeID(sender)
 	if !current.Exist(hash, height) {
 		// generate request message
 		requestMsg := NewRequest(&hash, height, votingType)
@@ -726,22 +729,24 @@ func (ps *ProposerService) HandleProposalMsg(proposal *Proposal, sender *crypto.
 }
 
 func (ps *ProposerService) HandleMindChangingMsg(mindChanging *MindChanging, sender *crypto.PubKey) {
-	// TODO: vote counting for cached blocks
+	hash := *mindChanging.hash
+	height := mindChanging.height
+	nodeID := publickKeyToNodeID(sender)
+
+	// handle mind changing when block syncing
 	if ps.localNode.GetSyncState() != protocol.PersistFinished {
+		ps.syncCache.AddVoteForBlock(hash, height, nodeID)
 		return
 	}
+
 	current := ps.CurrentVoting(mindChanging.contentType)
 	votingType := current.VotingType()
 	votingHeight := current.GetVotingHeight()
-	hash := *mindChanging.hash
-	height := mindChanging.height
 	if height < votingHeight {
 		log.Warnf("receive invalid mind changing, consensus height: %d, mind changing height: %d,"+
 			" hash: %s\n", votingHeight, height, BytesToHexString(hash.ToArrayReverse()))
 		return
 	}
-	// TODO check if the sender is neighbor
-	nodeID := publickKeyToNodeID(sender)
 	currentVotingPool := current.GetVotingPool()
 	receivePool := currentVotingPool.GetReceivePool(votingHeight)
 	if _, ok := receivePool[nodeID]; !ok {

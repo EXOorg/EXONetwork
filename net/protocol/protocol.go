@@ -11,6 +11,7 @@ import (
 	"github.com/nknorg/nkn/crypto"
 	. "github.com/nknorg/nkn/errors"
 	"github.com/nknorg/nkn/events"
+	"github.com/nknorg/nkn/net/chord"
 	"github.com/nknorg/nkn/vault"
 )
 
@@ -53,8 +54,8 @@ type Noder interface {
 	GetSyncState() SyncState
 	SetSyncState(s SyncState)
 	SetSyncStopHash(hash Uint256, height uint32)
-	SyncBlock()
-	SyncBlockMonitor()
+	SyncBlock(bool)
+	SyncBlockMonitor(bool)
 	GetRelay() bool
 	GetPubKey() *crypto.PubKey
 	CompareAndSetState(old, new uint32) bool
@@ -92,6 +93,7 @@ type Noder interface {
 	CleanSubmittedTransactions(txns []*transaction.Transaction) error
 
 	GetNeighborNoder() []Noder
+	GetSyncFinishedNeighbors() []Noder
 	GetNbrNodeCnt() uint32
 	StoreFlightHeight(height uint32)
 	GetFlightHeightCnt() int
@@ -110,6 +112,7 @@ type Noder interface {
 	RelSyncReqSem()
 
 	GetChordAddr() []byte
+	GetChordRing() *chord.Ring
 	StartRelayer(wallet vault.Wallet)
 	NextHop(key []byte) (Noder, error)
 	SendRelayPacket(srcID, srcPubkey, destID, destPubkey, payload, signature []byte) error

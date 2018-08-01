@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
-	. "github.com/nknorg/nkn/errors"
 )
 
 const UINT256SIZE = 32
+
+var EmptyUint256 Uint256
 
 type Uint256 [UINT256SIZE]uint8
 
@@ -76,18 +76,14 @@ func (u *Uint256) ToString() string {
 	return string(u.ToArray())
 }
 func (u *Uint256) ToHexString() string {
-	hexStr := fmt.Sprintf("%x", u.ToArrayReverse())
-	return hexStr
+	return fmt.Sprintf("%x", u.ToArrayReverse())
 }
 
-func Uint256ParseFromBytes(f []byte) (Uint256, error) {
+func Uint256ParseFromBytes(f []byte) (hash Uint256, err error) {
+	copy(hash[:], f)
 	if len(f) != UINT256SIZE {
-		return Uint256{}, NewDetailErr(errors.New("[Common]: Uint256ParseFromBytes err, len != 32"), ErrNoCode, "")
+		err = errors.New("[Common]: Uint256ParseFromBytes err, len != 32")
 	}
 
-	var hash [32]uint8
-	for i := 0; i < 32; i++ {
-		hash[i] = f[i]
-	}
-	return Uint256(hash), nil
+	return hash, err
 }

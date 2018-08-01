@@ -12,20 +12,21 @@ import (
 func TestPorServer(t *testing.T) {
 	crypto.SetAlg("P256R1")
 	ring, _, err := chord.CreateNet()
+	vnode, _ := ring.GetFirstVnode()
 	from, _ := vault.NewAccount()
 	rel, _ := vault.NewAccount()
 	to, _ := vault.NewAccount()
-	pmFrom := NewPorServer(from, ring)
-	pmRel := NewPorServer(rel, ring)
-	pmTo := NewPorServer(to, ring)
+	pmFrom := NewPorServer(from)
+	pmRel := NewPorServer(rel)
+	pmTo := NewPorServer(to)
 	toPk, _ := to.PubKey().EncodePoint(true)
 	relPk, _ := rel.PubKey().EncodePoint(true)
 
-	scFrom, err := pmFrom.CreateSigChain(1, &common.Uint256{}, &common.Uint256{}, toPk, relPk)
+	scFrom, err := pmFrom.CreateSigChain(1, &common.Uint256{}, &common.Uint256{}, vnode.Id, toPk, relPk, true)
 	if err != nil {
 		t.Error("sigchain created failed")
 	}
-	pmRel.Sign(scFrom, toPk)
+	pmRel.Sign(scFrom, toPk, true)
 	if pmRel.Verify(scFrom) == nil {
 		t.Log("[pormanager] verify successfully")
 	} else {
@@ -38,7 +39,7 @@ func TestPorServer(t *testing.T) {
 		t.Error("[pormanager] IsFinal test failed")
 	}
 
-	pmTo.Sign(scFrom, toPk)
+	pmTo.Sign(scFrom, toPk, true)
 	if pmTo.Verify(scFrom) == nil {
 		t.Log("[pormanager] verify successfully 2")
 	} else {

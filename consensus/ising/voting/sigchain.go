@@ -10,10 +10,16 @@ import (
 	"github.com/nknorg/nkn/por"
 )
 
+const (
+	// When current block height is n, the signature chain for height n+VotedSigChainHeightIncrement is being voted.
+	VotedSigChainHeightIncrement = 3
+)
+
 type SigChainVoting struct {
 	sync.RWMutex
 	pstate         map[Uint256]*State            // consensus state for proposer
 	vstate         map[uint64]map[Uint256]*State // consensus state for voter
+	proposalCache  map[uint32]int                // proposal message height cache
 	height         uint32                        // voting height
 	porServer      *por.PorServer                // signature chain service provider
 	pool           *SigChainVotingPool           // signature chain voting pool
@@ -23,12 +29,13 @@ type SigChainVoting struct {
 
 func NewSigChainVoting(totalWeight int, txnCollector *transaction.TxnCollector) *SigChainVoting {
 	sigChainVoting := &SigChainVoting{
-		pstate:       make(map[Uint256]*State),
-		vstate:       make(map[uint64]map[Uint256]*State),
-		height:       ledger.DefaultLedger.Store.GetHeight() + 2,
-		porServer:    por.GetPorServer(),
-		pool:         NewSigChainVotingPool(totalWeight),
-		txnCollector: txnCollector,
+		pstate:        make(map[Uint256]*State),
+		vstate:        make(map[uint64]map[Uint256]*State),
+		proposalCache: make(map[uint32]int),
+		height:        ledger.DefaultLedger.Store.GetHeight() + 2,
+		porServer:     por.GetPorServer(),
+		pool:          NewSigChainVotingPool(totalWeight),
+		txnCollector:  txnCollector,
 	}
 
 	return sigChainVoting
@@ -93,7 +100,7 @@ func (scv *SigChainVoting) SetVotingHeight(height uint32) {
 }
 
 func (scv *SigChainVoting) GetVotingHeight() uint32 {
-	return ledger.DefaultLedger.Store.GetHeight() + 2
+	return ledger.DefaultLedger.Store.GetHeight() + VotedSigChainHeightIncrement
 }
 
 func (scv *SigChainVoting) SetConfirmingHash(hash Uint256) {
@@ -170,6 +177,23 @@ func (scv *SigChainVoting) AddToCache(content VotingContent) error {
 	return nil
 }
 
+func (scv *SigChainVoting) CacheProposal(height uint32) (uint32, int) {
+	scv.Lock()
+	defer scv.Unlock()
+
+	// increase height received from neighbors
+	scv.proposalCache[height] += 1
+	maxCount := 0
+	var neighborHeight uint32
+	for h, c := range scv.proposalCache {
+		if c > maxCount {
+			maxCount = c
+			neighborHeight = h
+		}
+	}
+	return neighborHeight, maxCount
+}
+
 func (scv *SigChainVoting) Exist(hash Uint256, height uint32) bool {
 	ret := scv.txnCollector.GetTransaction(hash)
 	_, err := ledger.DefaultLedger.Store.GetTransaction(hash)
@@ -180,6 +204,11 @@ func (scv *SigChainVoting) Exist(hash Uint256, height uint32) bool {
 	}
 
 	return true
+}
+
+func (scv *SigChainVoting) Reset() {
+	scv.proposalCache = nil
+	scv.proposalCache = make(map[uint32]int)
 }
 
 func (scv *SigChainVoting) GetVotingPool() VotingPool {

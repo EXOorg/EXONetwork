@@ -1,11 +1,14 @@
 package password
 
 import (
-	"flag"
 	"fmt"
 	"os"
 
 	"github.com/dnaproject/gopass"
+)
+
+var (
+	Passwd string
 )
 
 // GetPassword gets password from user input
@@ -45,18 +48,8 @@ func GetConfirmedPassword() ([]byte, error) {
 
 // GetPassword gets node's wallet password from command line or user input
 func GetAccountPassword() ([]byte, error) {
-	var passwd []byte
-	var err error
-	var pstr string
-	flag.StringVar(&pstr, "p", "", "wallet password")
-	flag.Parse()
-	if pstr == "" {
-		passwd, err = GetPassword()
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		passwd = []byte(pstr)
+	if Passwd == "" {
+		return GetPassword()
 	}
-	return passwd, nil
+	return []byte(Passwd), nil
 }

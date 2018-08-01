@@ -8,7 +8,6 @@ import (
 
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/transaction"
-	"github.com/nknorg/nkn/net/chord"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
 )
@@ -16,26 +15,24 @@ import (
 type PorServer struct {
 	sync.RWMutex
 	account *vault.Account
-	ring    *chord.Ring
 	pors    map[uint32][]*PorPackage
 }
 
 var porServer *PorServer
 
-func NewPorServer(account *vault.Account, ring *chord.Ring) *PorServer {
+func NewPorServer(account *vault.Account) *PorServer {
 	ps := &PorServer{
 		account: account,
-		ring:    ring,
 		pors:    make(map[uint32][]*PorPackage),
 	}
 	return ps
 }
 
-func InitPorServer(account *vault.Account, ring *chord.Ring) error {
+func InitPorServer(account *vault.Account) error {
 	if porServer != nil {
 		return errors.New("PorServer already initialized")
 	}
-	porServer = NewPorServer(account, ring)
+	porServer = NewPorServer(account)
 	return nil
 }
 
@@ -46,7 +43,7 @@ func GetPorServer() *PorServer {
 	return porServer
 }
 
-func (ps *PorServer) Sign(sc *SigChain, nextPubkey []byte) error {
+func (ps *PorServer) Sign(sc *SigChain, nextPubkey []byte, mining bool) error {
 	dcPk, err := ps.account.PubKey().EncodePoint(true)
 	if err != nil {
 		log.Error("Get account public key error:", err)
@@ -63,7 +60,7 @@ func (ps *PorServer) Sign(sc *SigChain, nextPubkey []byte) error {
 		return errors.New("it's not the right signer")
 	}
 
-	err = sc.Sign(nextPubkey, ps.account)
+	err = sc.Sign(nextPubkey, mining, ps.account)
 	if err != nil {
 		log.Error("Signature chain signing error:", err)
 		return err
@@ -80,21 +77,20 @@ func (ps *PorServer) Verify(sc *SigChain) error {
 	return nil
 }
 
-func (ps *PorServer) CreateSigChain(dataSize uint32, dataHash, blockHash *common.Uint256, destPubkey, nextPubkey []byte) (*SigChain, error) {
-	vnode, err := ps.ring.GetFirstVnode()
-	if err != nil {
-		return nil, err
-	}
-	return NewSigChain(ps.account, dataSize, dataHash[:], blockHash[:], vnode.Id, destPubkey, nextPubkey)
+func (ps *PorServer) CreateSigChain(dataSize uint32, dataHash, blockHash *common.Uint256, srcID,
+	destPubkey, nextPubkey []byte, mining bool) (*SigChain, error) {
+	return NewSigChain(ps.account, dataSize, dataHash[:], blockHash[:], srcID, destPubkey, nextPubkey, mining)
 }
 
-func (ps *PorServer) CreateSigChainForClient(dataSize uint32, dataHash, blockHash *common.Uint256, srcID, srcPubkey, destPubkey, signature []byte, sigAlgo SigAlgo) (*SigChain, error) {
+func (ps *PorServer) CreateSigChainForClient(dataSize uint32, dataHash, blockHash *common.Uint256, srcID,
+	srcPubkey, destPubkey, signature []byte, sigAlgo SigAlgo) (*SigChain, error) {
 	pubKey, err := ps.account.PubKey().EncodePoint(true)
 	if err != nil {
 		log.Error("Get account public key error:", err)
 		return nil, err
 	}
-	sigChain, err := NewSigChainWithSignature(dataSize, dataHash[:], blockHash[:], srcID, srcPubkey, destPubkey, pubKey, signature, sigAlgo)
+	sigChain, err := NewSigChainWithSignature(dataSize, dataHash[:], blockHash[:],
+		srcID, srcPubkey, destPubkey, pubKey, signature, sigAlgo, false)
 	if err != nil {
 		log.Error("New signature chain with signature error:", err)
 		return nil, err
@@ -164,6 +160,24 @@ func (ps *PorServer) GetSigChain(height uint32, hash common.Uint256) (*SigChain,
 	}
 
 	return nil, errors.New("can't find the signature chain")
+}
+
+func (ps *PorServer) GetTxnHashBySigChainHeight(height uint32) ([]common.Uint256, error) {
+	ps.RLock()
+	defer ps.RUnlock()
+
+	var txnHashes []common.Uint256
+	if porPackages, ok := ps.pors[height]; ok {
+		for _, p := range porPackages {
+			hash, err := common.Uint256ParseFromBytes(p.TxHash)
+			if err != nil {
+				return nil, errors.New("invalid transaction hash for por package")
+			}
+			txnHashes = append(txnHashes, hash)
+		}
+	}
+
+	return txnHashes, nil
 }
 
 func (ps *PorServer) AddSigChainFromTx(txn *transaction.Transaction) error {

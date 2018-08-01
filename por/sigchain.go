@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math/big"
 
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
@@ -27,6 +28,11 @@ const sigAlgo = SigAlgo_ECDSA
 
 func (sce *SigChainElem) SerializationUnsigned(w io.Writer) error {
 	err := serialization.WriteVarBytes(w, sce.Addr)
+	if err != nil {
+		return err
+	}
+
+	err = serialization.WriteBool(w, sce.Mining)
 	if err != nil {
 		return err
 	}
@@ -83,7 +89,8 @@ func (sc *SigChain) SerializationMetadata(w io.Writer) error {
 	return nil
 }
 
-func NewSigChainWithSignature(dataSize uint32, dataHash, blockHash, srcID, srcPubkey, destPubkey, nextPubkey, signature []byte, algo SigAlgo) (*SigChain, error) {
+func NewSigChainWithSignature(dataSize uint32, dataHash, blockHash, srcID, srcPubkey, destPubkey, nextPubkey,
+	signature []byte, algo SigAlgo, mining bool) (*SigChain, error) {
 	sc := &SigChain{
 		DataSize:   dataSize,
 		DataHash:   dataHash,
@@ -91,11 +98,12 @@ func NewSigChainWithSignature(dataSize uint32, dataHash, blockHash, srcID, srcPu
 		SrcPubkey:  srcPubkey,
 		DestPubkey: destPubkey,
 		Elems: []*SigChainElem{
-			&SigChainElem{
+			{
 				Addr:       srcID,
 				NextPubkey: nextPubkey,
 				SigAlgo:    algo,
 				Signature:  signature,
+				Mining:     mining,
 			},
 		},
 	}
@@ -103,7 +111,8 @@ func NewSigChainWithSignature(dataSize uint32, dataHash, blockHash, srcID, srcPu
 }
 
 // first relay node starts a new signature chain which consists of meta data and the first element.
-func NewSigChain(srcAccount *vault.Account, dataSize uint32, dataHash, blockHash, srcID, destPubkey, nextPubkey []byte) (*SigChain, error) {
+func NewSigChain(srcAccount *vault.Account, dataSize uint32, dataHash, blockHash, srcID,
+	destPubkey, nextPubkey []byte, mining bool) (*SigChain, error) {
 	srcPubkey, err := srcAccount.PubKey().EncodePoint(true)
 	if err != nil {
 		return nil, err
@@ -116,10 +125,11 @@ func NewSigChain(srcAccount *vault.Account, dataSize uint32, dataHash, blockHash
 		SrcPubkey:  srcPubkey,
 		DestPubkey: destPubkey,
 		Elems: []*SigChainElem{
-			&SigChainElem{
+			{
 				Addr:       srcID,
 				SigAlgo:    sigAlgo,
 				NextPubkey: nextPubkey,
+				Mining:     mining,
 			},
 		},
 	}
@@ -150,16 +160,17 @@ func NewSigChain(srcAccount *vault.Account, dataSize uint32, dataHash, blockHash
 	return sc, nil
 }
 
-func NewSigChainElem(nextPubkey []byte) *SigChainElem {
+func NewSigChainElem(nextPubkey []byte, mining bool) *SigChainElem {
 	return &SigChainElem{
 		SigAlgo:    sigAlgo,
 		NextPubkey: nextPubkey,
+		Mining:     mining,
 		Signature:  nil,
 	}
 }
 
-func (sc *SigChain) ExtendElement(nextPubkey []byte) ([]byte, error) {
-	elem := NewSigChainElem(nextPubkey)
+func (sc *SigChain) ExtendElement(nextPubkey []byte, mining bool) ([]byte, error) {
+	elem := NewSigChainElem(nextPubkey, mining)
 	lastElem, err := sc.lastSigElem()
 	if err != nil {
 		return nil, err
@@ -187,7 +198,7 @@ func (sc *SigChain) AddLastSignature(signature []byte) error {
 }
 
 // Sign new created signature chain with local wallet.
-func (sc *SigChain) Sign(nextPubkey []byte, signer *vault.Account) error {
+func (sc *SigChain) Sign(nextPubkey []byte, mining bool, signer *vault.Account) error {
 	sigNum := sc.Length()
 	if sigNum < 1 {
 		return errors.New("there are not enough signatures")
@@ -215,7 +226,7 @@ func (sc *SigChain) Sign(nextPubkey []byte, signer *vault.Account) error {
 		return errors.New("signer is not the right one")
 	}
 
-	digest, err := sc.ExtendElement(nextPubkey)
+	digest, err := sc.ExtendElement(nextPubkey, mining)
 	if err != nil {
 		log.Error("Signature chain extent element error:", err)
 		return err
@@ -361,7 +372,7 @@ func (sc *SigChain) GetLastPubkey() ([]byte, error) {
 	return e.NextPubkey, nil
 }
 
-func (sc *SigChain) GetLedgerNodePubkey() ([]byte, error) {
+func (sc *SigChain) GetMiner() ([]byte, error) {
 	if !sc.IsFinal() {
 		return nil, errors.New("not final")
 	}
@@ -371,7 +382,38 @@ func (sc *SigChain) GetLedgerNodePubkey() ([]byte, error) {
 		return nil, errors.New("not enough elements")
 	}
 
-	return sc.Elems[n-3].NextPubkey, nil
+	type SigChainElemInfo struct {
+		index int
+		elem  *SigChainElem
+	}
+	var minerElems []*SigChainElemInfo
+	for i, e := range sc.Elems {
+		if e.Mining == true {
+			t := &SigChainElemInfo{
+				index: i,
+				elem:  e,
+			}
+			minerElems = append(minerElems, t)
+		}
+	}
+	elemLen := int64(len(minerElems))
+	if elemLen == 0 {
+		err := errors.New("invalid signature chain for block proposer selection")
+		log.Error(err)
+		return nil, err
+	}
+	newIndex := big.NewInt(0)
+	x := big.NewInt(0)
+	x.SetBytes(sc.BlockHash)
+	y := big.NewInt(elemLen)
+	newIndex.Mod(x, y)
+
+	originalIndex := minerElems[newIndex.Int64()].index
+	if originalIndex == 0 {
+		return sc.GetSrcPubkey(), nil
+	}
+
+	return sc.Elems[originalIndex-1].NextPubkey, nil
 }
 
 func (sc *SigChain) nextSigner() ([]byte, error) {

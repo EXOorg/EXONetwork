@@ -14,14 +14,26 @@ import (
 	. "github.com/nknorg/nkn/errors"
 )
 
+type WinningHashType byte
+
+const (
+	GenesisHash      WinningHashType = 0
+	WinningTxnHash   WinningHashType = 1
+	WinningBlockHash WinningHashType = 2
+)
+
 type Header struct {
 	Version          uint32
 	PrevBlockHash    Uint256
 	TransactionsRoot Uint256
-	Timestamp        uint32
+	Timestamp        int64
 	Height           uint32
 	ConsensusData    uint64
 	NextBookKeeper   Uint160
+	WinningHash      Uint256
+	WinningHashType  WinningHashType
+	Signer           []byte
+	Signature        []byte
 	Program          *program.Program
 
 	hash Uint256
@@ -30,6 +42,7 @@ type Header struct {
 //Serialize the blockheader
 func (h *Header) Serialize(w io.Writer) error {
 	h.SerializeUnsigned(w)
+	serialization.WriteVarBytes(w, h.Signature)
 	w.Write([]byte{byte(1)})
 	if h.Program != nil {
 		h.Program.Serialize(w)
@@ -42,15 +55,19 @@ func (h *Header) SerializeUnsigned(w io.Writer) error {
 	serialization.WriteUint32(w, h.Version)
 	h.PrevBlockHash.Serialize(w)
 	h.TransactionsRoot.Serialize(w)
-	serialization.WriteUint32(w, h.Timestamp)
+	serialization.WriteUint64(w, uint64(h.Timestamp))
 	serialization.WriteUint32(w, h.Height)
 	serialization.WriteUint64(w, h.ConsensusData)
 	h.NextBookKeeper.Serialize(w)
+	h.WinningHash.Serialize(w)
+	serialization.WriteByte(w, byte(h.WinningHashType))
+	serialization.WriteVarBytes(w, h.Signer)
 	return nil
 }
 
 func (h *Header) Deserialize(r io.Reader) error {
 	h.DeserializeUnsigned(r)
+	h.Signature, _ = serialization.ReadVarBytes(r)
 	p := make([]byte, 1)
 	n, err := r.Read(p)
 	if n > 0 {
@@ -97,8 +114,8 @@ func (h *Header) DeserializeUnsigned(r io.Reader) error {
 	h.TransactionsRoot = *txRoot
 
 	//Timestamp
-	temp, _ = serialization.ReadUint32(r)
-	h.Timestamp = temp
+	time, _ := serialization.ReadUint64(r)
+	h.Timestamp = int64(time)
 
 	//Height
 	temp, _ = serialization.ReadUint32(r)
@@ -109,6 +126,13 @@ func (h *Header) DeserializeUnsigned(r io.Reader) error {
 
 	//NextBookKeeper
 	h.NextBookKeeper.Deserialize(r)
+
+	h.WinningHash.Deserialize(r)
+
+	t, _ := serialization.ReadByte(r)
+	h.WinningHashType = WinningHashType(t)
+
+	h.Signer, _ = serialization.ReadVarBytes(r)
 
 	return nil
 }
@@ -167,6 +191,7 @@ func (h *Header) ToArray() []byte {
 }
 
 func (h *Header) MarshalJson() ([]byte, error) {
+
 	headerInfo := &HeaderInfo{
 		Version:          h.Version,
 		PrevBlockHash:    BytesToHexString(h.PrevBlockHash.ToArrayReverse()),
@@ -175,6 +200,10 @@ func (h *Header) MarshalJson() ([]byte, error) {
 		Height:           h.Height,
 		ConsensusData:    h.ConsensusData,
 		NextBookKeeper:   BytesToHexString(h.NextBookKeeper.ToArrayReverse()),
+		WinningHash:      BytesToHexString(h.WinningHash.ToArrayReverse()),
+		WinningHashType:  byte(h.WinningHashType),
+		Signer:           BytesToHexString(h.Signer),
+		Signature:        BytesToHexString(h.Signature),
 		Hash:             BytesToHexString(h.hash.ToArrayReverse()),
 	}
 
@@ -202,6 +231,7 @@ func (h *Header) UnmarshalJson(data []byte) error {
 	h.Timestamp = headerInfo.Timestamp
 	h.Height = headerInfo.Height
 	h.ConsensusData = headerInfo.ConsensusData
+	h.WinningHashType = WinningHashType(headerInfo.WinningHashType)
 
 	prevHash, err := HexStringToBytesReverse(headerInfo.PrevBlockHash)
 	if err != nil {
@@ -229,6 +259,27 @@ func (h *Header) UnmarshalJson(data []byte) error {
 	if err != nil {
 		return err
 	}
+
+	winHash, err := HexStringToBytesReverse(headerInfo.WinningHash)
+	if err != nil {
+		return err
+	}
+	h.WinningHash, err = Uint256ParseFromBytes(winHash)
+	if err != nil {
+		return err
+	}
+
+	singer, err := HexStringToBytes(headerInfo.Signer)
+	if err != nil {
+		return err
+	}
+	h.Signer = singer
+
+	signature, err := HexStringToBytes(headerInfo.Signature)
+	if err != nil {
+		return err
+	}
+	h.Signature = signature
 
 	info, err := json.Marshal(headerInfo.Program)
 	if err != nil {

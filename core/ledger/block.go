@@ -72,6 +72,10 @@ func (b *Block) Deserialize(r io.Reader) error {
 	return nil
 }
 
+func (b *Block) GetSigner() ([]byte, error) {
+	return b.Header.Signer, nil
+}
+
 func (b *Block) Trim(w io.Writer) error {
 	b.Header.Serialize(w)
 	err := serialization.WriteUint32(w, uint32(len(b.Transactions)))
@@ -163,7 +167,7 @@ func GenesisBlockInit() (*Block, error) {
 		Version:          BlockVersion,
 		PrevBlockHash:    Uint256{},
 		TransactionsRoot: Uint256{},
-		Timestamp:        uint32(uint32(time.Date(2018, time.January, 0, 0, 0, 0, 0, time.UTC).Unix())),
+		Timestamp:        time.Date(2018, time.January, 0, 0, 0, 0, 0, time.UTC).Unix(),
 		Height:           uint32(0),
 		ConsensusData:    GenesisNonce,
 		NextBookKeeper:   Uint160{},
