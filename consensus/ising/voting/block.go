@@ -3,6 +3,7 @@ package voting
 import (
 	"errors"
 	"sync"
+	"time"
 
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/ledger"
@@ -25,14 +26,14 @@ type BlockVoting struct {
 	confirmingHash Uint256                       // block hash in process
 }
 
-func NewBlockVoting(totalWeight int) *BlockVoting {
+func NewBlockVoting() *BlockVoting {
 	blockVoting := &BlockVoting{
 		pstate:        make(map[Uint256]*State),
 		vstate:        make(map[uint64]map[Uint256]*State),
 		height:        ledger.DefaultLedger.Store.GetHeight() + 1,
 		blockCache:    NewBlockCache(),
 		proposalCache: make(map[uint32]int),
-		pool:          NewBlockVotingPool(totalWeight),
+		pool:          NewBlockVotingPool(),
 	}
 
 	return blockVoting
@@ -151,6 +152,20 @@ func (bv *BlockVoting) GetVotingContent(hash Uint256, height uint32) (VotingCont
 	return nil, errors.New("invalid hash for block")
 }
 
+func (bv *BlockVoting) VerifyVotingContent(content VotingContent) bool {
+	if block, ok := content.(*ledger.Block); !ok {
+		return false
+	} else {
+		err := ledger.TransactionCheck(block)
+		if err != nil {
+			log.Error("block verification error")
+			return false
+		}
+	}
+
+	return true
+}
+
 func (bv *BlockVoting) VotingType() VotingContentType {
 	return BlockVote
 }
@@ -165,7 +180,7 @@ func (bv *BlockVoting) AddToCache(content VotingContent) error {
 		if blockHeight != localHeight+1 {
 			return errors.New("invalid block height")
 		}
-		err = ledger.BlockFullyCheck(block, ledger.DefaultLedger)
+		err = ledger.HeaderCheck(block.Header, time.Now().Unix())
 		if err != nil {
 			return err
 		}

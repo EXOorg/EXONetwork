@@ -1,8 +1,8 @@
 package chord
 
 import (
-	"bytes"
 	"crypto/sha1"
+	"encoding/json"
 	"sort"
 	"testing"
 	"time"
@@ -42,7 +42,7 @@ func makeRing() *Ring {
 func TestRingInit(t *testing.T) {
 	// Create a ring
 	ring := &Ring{}
-	conf := DefaultConfig("test")
+	conf := DefaultConfig("test", true)
 	ring.init(conf, nil)
 
 	// Test features
@@ -77,17 +77,28 @@ func TestRingLen(t *testing.T) {
 func TestRingSort(t *testing.T) {
 	ring := makeRing()
 	sort.Sort(ring)
-	if bytes.Compare(ring.Vnodes[0].Id, ring.Vnodes[1].Id) != -1 {
+	if CompareId(ring.Vnodes[0].Id, ring.Vnodes[1].Id) != -1 {
 		t.Fatalf("bad sort")
 	}
-	if bytes.Compare(ring.Vnodes[1].Id, ring.Vnodes[2].Id) != -1 {
+	if CompareId(ring.Vnodes[1].Id, ring.Vnodes[2].Id) != -1 {
 		t.Fatalf("bad sort")
 	}
-	if bytes.Compare(ring.Vnodes[2].Id, ring.Vnodes[3].Id) != -1 {
+	if CompareId(ring.Vnodes[2].Id, ring.Vnodes[3].Id) != -1 {
 		t.Fatalf("bad sort")
 	}
-	if bytes.Compare(ring.Vnodes[3].Id, ring.Vnodes[4].Id) != -1 {
+	if CompareId(ring.Vnodes[3].Id, ring.Vnodes[4].Id) != -1 {
 		t.Fatalf("bad sort")
+	}
+}
+
+func TestRingToData(t *testing.T) {
+	ring := makeRing()
+	js, err := json.Marshal(ring.ToData())
+
+	if err != nil {
+		t.Fatal(err)
+	} else {
+		t.Logf("%s", js)
 	}
 }
 

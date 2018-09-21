@@ -76,9 +76,26 @@ type Config struct {
 	JoinBlkHeight uint32           // Current BlockHeight when join ring
 }
 
+// configData : Data of Config struct for json.Marshal in API
+type configData struct {
+	Hostname      string // Local host name
+	NumVnodes     int    // Number of vnodes per physical node
+	NumSuccessors int    // Number of successors to maintain
+	HashBits      int    // Bit size of the hash function
+	SeedNodeAddr  string // Join a ring via a seed node
+	JoinBlkHeight uint32 // Current BlockHeight when join ring
+}
+
 // Represents an Vnode, local or remote
 type Vnode struct {
 	Id         []byte // Virtual ID
+	Host       string // Chord Host identifier
+	NodePort   uint16 // Node port
+	HttpWsPort uint16 // Websocket port
+}
+
+type VnodeData struct {
+	Id         string // Virtual ID of Hex String
 	Host       string // Chord Host identifier
 	NodePort   uint16 // Node port
 	HttpWsPort uint16 // Websocket port
@@ -97,6 +114,15 @@ type localVnode struct {
 	OnNewSuccessor func()
 }
 
+// localVnodeData : Data of localVnode for json.Marshal in API
+type localVnodeData struct {
+	VnodeData
+	Successors  []*VnodeData
+	Finger      []*VnodeData
+	Predecessor *VnodeData
+	Last_finger int
+}
+
 // Stores the state required for a Chord ring
 type Ring struct {
 	config     *Config
@@ -106,24 +132,16 @@ type Ring struct {
 	shutdown   chan bool
 }
 
+// RingData : Data of Ring for json.Marshal in API
+type RingData struct {
+	Conf   *configData
+	Vnodes []*localVnodeData
+}
+
 var ring *Ring
 
 // Returns the default Ring configuration
-func DefaultConfig(hostname string, create bool) *Config {
-	var bh uint32
-	remote := ""
-	if create == false {
-		info, err := client.GetNodeState("http://" + config.Parameters.SeedList[0])
-		if err != nil { // Maybe createNode mode
-			log.Warnf("Can't get remote node info from [%s]", config.Parameters.SeedList[0])
-		} else {
-			remote = net.JoinHostPort(info.Addr, strconv.Itoa(int(info.ChordPort)))
-		}
-
-		// Don't use BlockHeight from NodeState. Used it from Ledger.
-		bh, _ = client.GetRemoteBlkHeight("http://" + config.Parameters.SeedList[0])
-	}
-
+func DefaultConfig(hostname string) *Config {
 	return &Config{
 		Hostname:      hostname,
 		NumVnodes:     1,          // 1 vnodes
@@ -133,8 +151,18 @@ func DefaultConfig(hostname string, create bool) *Config {
 		NumSuccessors: 8,   // 8 successors
 		Delegate:      nil, // No delegate
 		hashBits:      256, // 256bit hash function
-		SeedNodeAddr:  remote,
-		JoinBlkHeight: bh,
+	}
+}
+
+// Extract marshalable data from Config struct
+func (c *Config) toData() *configData {
+	return &configData{
+		c.Hostname,
+		c.NumVnodes,
+		c.NumSuccessors,
+		c.hashBits,
+		c.SeedNodeAddr,
+		c.JoinBlkHeight,
 	}
 }
 
@@ -148,7 +176,7 @@ func Create(conf *Config, trans Transport) (*Ring, error) {
 	}
 
 	// Create and initialize a ring
-	ring := &Ring{}
+	ring = &Ring{}
 	ring.init(conf, trans)
 	ring.setLocalSuccessors()
 	ring.schedule()
@@ -170,7 +198,7 @@ func Join(conf *Config, trans Transport, existing string) (*Ring, error) {
 	}
 
 	// Create a ring
-	ring := &Ring{}
+	ring = &Ring{}
 	ring.init(conf, trans)
 
 	// Acquire a live successor for each Vnode
@@ -257,10 +285,10 @@ func (r *Ring) Lookup(n int, key []byte) ([]*Vnode, error) {
 }
 
 // Ring create and join functions
-func prepRing(port uint16, create bool) (*Config, *TCPTransport, error) {
+func prepRing(port uint16) (*Config, *TCPTransport, error) {
 	hostname := fmt.Sprintf("%s:%d", config.Parameters.Hostname, port)
 	listen := fmt.Sprintf(":%d", port)
-	conf := DefaultConfig(hostname, create)
+	conf := DefaultConfig(hostname)
 	timeout := time.Duration(2 * time.Second)
 	trans, err := InitTCPTransport(listen, timeout)
 	if err != nil {
@@ -272,7 +300,7 @@ func prepRing(port uint16, create bool) (*Config, *TCPTransport, error) {
 // Creat the ring
 func CreateNet() (*Ring, *TCPTransport, error) {
 	log.Debug()
-	c, t, err := prepRing(config.Parameters.ChordPort, true)
+	c, t, err := prepRing(config.Parameters.ChordPort)
 	if err != nil {
 		log.Errorf("unexpected err. %s", err)
 		return nil, nil, err
@@ -285,41 +313,38 @@ func CreateNet() (*Ring, *TCPTransport, error) {
 		return nil, nil, err
 	}
 
-	go func() {
-		for {
-			time.Sleep(20 * time.Second)
-			r.DumpInfo(false)
-		}
-	}()
-
 	return r, t, nil
 }
 
 // Join the ring
 func JoinNet() (*Ring, *TCPTransport, error) {
 	log.Debug()
-	c, t, err := prepRing(config.Parameters.ChordPort, false)
+	c, t, err := prepRing(config.Parameters.ChordPort)
 	if err != nil {
 		log.Errorf("unexpected err. %s", err)
 		return nil, nil, err
 	}
 
-	// Join ring
-	// TODO: Check the c.SeedNodeAddr validity
-	r, err := Join(c, t, c.SeedNodeAddr)
-	if err != nil {
+	for _, seed := range config.Parameters.SeedList {
+		info, err := client.GetNodeState(seed)
+		if err != nil {
+			log.Warnf("Can't get remote node info from [%s]", seed)
+			continue
+		}
+
+		c.JoinBlkHeight = info.Height
+		c.SeedNodeAddr = net.JoinHostPort(info.Addr, strconv.Itoa(int(info.ChordPort)))
+
+		// Join ring
+		r, err := Join(c, t, c.SeedNodeAddr)
+		if err == nil {
+			log.Infof("Join ring by Seed [%s] successful", seed)
+			return r, t, nil
+		}
 		log.Errorf("failed to join [%s] local node! Got %s", c.SeedNodeAddr, err)
-		return nil, nil, err
 	}
 
-	go func() {
-		for {
-			time.Sleep(20 * time.Second)
-			r.DumpInfo(false)
-		}
-	}()
-
-	return r, t, nil
+	return nil, nil, fmt.Errorf("Tried all Seeds but still failed")
 }
 
 func GetRing() *Ring {

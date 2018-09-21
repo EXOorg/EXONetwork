@@ -3,8 +3,6 @@ package node
 import (
 	"crypto/sha256"
 	"errors"
-	"net"
-	"strconv"
 
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/ledger"
@@ -12,6 +10,7 @@ import (
 	"github.com/nknorg/nkn/net/protocol"
 	"github.com/nknorg/nkn/por"
 	"github.com/nknorg/nkn/relay"
+	"github.com/nknorg/nkn/util/address"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
 )
@@ -31,37 +30,31 @@ func (node *node) NextHop(key []byte) (protocol.Noder, error) {
 		return nil, err
 	}
 	for {
-		nbr := iter.Next()
-		if nbr == nil {
+		chordNbr := iter.Next()
+		if chordNbr == nil {
 			break
 		}
-		nbrAddr, err := nbr.NodeAddr()
-		if err != nil {
-			continue
-		}
-		found := false
-		var n protocol.Noder
-		var ip net.IP
-		for _, tn := range node.nbrNodes.List {
-			addr := getNodeAddr(tn)
-			ip = addr.IpAddr[:]
-			addrstring := net.JoinHostPort(ip.To16().String(), strconv.Itoa(int(addr.Port)))
-			if nbrAddr == addrstring {
-				n = tn
-				found = true
-				break
-			}
-		}
-		if found {
-			if n.GetState() == protocol.ESTABLISH {
-				return n, nil
-			}
+		nodeNbr := node.GetNeighborByChordAddr(chordNbr.Id)
+		if nodeNbr != nil {
+			return nodeNbr, nil
 		}
 	}
 	return nil, nil
 }
 
-func (node *node) SendRelayPacket(srcID, srcPubkey, destID, destPubkey, payload, signature []byte) error {
+func (node *node) SendRelayPacket(srcAddr, destAddr string, payload, signature []byte) error {
+	srcID, srcPubkey, err := address.ParseClientAddress(srcAddr)
+	if err != nil {
+		log.Error("Parse src client address error:", err)
+		return err
+	}
+
+	destID, destPubkey, err := address.ParseClientAddress(destAddr)
+	if err != nil {
+		log.Error("Parse dest client address error:", err)
+		return err
+	}
+
 	payloadHash := sha256.Sum256(payload)
 	payloadHash256, err := common.Uint256ParseFromBytes(payloadHash[:])
 	if err != nil {
@@ -82,7 +75,7 @@ func (node *node) SendRelayPacket(srcID, srcPubkey, destID, destPubkey, payload,
 		por.SigAlgo_ECDSA,
 	)
 
-	relayPacket, err := message.NewRelayPacket(srcID, destID, payload, sigChain)
+	relayPacket, err := message.NewRelayPacket(srcAddr, destID, payload, sigChain)
 	if err != nil {
 		log.Error("Create relay packet error: ", err)
 		return err

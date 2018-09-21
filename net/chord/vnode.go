@@ -1,7 +1,6 @@
 package chord
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -15,9 +14,16 @@ import (
 	nlog "github.com/nknorg/nkn/util/log"
 )
 
-// Converts the ID to string
+// Converts the ID to Hex string
 func (vn *Vnode) String() string {
 	return fmt.Sprintf("%x", vn.Id)
+}
+
+func (vn *Vnode) ToData() *VnodeData {
+	if vn == nil {
+		return nil
+	}
+	return &VnodeData{vn.String(), vn.Host, vn.NodePort, vn.HttpWsPort}
 }
 
 func (vn *Vnode) NodeAddr() (string, error) {
@@ -210,7 +216,7 @@ func (vn *localVnode) Notify(maybe_pred *Vnode) ([]*Vnode, error) {
 	// Check if we should update our predecessor
 	if vn.predecessor == nil || between(vn.predecessor.Id, vn.Id, maybe_pred.Id) {
 		shouldUpdate = true
-	} else if bytes.Compare(vn.predecessor.Id, maybe_pred.Id) != 0 {
+	} else if CompareId(vn.predecessor.Id, maybe_pred.Id) != 0 {
 		alive, err := vn.ring.transport.Ping(vn.predecessor)
 		if err == nil && !alive {
 			shouldUpdate = true
@@ -308,8 +314,12 @@ func (vn *localVnode) checkPredecessor() error {
 
 // Finds next N successors. N must be <= NumSuccessors
 func (vn *localVnode) FindSuccessors(n int, key []byte) ([]*Vnode, error) {
+	if vn.successors == nil || len(vn.successors) == 0 {
+		return nil, errors.New("Successor list not initialized")
+	}
+
 	// Check if we are the immediate predecessor
-	if betweenRightIncl(vn.Id, vn.successors[0].Id, key) {
+	if vn.successors[0] != nil && betweenRightIncl(vn.Id, vn.successors[0].Id, key) {
 		return vn.successors[:n], nil
 	}
 
@@ -328,7 +338,7 @@ func (vn *localVnode) FindSuccessors(n int, key []byte) ([]*Vnode, error) {
 		if err == nil {
 			return res, nil
 		} else {
-			nlog.Infof("[ERR] Failed to contact %s. Got %s", closest.String(), err)
+			nlog.Infof("[WARNING] Failed to contact %s. Got %s", closest.String(), err)
 		}
 	}
 
@@ -337,7 +347,7 @@ func (vn *localVnode) FindSuccessors(n int, key []byte) ([]*Vnode, error) {
 
 	// Check if the ID is between us and any non-immediate successors
 	for i := 1; i <= successors-n; i++ {
-		if betweenRightIncl(vn.Id, vn.successors[i].Id, key) {
+		if vn.successors[i] != nil && betweenRightIncl(vn.Id, vn.successors[i].Id, key) {
 			remain := vn.successors[i:]
 			if len(remain) > n {
 				remain = remain[:n]
@@ -347,7 +357,7 @@ func (vn *localVnode) FindSuccessors(n int, key []byte) ([]*Vnode, error) {
 	}
 
 	// Checked all closer nodes and our successors!
-	return nil, fmt.Errorf("Exhausted all preceeding nodes!")
+	return nil, fmt.Errorf("Exhausted all preceeding nodes")
 }
 
 func (vn *localVnode) FindPredecessor(key []byte) (*Vnode, error) {
@@ -436,7 +446,30 @@ func (vn *localVnode) knownSuccessors() (successors int) {
 	return
 }
 
-func (vn *localVnode) Neighbors() []*Vnode {
+func (vn *localVnode) shouldConnectToHost(host string) bool {
+	// successor list
+	for _, n := range vn.successors {
+		if n != nil && n.Host == host {
+			return true
+		}
+	}
+
+	// predecessor
+	if vn.predecessor != nil && vn.predecessor.Host == host {
+		return true
+	}
+
+	// finger table
+	for _, n := range vn.finger {
+		if n != nil && n.Host == host {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (vn *localVnode) GetNeighbors() []*Vnode {
 	seen := make(map[*Vnode]bool)
 	neighbors := []*Vnode{}
 	for _, n := range vn.finger {
@@ -454,8 +487,62 @@ func (vn *localVnode) Neighbors() []*Vnode {
 	return neighbors
 }
 
+func (vn *localVnode) ShouldAddrInNeighbors(addr []byte) bool {
+	for _, n := range vn.finger {
+		if n == nil {
+			continue
+		}
+		if n.Host == vn.Host {
+			continue
+		}
+		if CompareId(n.Id, addr) == 0 {
+			return true
+		}
+	}
+
+	hb := vn.ring.config.hashBits
+	dist := distance(addr, vn.Id, hb)
+	offset := powerOffset(addr, dist.BitLen()-1, hb)
+	if vn.predecessor != nil && betweenRightIncl(vn.predecessor.Id, vn.Id, offset) {
+		return true
+	}
+
+	return false
+}
+
 func (vn *localVnode) ClosestNeighborIterator(key []byte) (closestPreceedingVnodeIterator, error) {
 	cp := closestPreceedingVnodeIterator{}
 	cp.init(vn, key, true, true)
 	return cp, nil
+}
+
+// Extract marshalable data from localVnode struct
+func (vn *localVnode) toData() *localVnodeData {
+	if vn == nil {
+		return nil
+	}
+
+	succ := make([]*VnodeData, len(vn.successors))
+	finger := make([]*VnodeData, len(vn.finger))
+
+	for i, n := range vn.successors {
+		succ[i] = n.ToData()
+	}
+
+	last := vn.finger[0]
+	for i, n := range vn.finger {
+		if n != last { // Skip same item, Only save the last until met new
+			finger[i-1] = last.ToData() // n != last is impossible when i==0
+		}
+		last = n // Update last
+	}
+	finger[len(vn.finger)-1] = last.ToData() // save last to end of lst
+
+	return &localVnodeData{
+		*vn.Vnode.ToData(),
+		succ,
+		finger,
+		vn.predecessor.ToData(),
+		vn.last_finger,
+	}
 }

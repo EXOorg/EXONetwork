@@ -17,8 +17,12 @@ import (
 type WinningHashType byte
 
 const (
-	GenesisHash      WinningHashType = 0
-	WinningTxnHash   WinningHashType = 1
+	// The proof of Block proposer validity should exists in previous Block header.
+	// GenesisHash means next Block proposer is GenesisBlockProposer.
+	GenesisHash WinningHashType = 0
+	// WinningTxnHash means next Block proposer is a node on signature chain.
+	WinningTxnHash WinningHashType = 1
+	// WinningBlockHash means next Block proposer is signer of historical Block.
 	WinningBlockHash WinningHashType = 2
 )
 
@@ -269,11 +273,11 @@ func (h *Header) UnmarshalJson(data []byte) error {
 		return err
 	}
 
-	singer, err := HexStringToBytes(headerInfo.Signer)
+	signer, err := HexStringToBytes(headerInfo.Signer)
 	if err != nil {
 		return err
 	}
-	h.Signer = singer
+	h.Signer = signer
 
 	signature, err := HexStringToBytes(headerInfo.Signature)
 	if err != nil {

@@ -1,6 +1,8 @@
 package node
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -17,7 +19,7 @@ func (nm *nbrNodes) Broadcast(buf []byte) {
 	nm.RLock()
 	defer nm.RUnlock()
 	for _, node := range nm.List {
-		if node.state == ESTABLISH && node.relay == true {
+		if node.GetState() == ESTABLISH && node.relay == true {
 			node.Tx(buf)
 		}
 	}
@@ -35,8 +37,8 @@ func (nm *nbrNodes) AddNbrNode(n Noder) {
 	if nm.NodeExisted(n.GetID()) {
 		fmt.Printf("Insert a existed node\n")
 	} else {
-		node, err := n.(*node)
-		if err == false {
+		node, ok := n.(*node)
+		if !ok {
 			fmt.Println("Convert the noder error when add node")
 			return
 		}
@@ -49,7 +51,7 @@ func (nm *nbrNodes) DelNbrNode(id uint64) (Noder, bool) {
 	defer nm.Unlock()
 
 	n, ok := nm.List[id]
-	if ok == false {
+	if !ok {
 		return nil, false
 	}
 	delete(nm.List, id)
@@ -62,7 +64,7 @@ func (nm *nbrNodes) GetConnectionCnt() uint {
 
 	var cnt uint
 	for _, node := range nm.List {
-		if node.state == ESTABLISH {
+		if node.GetState() == ESTABLISH {
 			cnt++
 		}
 	}
@@ -78,11 +80,11 @@ func (nm *nbrNodes) NodeEstablished(id uint64) bool {
 	defer nm.RUnlock()
 
 	n, ok := nm.List[id]
-	if ok == false {
+	if !ok {
 		return false
 	}
 
-	if n.state != ESTABLISH {
+	if n.GetState() != ESTABLISH {
 		return false
 	}
 
@@ -129,6 +131,19 @@ func (node *node) GetNeighborHeights() ([]uint32, uint64) {
 	return heights, i
 }
 
+func (node *node) GetActiveNeighbors() []Noder {
+	node.nbrNodes.RLock()
+	defer node.nbrNodes.RUnlock()
+
+	nodes := []Noder{}
+	for _, n := range node.nbrNodes.List {
+		if n.GetState() != INACTIVITY {
+			nodes = append(nodes, n)
+		}
+	}
+	return nodes
+}
+
 func (node *node) GetNeighborNoder() []Noder {
 	node.nbrNodes.RLock()
 	defer node.nbrNodes.RUnlock()
@@ -166,4 +181,57 @@ func (node *node) GetNbrNodeCnt() uint32 {
 		}
 	}
 	return count
+}
+
+func (node *node) GetNeighborByAddr(addr string) Noder {
+	node.nbrNodes.RLock()
+	defer node.nbrNodes.RUnlock()
+	for _, n := range node.nbrNodes.List {
+		if n.GetState() == ESTABLISH {
+			if n.GetAddrStr() == addr {
+				return n
+			}
+		}
+	}
+	return nil
+}
+
+func (node *node) GetNeighborByChordAddr(chordAddr []byte) Noder {
+	node.nbrNodes.RLock()
+	defer node.nbrNodes.RUnlock()
+	for _, n := range node.nbrNodes.List {
+		if n.GetState() == ESTABLISH {
+			if bytes.Compare(n.GetChordAddr(), chordAddr) == 0 {
+				return n
+			}
+		}
+	}
+	return nil
+}
+
+func (node *node) IsAddrInNeighbors(addr string) bool {
+	neighbor := node.GetNeighborByAddr(addr)
+	if neighbor != nil {
+		return true
+	}
+	return false
+}
+
+func (node *node) IsChordAddrInNeighbors(chordAddr []byte) bool {
+	neighbor := node.GetNeighborByChordAddr(chordAddr)
+	if neighbor != nil {
+		return true
+	}
+	return false
+}
+
+func (node *node) ShouldChordAddrInNeighbors(addr []byte) (bool, error) {
+	chordNode, err := node.ring.GetFirstVnode()
+	if err != nil {
+		return false, err
+	}
+	if chordNode == nil {
+		return false, errors.New("No chord node binded")
+	}
+	return chordNode.ShouldAddrInNeighbors(addr), nil
 }

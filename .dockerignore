@@ -11,3 +11,6 @@ vendor
 Chain
 nknd
 nknc
+build/
+wallet.dat
+config.json

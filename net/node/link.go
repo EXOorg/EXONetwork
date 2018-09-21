@@ -75,6 +75,7 @@ func unpackNodeBuf(node *node, buf []byte) {
 	msgLen = node.rxBuf.len
 	if len(buf) == msgLen {
 		msgBuf = append(node.rxBuf.p, buf[:]...)
+		node.LocalNode().AcquireMsgHandlerChan()
 		go msg.HandleNodeMsg(node, msgBuf, len(msgBuf))
 		node.rxBuf.p = nil
 		node.rxBuf.len = 0
@@ -83,6 +84,7 @@ func unpackNodeBuf(node *node, buf []byte) {
 		node.rxBuf.len = msgLen - len(buf)
 	} else {
 		msgBuf = append(node.rxBuf.p, buf[0:msgLen]...)
+		node.LocalNode().AcquireMsgHandlerChan()
 		go msg.HandleNodeMsg(node, msgBuf, len(msgBuf))
 		node.rxBuf.p = nil
 		node.rxBuf.len = 0
@@ -103,10 +105,10 @@ func (node *node) rx() {
 			node.UpdateRXTime(t)
 			unpackNodeBuf(node, buf[0:len])
 		case io.EOF:
-			log.Error("Rx io.EOF: ", err, ", node id is ", node.GetID())
+			log.Warn("Rx io.EOF: ", err, ", node id is ", node.GetID())
 			goto DISCONNECT
 		default:
-			log.Error("Read connection error ", err)
+			log.Warn("Read connection error ", err)
 			goto DISCONNECT
 		}
 	}
@@ -221,11 +223,13 @@ func parseIPaddr(s string) (string, error) {
 }
 
 func (node *node) Connect(nodeAddr string) error {
-	if node.IsAddrInNbrList(nodeAddr) {
+	if node.IsAddrInNeighbors(nodeAddr) {
+		log.Info("Node addr", nodeAddr, "already in neighbors, cancel")
 		return nil
 	}
 	if !node.SetAddrInConnectingList(nodeAddr) {
-		return errors.New("node exist in connecting list, cancel")
+		log.Info("Node addr", nodeAddr, "exists in connecting list, cancel")
+		return errors.New("node exists in connecting list, cancel")
 	}
 
 	isTls := Parameters.IsTLS
@@ -250,6 +254,9 @@ func (node *node) Connect(nodeAddr string) error {
 	n := NewNode()
 	n.conn = conn
 	n.addr, err = parseIPaddr(conn.RemoteAddr().String())
+	if err != nil {
+		log.Error("Parse remote address error:", err)
+	}
 	n.local = node
 
 	log.Info(fmt.Sprintf("Connect node %s connect with %s with %s",
@@ -307,6 +314,7 @@ func TLSDial(nodeAddr string) (net.Conn, error) {
 
 func (node *node) Tx(buf []byte) {
 	if node.GetState() == INACTIVITY {
+		log.Infof("Try to send msg to closed connection to %s, cancel", node.GetAddrStr())
 		return
 	}
 	_, err := node.conn.Write(buf)

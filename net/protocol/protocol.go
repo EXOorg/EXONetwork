@@ -33,12 +33,16 @@ const (
 	PersistFinished SyncState = 2
 )
 
+// SyncStateString is the string of SyncState enum
+var SyncStateString = []string{"SyncStarted", "SyncFinished", "PersistFinished"}
+
 type Noder interface {
 	Version() uint32
 	GetID() uint64
 	Services() uint64
 	GetAddr() string
 	GetPort() uint16
+	GetAddrStr() string
 	GetHttpInfoPort() uint16
 	SetHttpInfoPort(uint16)
 	GetHttpJsonPort() uint16
@@ -56,6 +60,7 @@ type Noder interface {
 	SetSyncStopHash(hash Uint256, height uint32)
 	SyncBlock(bool)
 	SyncBlockMonitor(bool)
+	StopSyncBlock()
 	GetRelay() bool
 	GetPubKey() *crypto.PubKey
 	CompareAndSetState(old, new uint32) bool
@@ -66,10 +71,10 @@ type Noder interface {
 	CloseConn()
 	GetHeight() uint32
 	GetConnectionCnt() uint
-	GetTxnByCount(int) map[Uint256]*transaction.Transaction
+	GetTxnByCount(int, Uint256) (map[Uint256]*transaction.Transaction, error)
 	GetTxnPool() *pool.TxnPool
 	AppendTxnPool(*transaction.Transaction) ErrCode
-	ExistedID(id Uint256) bool
+	ExistHash(hash Uint256) bool
 	ReqNeighborList()
 	DumpInfo()
 	UpdateInfo(t time.Time, version uint32, services uint64, port uint16, nonce uint64, relay uint8, height uint32)
@@ -86,6 +91,7 @@ type Noder interface {
 	GetRxTxnCnt() uint64
 
 	Xmit(interface{}) error
+	BroadcastTransaction(from Noder, txn *transaction.Transaction) error
 	GetBookKeeperAddr() *crypto.PubKey
 	GetBookKeepersAddrs() ([]*crypto.PubKey, uint64)
 	SetBookKeeperAddr(pk *crypto.PubKey)
@@ -103,19 +109,24 @@ type Noder interface {
 	SetHeight(height uint32)
 	WaitForSyncBlkFinish()
 	GetFlightHeights() []uint32
-	IsAddrInNbrList(addr string) bool
+	IsAddrInNeighbors(addr string) bool
+	IsChordAddrInNeighbors(chordAddr []byte) bool
+	ShouldChordAddrInNeighbors(addr []byte) (bool, error)
 	SetAddrInConnectingList(addr string) bool
 	RemoveAddrInConnectingList(addr string)
 	AddInRetryList(addr string)
 	RemoveFromRetryList(addr string)
-	AcqSyncReqSem()
-	RelSyncReqSem()
+	AcquireMsgHandlerChan()
+	ReleaseMsgHandlerChan()
+	AcquireHeaderReqChan()
+	ReleaseHeaderReqChan()
 
 	GetChordAddr() []byte
+	SetChordAddr([]byte)
 	GetChordRing() *chord.Ring
 	StartRelayer(wallet vault.Wallet)
 	NextHop(key []byte) (Noder, error)
-	SendRelayPacket(srcID, srcPubkey, destID, destPubkey, payload, signature []byte) error
+	SendRelayPacket(srcAddr, destAddr string, payload, signature []byte) error
 	SendRelayPacketsInBuffer(clientId []byte) error
 }
 

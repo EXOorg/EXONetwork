@@ -27,14 +27,14 @@ type SigChainVoting struct {
 	txnCollector   *transaction.TxnCollector     // transaction pool
 }
 
-func NewSigChainVoting(totalWeight int, txnCollector *transaction.TxnCollector) *SigChainVoting {
+func NewSigChainVoting(txnCollector *transaction.TxnCollector) *SigChainVoting {
 	sigChainVoting := &SigChainVoting{
 		pstate:        make(map[Uint256]*State),
 		vstate:        make(map[uint64]map[Uint256]*State),
 		proposalCache: make(map[uint32]int),
 		height:        ledger.DefaultLedger.Store.GetHeight() + 2,
 		porServer:     por.GetPorServer(),
-		pool:          NewSigChainVotingPool(totalWeight),
+		pool:          NewSigChainVotingPool(),
 		txnCollector:  txnCollector,
 	}
 
@@ -134,6 +134,10 @@ func (scv *SigChainVoting) GetBestVotingContent(height uint32) (VotingContent, e
 	}
 
 	return nil, errors.New("invalid commit transaction")
+}
+
+func (scv *SigChainVoting) VerifyVotingContent(content VotingContent) bool {
+	return true
 }
 
 func (scv *SigChainVoting) GetWorseVotingContent(height uint32) (VotingContent, error) {

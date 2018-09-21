@@ -1,0 +1,11 @@
+﻿{
+  "ChordPort": 30000,
+  "NodePort": 30001,
+  "HttpWsPort": 30002,
+  "HttpJsonPort": 30003,
+  "Hostname": "127.0.0.1",
+  "SeedList": [
+    "http://127.0.0.1:30003"
+  ],
+  "GenesisBlockProposer": ""
+}

@@ -147,8 +147,8 @@ func (msg *blkHeader) Deserialize(r io.Reader) error {
 }
 
 func (msg headersReq) Handle(node Noder) error {
-	node.LocalNode().AcqSyncReqSem()
-	defer node.LocalNode().RelSyncReqSem()
+	node.LocalNode().AcquireHeaderReqChan()
+	defer node.LocalNode().ReleaseHeaderReqChan()
 	var startHash [HashLen]byte
 	var stopHash [HashLen]byte
 	startHash = msg.p.hashStart
@@ -226,7 +226,6 @@ func GetHeadersFromHash(startHash Uint256, stopHash Uint256) ([]ledger.Header, u
 		hash, err := ledger.DefaultLedger.Store.GetBlockHash(startHeight + i)
 		hd, err := ledger.DefaultLedger.Store.GetHeader(hash)
 		if err != nil {
-			log.Error("GetBlockWithHeight failed ", err.Error())
 			return nil, 0, err
 		}
 		headers = append(headers, *hd)

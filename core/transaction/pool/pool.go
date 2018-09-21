@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -61,7 +62,7 @@ func (tp *TxnPool) AppendTxnPool(txn *Transaction) ErrCode {
 	return ErrNoError
 }
 
-func (tp *TxnPool) GetTxnByCount(num int) map[common.Uint256]*Transaction {
+func (tp *TxnPool) GetTxnByCount(num int, winningHash common.Uint256) (map[common.Uint256]*Transaction, error) {
 	tp.RLock()
 	defer tp.RUnlock()
 
@@ -70,14 +71,29 @@ func (tp *TxnPool) GetTxnByCount(num int) map[common.Uint256]*Transaction {
 		n = num
 	}
 
+	// get transactions which should not be packaged
 	exclusivedHashes, err := por.GetPorServer().GetTxnHashBySigChainHeight(ledger.DefaultLedger.Store.GetHeight() +
 		ExclusivedSigchainHeight)
 	if err != nil {
 		log.Error("collect transaction error: ", err)
-		return nil
+		return nil, err
 	}
+
 	i := 0
 	txns := make(map[common.Uint256]*Transaction, n)
+
+	// get transactions which should be packaged
+	if winningHash.CompareTo(common.EmptyUint256) != 0 {
+		if winningTxn, ok := tp.txnList[winningHash]; !ok {
+			log.Error("can't find necessary transaction: ", common.BytesToHexString(winningHash.ToArrayReverse()))
+			return nil, errors.New("need necessary transaction")
+		} else {
+			log.Warn("collecting wining hash: ", common.BytesToHexString(winningHash.ToArrayReverse()))
+			txns[winningHash] = winningTxn
+			i++
+		}
+	}
+
 	//TODO sort transaction list
 	for hash, txn := range tp.txnList {
 		if !isHashExist(hash, exclusivedHashes) {
@@ -89,7 +105,7 @@ func (tp *TxnPool) GetTxnByCount(num int) map[common.Uint256]*Transaction {
 		}
 	}
 
-	return txns
+	return txns, nil
 }
 
 //clean the trasaction Pool with committed block.
@@ -121,11 +137,9 @@ func (tp *TxnPool) GetAllTransactions() map[common.Uint256]*Transaction {
 
 //verify transaction with txnpool
 func (tp *TxnPool) verifyTransactionWithTxnPool(txn *Transaction) bool {
-	//check weather have duplicate UTXO input,if occurs duplicate, just keep the latest txn.
-	ok, duplicateTxn := tp.apendToUTXOPool(txn)
-	if !ok && duplicateTxn != nil {
-		log.Info(fmt.Sprintf("txn=%x duplicateTxn UTXO occurs with txn in pool=%x,keep the latest one.", txn.Hash(), duplicateTxn.Hash()))
-		tp.removeTransaction(duplicateTxn)
+	if err := tp.checkAndAddReferencedUTXO(txn); err != nil {
+		log.Warn("referenced UTXO already existed in transaction pool")
+		return false
 	}
 	//check issue transaction weather occur exceed issue range.
 	if ok := tp.summaryAssetIssueAmount(txn); !ok {
@@ -160,19 +174,25 @@ func (tp *TxnPool) removeTransaction(txn *Transaction) {
 }
 
 //check and add to utxo list pool
-func (tp *TxnPool) apendToUTXOPool(txn *Transaction) (bool, *Transaction) {
+func (tp *TxnPool) checkAndAddReferencedUTXO(txn *Transaction) error {
 	reference, err := txn.GetReference()
 	if err != nil {
-		return false, nil
+		return err
 	}
-	for k, _ := range reference {
-		t := tp.getInputUTXOList(k)
-		if t != nil {
-			return false, t
+	txnHash := txn.Hash()
+	txnInputs := []*TxnInput{}
+	for k := range reference {
+		if tp.getInputUTXOList(k) != nil {
+			return fmt.Errorf("transaction: %s referenced a spent UTXO in transaction pool",
+				common.BytesToHexString(txnHash.ToArrayReverse()))
 		}
-		tp.addInputUTXOList(txn, k)
+		txnInputs = append(txnInputs, k)
 	}
-	return true, nil
+	for _, v := range txnInputs {
+		tp.addInputUTXOList(txn, v)
+	}
+
+	return nil
 }
 
 //clean txnpool utxo map
@@ -197,7 +217,7 @@ func (tp *TxnPool) summaryAssetIssueAmount(txn *Transaction) bool {
 
 		//Check weather occur exceed the amount when RegisterAsseted
 		//1. Get the Asset amount when RegisterAsseted.
-		txn, err := TxStore.GetTransaction(k)
+		txn, err := Store.GetTransaction(k)
 		if err != nil {
 			return false
 		}
@@ -211,7 +231,7 @@ func (tp *TxnPool) summaryAssetIssueAmount(txn *Transaction) bool {
 		if AssetReg.Amount < common.Fixed64(0) {
 			continue
 		} else {
-			quantity_issued, err = TxStore.GetQuantityIssued(k)
+			quantity_issued, err = Store.GetQuantityIssued(k)
 			if err != nil {
 				return false
 			}

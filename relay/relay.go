@@ -3,13 +3,13 @@ package relay
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"sync"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/nknorg/nkn/api/common"
 	"github.com/nknorg/nkn/api/websocket"
+	"github.com/nknorg/nkn/api/websocket/client"
 	"github.com/nknorg/nkn/api/websocket/session"
 	nknErrors "github.com/nknorg/nkn/errors"
 	"github.com/nknorg/nkn/events"
@@ -68,24 +68,22 @@ func (rs *RelayService) SendPacketToClients(clients []*session.Session, packet *
 
 	// TODO: only pick sigchain to sign when threshold is smaller than
 
-	digest, err := packet.SigChain.ExtendElement(destPubKey, false)
+	_, err = packet.SigChain.ExtendElement(destPubKey, false)
 	if err != nil {
 		return err
 	}
-	response := map[string]interface{}{
-		"Action":  "receivePacket",
-		"Src":     string(packet.SrcID),
-		"Payload": string(packet.Payload),
-		"Digest":  digest,
+	msg := &client.InboundMessage{
+		Src:     packet.SrcAddr,
+		Payload: packet.Payload,
 	}
-	responseJSON, err := json.Marshal(response)
+	buf, err := proto.Marshal(msg)
 	if err != nil {
 		return err
 	}
 
 	ok := false
 	for _, client := range clients {
-		err = client.Send(responseJSON)
+		err = client.SendBinary(buf)
 		if err != nil {
 			log.Error("Send to client error: ", err)
 		} else {
@@ -98,7 +96,7 @@ func (rs *RelayService) SendPacketToClients(clients []*session.Session, packet *
 	}
 
 	// TODO: create and send tx only after client sign
-	buf, err := proto.Marshal(packet.SigChain)
+	buf, err = proto.Marshal(packet.SigChain)
 	if err != nil {
 		return err
 	}
@@ -144,8 +142,8 @@ func (rs *RelayService) SendPacketToNode(nextHop protocol.Noder, packet *message
 		return err
 	}
 	log.Infof(
-		"Relay packet:\nSrcID: %x\nDestID: %x\nNext Hop: %s:%d\nPayload Size: %d",
-		packet.SrcID,
+		"Relay packet:\nSrcID: %s\nDestID: %x\nNext Hop: %s:%d\nPayload Size: %d",
+		packet.SrcAddr,
 		packet.DestID,
 		nextHop.GetAddr(),
 		nextHop.GetPort(),
@@ -159,8 +157,8 @@ func (rs *RelayService) HandleMsg(packet *message.RelayPacket) error {
 	destID := packet.DestID
 	if bytes.Equal(rs.localNode.GetChordAddr(), destID) {
 		log.Infof(
-			"Receive packet:\nSrcID: %x\nDestID: %x\nPayload Size: %d",
-			packet.SrcID,
+			"Receive packet:\nSrcID: %s\nDestID: %x\nPayload Size: %d",
+			packet.SrcAddr,
 			destID,
 			len(packet.Payload),
 		)
