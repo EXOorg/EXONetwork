@@ -13,6 +13,7 @@ import (
 	"github.com/nknorg/nkn/core/ledger"
 	"github.com/nknorg/nkn/crypto"
 	. "github.com/nknorg/nkn/net/protocol"
+	"github.com/nknorg/nkn/util/address"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 )
@@ -215,17 +216,26 @@ func (msg version) Handle(node Noder) error {
 	node.UpdateInfo(time.Now(), msg.P.Version, msg.P.Services,
 		msg.P.Port, msg.P.Nonce, msg.P.Relay, msg.P.StartHeight)
 
+	if address.ShouldRejectAddr(node.LocalNode().GetAddrStr(), node.GetAddrStr()) {
+		node.SetState(INACTIVITY)
+		node.CloseConn()
+		log.Info("Reject remote node with different port")
+		return errors.New("Remote port is different from local port")
+	}
+
 	// Should not be neighbors
-	shouldInNbr, err := localNode.ShouldChordAddrInNeighbors(msg.chordAddr)
-	if err != nil {
-		node.CloseConn()
-		return err
-	}
-	if !shouldInNbr {
-		node.CloseConn()
-		log.Warn("Reject connection from non chord neighbor:", node.GetAddrStr())
-		return errors.New("Reject connection from non chord neighbor: " + node.GetAddrStr())
-	}
+	// shouldInNbr, err := localNode.ShouldChordAddrInNeighbors(msg.chordAddr)
+	// if err != nil {
+	//  node.SetState(INACTIVITY)
+	// 	node.CloseConn()
+	// 	return err
+	// }
+	// if !shouldInNbr {
+	//  node.SetState(INACTIVITY)
+	// 	node.CloseConn()
+	// 	log.Warn("Reject connection from non chord neighbor:", node.GetAddrStr())
+	// 	return errors.New("Reject connection from non chord neighbor: " + node.GetAddrStr())
+	// }
 
 	localNode.AddNbrNode(node)
 

@@ -61,7 +61,7 @@ type node struct {
 	relayer                  *relay.RelayService // relay service
 	syncStopHash             Uint256             // block syncing stop hash
 	syncState                SyncState           // block syncing state
-	quit                     chan struct{}       // block syncing channel
+	quit                     chan bool           // block syncing channel
 	nodeDisconnectSubscriber events.Subscriber   // disconnect event
 	link                                         // link status and information
 	nbrNodes                                     // neighbor nodes
@@ -177,7 +177,7 @@ func InitNode(pubKey *crypto.PubKey, ring *chord.Ring) Noder {
 	}
 	n.chordAddr = chordVnode.Id
 
-	err = binary.Read(bytes.NewBuffer(n.chordAddr[:8]), binary.LittleEndian, &(n.id))
+	err = binary.Read(bytes.NewBuffer(n.chordAddr), binary.LittleEndian, &(n.id))
 	if err != nil {
 		log.Error(err)
 	}
@@ -189,9 +189,9 @@ func InitNode(pubKey *crypto.PubKey, ring *chord.Ring) Noder {
 	n.syncState = SyncStarted
 	n.syncStopHash = Uint256{}
 	n.msgHandlerChan = MakeChanQueue(MaxMsgChanNum)
-	n.quit = make(chan struct{}, 1)
+	n.quit = make(chan bool, 1)
 	n.eventQueue.init()
-	n.hashCache = NewHashCache(HashCacheCap)
+	n.hashCache = NewHashCache()
 	n.nodeDisconnectSubscriber = n.eventQueue.GetEvent("disconnect").Subscribe(events.EventNodeDisconnect, n.NodeDisconnected)
 	n.ring = ring
 
@@ -217,7 +217,7 @@ func (node *node) GetState() uint32 {
 	return atomic.LoadUint32(&(node.state))
 }
 
-func (node *node) getConn() net.Conn {
+func (node *node) GetConn() net.Conn {
 	return node.conn
 }
 
@@ -426,13 +426,10 @@ func (node *node) GetBookKeepersAddrs() ([]*crypto.PubKey, uint64) {
 	pks[0] = node.publicKey
 	var i uint64
 	i = 1
-	//TODO read lock
-	for _, n := range node.nbrNodes.List {
-		if n.GetState() == ESTABLISH {
-			pktmp := n.GetBookKeeperAddr()
-			pks = append(pks, pktmp)
-			i++
-		}
+	for _, n := range node.GetNeighborNoder() {
+		pktmp := n.GetBookKeeperAddr()
+		pks = append(pks, pktmp)
+		i++
 	}
 	return pks, i
 }
@@ -653,11 +650,6 @@ func (node *node) HeartBeatMonitor() {
 	}
 }
 
-func (node *node) ReqNeighborList() {
-	buf, _ := NewMsg("getaddr", node.local)
-	go node.Tx(buf)
-}
-
 func (node *node) ConnectNeighbors() {
 	chordNode, err := node.ring.GetFirstVnode()
 	if err != nil || chordNode == nil {
@@ -684,18 +676,29 @@ func (node *node) DisconnectNeighbor(nbr *node) {
 	}
 }
 
-func (node *node) DisconnectNonNeighbors() {
-	node.nbrNodes.RLock()
-	defer node.nbrNodes.RUnlock()
-	for _, nodeNbr := range node.nbrNodes.List {
-		shouldInNbr, err := node.ShouldChordAddrInNeighbors(nodeNbr.GetChordAddr())
+func (n *node) DisconnectNonNeighbors() {
+	for _, nodeNbr := range n.GetNeighborNoder() {
+		nodeNbr.GetConnectionCnt()
+		_, port, err := net.SplitHostPort(nodeNbr.GetConn().LocalAddr().String())
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+		// Skip inbound connections
+		if port == strconv.Itoa(int(Parameters.NodePort)) {
+			continue
+		}
+		shouldInNbr, err := n.ShouldChordAddrInNeighbors(nodeNbr.GetChordAddr())
 		if err != nil {
 			log.Error(err)
 			continue
 		}
 		if !shouldInNbr {
 			log.Info("Disconnect non chord neighbor:", nodeNbr.GetAddrStr())
-			go node.DisconnectNeighbor(nodeNbr)
+			nbr, ok := nodeNbr.(*node)
+			if ok {
+				go n.DisconnectNeighbor(nbr)
+			}
 		}
 	}
 }
@@ -708,54 +711,6 @@ func getNodeAddr(n *node) NodeAddr {
 	addr.Port = n.GetPort()
 	addr.ID = n.GetID()
 	return addr
-}
-
-func (node *node) reconnect() {
-	node.RetryConnAddrs.Lock()
-	defer node.RetryConnAddrs.Unlock()
-	lst := make(map[string]int)
-	for addr := range node.RetryAddrs {
-		node.RetryAddrs[addr] = node.RetryAddrs[addr] + 1
-		rand.Seed(time.Now().UnixNano())
-		log.Info("Try to reconnect peer, peer addr is ", addr)
-		<-time.After(time.Duration(rand.Intn(ConnectionMaxBackoff)) * time.Millisecond)
-		log.Info("Back off time`s up, start connect node")
-		node.Connect(addr)
-		if node.RetryAddrs[addr] < MaxRetryCount {
-			lst[addr] = node.RetryAddrs[addr]
-		}
-	}
-	node.RetryAddrs = lst
-
-}
-
-func (n *node) TryConnect() {
-	if n.fetchRetryNodeFromNeighborList() > 0 {
-		n.reconnect()
-	}
-}
-
-func (n *node) fetchRetryNodeFromNeighborList() int {
-	n.nbrNodes.Lock()
-	defer n.nbrNodes.Unlock()
-	neighbornodes := make(map[uint64]*node)
-	for _, tn := range n.nbrNodes.List {
-		nodeAddr := tn.GetAddrStr()
-		if tn.GetState() == INACTIVITY {
-			//add addr to retry list
-			n.AddInRetryList(nodeAddr)
-			//close legacy node
-			if tn.conn != nil {
-				tn.CloseConn()
-			}
-		} else {
-			//add others to tmp node map
-			n.RemoveFromRetryList(nodeAddr)
-			neighbornodes[tn.GetID()] = tn
-		}
-	}
-	n.nbrNodes.List = neighbornodes
-	return len(n.RetryAddrs)
 }
 
 func (node *node) keepalive() {
@@ -792,20 +747,20 @@ func (node *node) SyncBlock(isProposer bool) {
 				node.blockHeaderSyncing(node.syncStopHash)
 			}
 			node.blockSyncing()
-		case <-node.quit:
+		case skip := <-node.quit:
 			log.Info("block syncing finished")
 			ticker.Stop()
-			node.LocalNode().GetEvent("sync").Notify(events.EventBlockSyncingFinished, nil)
+			node.LocalNode().GetEvent("sync").Notify(events.EventBlockSyncingFinished, skip)
 			return
 		}
 	}
 }
 
-func (node *node) StopSyncBlock() {
+func (node *node) StopSyncBlock(skip bool) {
 	// switch syncing state
 	node.SetSyncState(SyncFinished)
 	// stop block syncing
-	node.quit <- struct{}{}
+	node.quit <- skip
 }
 
 func (node *node) SyncBlockMonitor(isProposer bool) {
@@ -814,7 +769,7 @@ func (node *node) SyncBlockMonitor(isProposer bool) {
 	// wait for block syncing finished
 	node.WaitForSyncBlkFinish()
 	// stop block syncing
-	node.StopSyncBlock()
+	node.StopSyncBlock(false)
 }
 
 func (node *node) SendRelayPacketsInBuffer(clientId []byte) error {

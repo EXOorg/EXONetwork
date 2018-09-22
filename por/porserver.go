@@ -8,31 +8,39 @@ import (
 
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/transaction"
+	"github.com/nknorg/nkn/net/chord"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
 )
 
 type PorServer struct {
 	sync.RWMutex
-	account *vault.Account
-	pors    map[uint32][]*PorPackage
+	account    *vault.Account
+	ring       *chord.Ring
+	pors       map[uint32][]*PorPackage
+	minSigHash map[uint32][]byte
 }
 
 var porServer *PorServer
 
-func NewPorServer(account *vault.Account) *PorServer {
+func NewPorServer(account *vault.Account, ring *chord.Ring) *PorServer {
 	ps := &PorServer{
-		account: account,
-		pors:    make(map[uint32][]*PorPackage),
+		account:    account,
+		ring:       ring,
+		pors:       make(map[uint32][]*PorPackage),
+		minSigHash: make(map[uint32][]byte),
 	}
 	return ps
 }
 
-func InitPorServer(account *vault.Account) error {
+func InitPorServer(account *vault.Account, ring *chord.Ring) error {
 	if porServer != nil {
 		return errors.New("PorServer already initialized")
 	}
-	porServer = NewPorServer(account)
+	if ring == nil {
+		return errors.New("Ring is not initialized")
+	}
+	porServer = NewPorServer(account, ring)
 	return nil
 }
 
@@ -60,7 +68,12 @@ func (ps *PorServer) Sign(sc *SigChain, nextPubkey []byte, mining bool) error {
 		return errors.New("it's not the right signer")
 	}
 
-	err = sc.Sign(nextPubkey, mining, ps.account)
+	vnode, err := ps.ring.GetFirstVnode()
+	if err != nil {
+		return err
+	}
+
+	err = sc.Sign(vnode.Id, nextPubkey, mining, ps.account)
 	if err != nil {
 		log.Error("Signature chain signing error:", err)
 		return err
@@ -184,21 +197,28 @@ func (ps *PorServer) GetTxnHashBySigChainHeight(height uint32) ([]common.Uint256
 	return txnHashes, nil
 }
 
-func (ps *PorServer) AddSigChainFromTx(txn *transaction.Transaction) error {
+func (ps *PorServer) AddSigChainFromTx(txn *transaction.Transaction) (bool, error) {
 	porpkg, err := NewPorPackage(txn)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	height := porpkg.GetVoteForHeight()
 	ps.Lock()
+	ps.Unlock()
+
+	if ps.minSigHash[height] == nil || bytes.Compare(porpkg.SigHash, ps.minSigHash[height]) < 0 {
+		ps.minSigHash[height] = porpkg.SigHash
+	} else {
+		return false, nil
+	}
+
 	if _, ok := ps.pors[height]; !ok {
 		ps.pors[height] = make([]*PorPackage, 0)
 	}
 	ps.pors[height] = append(ps.pors[height], porpkg)
-	ps.Unlock()
 
-	return nil
+	return true, nil
 }
 
 func (ps *PorServer) IsSigChainExist(hash []byte, height uint32) (*common.Uint256, bool) {

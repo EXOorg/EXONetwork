@@ -146,9 +146,9 @@ func DefaultConfig(hostname string) *Config {
 		Hostname:      hostname,
 		NumVnodes:     1,          // 1 vnodes
 		HashFunc:      sha256.New, // SHA256
-		StabilizeMin:  time.Duration(250 * time.Millisecond),
-		StabilizeMax:  time.Duration(750 * time.Millisecond),
-		NumSuccessors: 8,   // 8 successors
+		StabilizeMin:  time.Duration(500 * time.Millisecond),
+		StabilizeMax:  time.Duration(1500 * time.Millisecond),
+		NumSuccessors: 16,  // 16 successors
 		Delegate:      nil, // No delegate
 		hashBits:      256, // 256bit hash function
 	}
@@ -216,8 +216,13 @@ func Join(conf *Config, trans Transport, existing string) (*Ring, error) {
 		}
 
 		// Assign the successors
+		skip := 0
 		for idx, s := range succs {
-			vn.successors[idx] = s
+			if s != nil && s.String() != vn.String() {
+				vn.successors[idx-skip] = s
+			} else {
+				skip++
+			}
 		}
 	}
 
@@ -289,7 +294,7 @@ func prepRing(port uint16) (*Config, *TCPTransport, error) {
 	hostname := fmt.Sprintf("%s:%d", config.Parameters.Hostname, port)
 	listen := fmt.Sprintf(":%d", port)
 	conf := DefaultConfig(hostname)
-	timeout := time.Duration(2 * time.Second)
+	timeout := time.Duration(3 * time.Second)
 	trans, err := InitTCPTransport(listen, timeout)
 	if err != nil {
 		return nil, nil, err

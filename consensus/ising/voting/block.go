@@ -3,7 +3,6 @@ package voting
 import (
 	"errors"
 	"sync"
-	"time"
 
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/ledger"
@@ -39,17 +38,7 @@ func NewBlockVoting() *BlockVoting {
 	return blockVoting
 }
 
-func (bv *BlockVoting) SetSelfState(blockhash Uint256, s State) {
-	bv.Lock()
-	defer bv.Unlock()
-
-	if _, ok := bv.pstate[blockhash]; !ok {
-		bv.pstate[blockhash] = new(State)
-	}
-	bv.pstate[blockhash].SetBit(s)
-}
-
-func (bv *BlockVoting) HasSelfState(blockhash Uint256, state State) bool {
+func (bv *BlockVoting) CheckOwnState(blockhash Uint256, state State) bool {
 	bv.RLock()
 	defer bv.RUnlock()
 
@@ -63,20 +52,25 @@ func (bv *BlockVoting) HasSelfState(blockhash Uint256, state State) bool {
 	}
 }
 
-func (bv *BlockVoting) SetNeighborState(id uint64, blockhash Uint256, s State) {
+func (bv *BlockVoting) CheckAndSetOwnState(blockhash Uint256, state State) bool {
 	bv.Lock()
 	defer bv.Unlock()
 
-	if _, ok := bv.vstate[id]; !ok {
-		bv.vstate[id] = make(map[Uint256]*State)
+	v, ok := bv.pstate[blockhash]
+	if !ok || v == nil {
+		bv.pstate[blockhash] = new(State)
+		bv.pstate[blockhash].SetBit(state)
+		return false
 	}
-	if _, ok := bv.vstate[id][blockhash]; !ok {
-		bv.vstate[id][blockhash] = new(State)
+	if !v.HasBit(state) {
+		bv.pstate[blockhash].SetBit(state)
+		return false
 	}
-	bv.vstate[id][blockhash].SetBit(s)
+
+	return true
 }
 
-func (bv *BlockVoting) HasNeighborState(id uint64, blockhash Uint256, state State) bool {
+func (bv *BlockVoting) CheckNeighborState(id uint64, blockhash Uint256, state State) bool {
 	bv.RLock()
 	defer bv.RUnlock()
 
@@ -92,6 +86,24 @@ func (bv *BlockVoting) HasNeighborState(id uint64, blockhash Uint256, state Stat
 			return false
 		}
 	}
+}
+
+func (bv *BlockVoting) CheckAndSetNeighborState(id uint64, blockhash Uint256, s State) bool {
+	bv.Lock()
+	defer bv.Unlock()
+
+	exist := true
+	if _, ok := bv.vstate[id]; !ok {
+		bv.vstate[id] = make(map[Uint256]*State)
+		exist = false
+	}
+	if _, ok := bv.vstate[id][blockhash]; !ok {
+		bv.vstate[id][blockhash] = new(State)
+		exist = false
+	}
+	bv.vstate[id][blockhash].SetBit(s)
+
+	return exist
 }
 
 func (bv *BlockVoting) SetVotingHeight(height uint32) {
@@ -170,7 +182,7 @@ func (bv *BlockVoting) VotingType() VotingContentType {
 	return BlockVote
 }
 
-func (bv *BlockVoting) AddToCache(content VotingContent) error {
+func (bv *BlockVoting) AddToCache(content VotingContent, rtime int64) error {
 	var err error
 	if block, ok := content.(*ledger.Block); !ok {
 		return errors.New("invalid voting content type")
@@ -180,7 +192,7 @@ func (bv *BlockVoting) AddToCache(content VotingContent) error {
 		if blockHeight != localHeight+1 {
 			return errors.New("invalid block height")
 		}
-		err = ledger.HeaderCheck(block.Header, time.Now().Unix())
+		err = ledger.HeaderCheck(block.Header, rtime)
 		if err != nil {
 			return err
 		}

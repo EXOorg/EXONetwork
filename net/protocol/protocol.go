@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
+	"net"
 	"time"
 
 	. "github.com/nknorg/nkn/common"
@@ -43,6 +44,7 @@ type Noder interface {
 	GetAddr() string
 	GetPort() uint16
 	GetAddrStr() string
+	GetAddr16() ([16]byte, error)
 	GetHttpInfoPort() uint16
 	SetHttpInfoPort(uint16)
 	GetHttpJsonPort() uint16
@@ -60,7 +62,7 @@ type Noder interface {
 	SetSyncStopHash(hash Uint256, height uint32)
 	SyncBlock(bool)
 	SyncBlockMonitor(bool)
-	StopSyncBlock()
+	StopSyncBlock(bool)
 	GetRelay() bool
 	GetPubKey() *crypto.PubKey
 	CompareAndSetState(old, new uint32) bool
@@ -68,6 +70,7 @@ type Noder interface {
 	LocalNode() Noder
 	DelNbrNode(id uint64) (Noder, bool)
 	AddNbrNode(Noder)
+	GetConn() net.Conn
 	CloseConn()
 	GetHeight() uint32
 	GetConnectionCnt() uint
@@ -75,7 +78,6 @@ type Noder interface {
 	GetTxnPool() *pool.TxnPool
 	AppendTxnPool(*transaction.Transaction) ErrCode
 	ExistHash(hash Uint256) bool
-	ReqNeighborList()
 	DumpInfo()
 	UpdateInfo(t time.Time, version uint32, services uint64, port uint16, nonce uint64, relay uint8, height uint32)
 	ConnectNeighbors()
@@ -84,7 +86,7 @@ type Noder interface {
 	GetTime() int64
 	NodeEstablished(uid uint64) bool
 	GetEvent(eventName string) *events.Event
-	GetNeighborAddrs() ([]NodeAddr, uint64)
+	GetNeighborAddrs() ([]NodeAddr, uint)
 	GetTransaction(hash Uint256) *transaction.Transaction
 	IncRxTxnCnt()
 	GetTxnCnt() uint64
@@ -95,7 +97,7 @@ type Noder interface {
 	GetBookKeeperAddr() *crypto.PubKey
 	GetBookKeepersAddrs() ([]*crypto.PubKey, uint64)
 	SetBookKeeperAddr(pk *crypto.PubKey)
-	GetNeighborHeights() ([]uint32, uint64)
+	GetNeighborHeights() ([]uint32, uint)
 	CleanSubmittedTransactions(txns []*transaction.Transaction) error
 
 	GetNeighborNoder() []Noder

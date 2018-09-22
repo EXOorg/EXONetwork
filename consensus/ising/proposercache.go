@@ -3,7 +3,7 @@ package ising
 import (
 	"sync"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/consensus/ising/voting"
 	"github.com/nknorg/nkn/core/ledger"
@@ -20,6 +20,7 @@ const (
 
 type ProposerInfo struct {
 	publicKey       []byte
+	chordID         []byte
 	winningHash     Uint256
 	winningHashType ledger.WinningHashType
 }
@@ -40,28 +41,31 @@ func (pc *ProposerCache) Add(height uint32, votingContent voting.VotingContent) 
 	defer pc.Unlock()
 
 	var proposerInfo *ProposerInfo
+	var pbk, id []byte
+	var err error
 	switch t := votingContent.(type) {
 	case *ledger.Block:
-		signer, _ := t.GetSigner()
+		pbk, id, _ = t.GetSigner()
 		proposerInfo = &ProposerInfo{
-			publicKey:       signer,
+			publicKey:       pbk,
+			chordID:         id,
 			winningHash:     t.Hash(),
 			winningHashType: ledger.WinningBlockHash,
 		}
-		log.Warnf("use proposer of block height %d which public key is %s to propose block %d",
-			t.Header.Height, BytesToHexString(signer), height)
+		log.Warnf("use proposer of block height %d which public key is %s chord ID is %s to propose block %d",
+			t.Header.Height, BytesToHexString(pbk), BytesToHexString(id), height)
 	case *transaction.Transaction:
 		payload := t.Payload.(*payload.Commit)
 		sigchain := &por.SigChain{}
 		proto.Unmarshal(payload.SigChain, sigchain)
-		// TODO: get a determinate public key on signature chain
-		pbk, err := sigchain.GetMiner()
+		pbk, id, err = sigchain.GetMiner()
 		if err != nil {
 			log.Warn("Get last public key error", err)
 			return
 		}
 		proposerInfo = &ProposerInfo{
 			publicKey:       pbk,
+			chordID:         id,
 			winningHash:     t.Hash(),
 			winningHashType: ledger.WinningTxnHash,
 		}

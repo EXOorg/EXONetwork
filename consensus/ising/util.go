@@ -5,23 +5,8 @@ import (
 	"encoding/binary"
 
 	. "github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/crypto"
-	"github.com/nknorg/nkn/util/log"
+	"github.com/nknorg/nkn/core/ledger"
 )
-
-func publickKeyToNodeID(pubKey *crypto.PubKey) uint64 {
-	var id uint64
-	key, err := pubKey.EncodePoint(true)
-	if err != nil {
-		log.Error(err)
-	}
-	err = binary.Read(bytes.NewBuffer(key[:8]), binary.LittleEndian, &id)
-	if err != nil {
-		log.Error(err)
-	}
-
-	return id
-}
 
 // HeightHashToString uses block height and block hash to generate a uniq string
 func HeightHashToString(height uint32, blockHash Uint256) string {
@@ -41,4 +26,24 @@ func StringToHeightHash(str string) (uint32, Uint256) {
 	hash.Deserialize(buff)
 
 	return height, hash
+}
+
+// HasAbilityToVerifyBlock checks if local node can verify the block.
+func HasAbilityToVerifyBlock(block *ledger.Block) bool {
+	// get current block
+	currentBlockHeight := ledger.DefaultLedger.Store.GetHeight()
+	currentBlock, err := ledger.DefaultLedger.Store.GetBlockByHeight(currentBlockHeight)
+	if err != nil {
+		return false
+	}
+	// check if can link to previous block
+	if block.Header.PrevBlockHash.CompareTo(currentBlock.Header.Hash()) != 0 {
+		return false
+	}
+	// check block height
+	if block.Header.Height != currentBlockHeight+1 {
+		return false
+	}
+
+	return true
 }

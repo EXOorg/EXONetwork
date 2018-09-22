@@ -23,7 +23,7 @@ import (
 // 1. Sign: sign the element created in Sign
 
 // TODO: move sigAlgo to config.json
-const sigAlgo = SigAlgo_ECDSA
+const sigAlgo = ECDSA
 
 func (sce *SigChainElem) SerializationUnsigned(w io.Writer) error {
 	err := serialization.WriteVarBytes(w, sce.Addr)
@@ -159,8 +159,9 @@ func NewSigChain(srcAccount *vault.Account, dataSize uint32, dataHash, blockHash
 	return sc, nil
 }
 
-func NewSigChainElem(nextPubkey []byte, mining bool) *SigChainElem {
+func NewSigChainElem(addr, nextPubkey []byte, mining bool) *SigChainElem {
 	return &SigChainElem{
+		Addr:       addr,
 		SigAlgo:    sigAlgo,
 		NextPubkey: nextPubkey,
 		Mining:     mining,
@@ -168,8 +169,8 @@ func NewSigChainElem(nextPubkey []byte, mining bool) *SigChainElem {
 	}
 }
 
-func (sc *SigChain) ExtendElement(nextPubkey []byte, mining bool) ([]byte, error) {
-	elem := NewSigChainElem(nextPubkey, mining)
+func (sc *SigChain) ExtendElement(addr, nextPubkey []byte, mining bool) ([]byte, error) {
+	elem := NewSigChainElem(addr, nextPubkey, mining)
 	lastElem, err := sc.lastSigElem()
 	if err != nil {
 		return nil, err
@@ -197,7 +198,7 @@ func (sc *SigChain) AddLastSignature(signature []byte) error {
 }
 
 // Sign new created signature chain with local wallet.
-func (sc *SigChain) Sign(nextPubkey []byte, mining bool, signer *vault.Account) error {
+func (sc *SigChain) Sign(addr, nextPubkey []byte, mining bool, signer *vault.Account) error {
 	sigNum := sc.Length()
 	if sigNum < 1 {
 		return errors.New("there are not enough signatures")
@@ -225,7 +226,7 @@ func (sc *SigChain) Sign(nextPubkey []byte, mining bool, signer *vault.Account) 
 		return errors.New("signer is not the right one")
 	}
 
-	digest, err := sc.ExtendElement(nextPubkey, mining)
+	digest, err := sc.ExtendElement(addr, nextPubkey, mining)
 	if err != nil {
 		log.Error("Signature chain extent element error:", err)
 		return err
@@ -371,14 +372,14 @@ func (sc *SigChain) GetLastPubkey() ([]byte, error) {
 	return e.NextPubkey, nil
 }
 
-func (sc *SigChain) GetMiner() ([]byte, error) {
+func (sc *SigChain) GetMiner() ([]byte, []byte, error) {
 	if !sc.IsFinal() {
-		return nil, errors.New("not final")
+		return nil, nil, errors.New("not final")
 	}
 
 	n := sc.Length()
 	if n < 3 {
-		return nil, errors.New("not enough elements")
+		return nil, nil, errors.New("not enough elements")
 	}
 
 	type SigChainElemInfo struct {
@@ -399,7 +400,7 @@ func (sc *SigChain) GetMiner() ([]byte, error) {
 	if elemLen == 0 {
 		err := errors.New("invalid signature chain for block proposer selection")
 		log.Error(err)
-		return nil, err
+		return nil, nil, err
 	}
 	newIndex := big.NewInt(0)
 	x := big.NewInt(0)
@@ -409,10 +410,10 @@ func (sc *SigChain) GetMiner() ([]byte, error) {
 
 	originalIndex := minerElems[newIndex.Int64()].index
 	if originalIndex == 0 {
-		return sc.GetSrcPubkey(), nil
+		return sc.GetSrcPubkey(), sc.Elems[0].Addr, nil
 	}
 
-	return sc.Elems[originalIndex-1].NextPubkey, nil
+	return sc.Elems[originalIndex-1].NextPubkey, sc.Elems[originalIndex].Addr, nil
 }
 
 func (sc *SigChain) nextSigner() ([]byte, error) {

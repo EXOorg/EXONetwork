@@ -6,7 +6,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/api/common"
 	"github.com/nknorg/nkn/api/websocket"
 	"github.com/nknorg/nkn/api/websocket/client"
@@ -68,7 +68,7 @@ func (rs *RelayService) SendPacketToClients(clients []*session.Session, packet *
 
 	// TODO: only pick sigchain to sign when threshold is smaller than
 
-	_, err = packet.SigChain.ExtendElement(destPubKey, false)
+	_, err = packet.SigChain.ExtendElement(packet.DestID, destPubKey, false)
 	if err != nil {
 		return err
 	}

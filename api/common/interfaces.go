@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"math"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/ledger"
 	"github.com/nknorg/nkn/core/transaction"
@@ -56,7 +56,11 @@ func (ah *APIHandler) IsAccessableByWebsocket() bool {
 // return: {"result":<result>, "error":<errcode>}
 func getLatestBlockHash(s Serverer, params map[string]interface{}) map[string]interface{} {
 	hash := ledger.DefaultLedger.Blockchain.CurrentBlockHash()
-	return respPacking(common.BytesToHexString(hash.ToArrayReverse()), SUCCESS)
+	ret := map[string]interface{}{
+		"height": ledger.DefaultLedger.Blockchain.BlockHeight,
+		"hash":   common.BytesToHexString(hash.ToArrayReverse()),
+	}
+	return respPacking(ret, SUCCESS)
 }
 
 // getBlock gets block by height or hash
@@ -580,6 +584,69 @@ func prepaidAsset(s Serverer, params map[string]interface{}) map[string]interfac
 	return respPacking(common.BytesToHexString(txHash.ToArrayReverse()), SUCCESS)
 }
 
+// registerName register name to address
+// params: ["name":<name>]
+// return: {"result":<result>, "error":<errcode>}
+func registerName(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	name, ok := params["name"].(string)
+	if !ok {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	wallet, err := s.GetWallet()
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+	txn, err := MakeRegisterNameTransaction(wallet, name)
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+	node, err := s.GetNetNode()
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+
+	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+		return respPacking(nil, INVALID_TRANSACTION)
+	}
+
+	txHash := txn.Hash()
+	return respPacking(common.BytesToHexString(txHash.ToArrayReverse()), SUCCESS)
+}
+
+// deleteName register name to address
+// params: []
+// return: {"result":<result>, "error":<errcode>}
+func deleteName(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	wallet, err := s.GetWallet()
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+	txn, err := MakeDeleteNameTransaction(wallet)
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+	node, err := s.GetNetNode()
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+
+	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+		return respPacking(nil, INVALID_TRANSACTION)
+	}
+
+	txHash := txn.Hash()
+	return respPacking(common.BytesToHexString(txHash.ToArrayReverse()), SUCCESS)
+}
+
 // withdraw withdraw asset from system
 // params: ["assetid":<assetid>, "value":<value>]
 // return: {"result":<result>, "error":<errcode>}
@@ -707,10 +774,10 @@ func sigchaintest(s Serverer, params map[string]interface{}) map[string]interfac
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
-	if err := sigChain.Sign(encodedPublickKey, mining, account); err != nil {
+	if err := sigChain.Sign(srcID, encodedPublickKey, mining, account); err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
-	if err := sigChain.Sign(encodedPublickKey, mining, account); err != nil {
+	if err := sigChain.Sign(srcID, encodedPublickKey, mining, account); err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 	buf, err := proto.Marshal(sigChain)
@@ -1037,6 +1104,8 @@ var InitialAPIHandlers = map[string]APIHandler{
 	"issueasset":           {Handler: issueAsset},
 	"sendtoaddress":        {Handler: sendToAddress},
 	"prepaidasset":         {Handler: prepaidAsset},
+	"registername":         {Handler: registerName, AccessCtrl: BIT_JSONRPC},
+	"deletename":           {Handler: deleteName, AccessCtrl: BIT_JSONRPC},
 	"withdrawasset":        {Handler: withdrawAsset},
 	"commitpor":            {Handler: commitPor},
 	"sigchaintest":         {Handler: sigchaintest},

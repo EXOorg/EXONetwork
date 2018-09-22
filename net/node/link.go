@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/nknorg/nkn/events"
 	msg "github.com/nknorg/nkn/net/message"
 	. "github.com/nknorg/nkn/net/protocol"
+	"github.com/nknorg/nkn/util/address"
 	. "github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 )
@@ -94,7 +94,7 @@ func unpackNodeBuf(node *node, buf []byte) {
 }
 
 func (node *node) rx() {
-	conn := node.getConn()
+	conn := node.GetConn()
 	buf := make([]byte, MaxBufLen)
 	for {
 		len, err := conn.Read(buf[0:(MaxBufLen - 1)])
@@ -114,7 +114,8 @@ func (node *node) rx() {
 	}
 
 DISCONNECT:
-	node.local.eventQueue.GetEvent("disconnect").Notify(events.EventNodeDisconnect, node)
+	node.SetState(INACTIVITY)
+	node.CloseConn()
 }
 
 func printIPAddr() {
@@ -223,6 +224,11 @@ func parseIPaddr(s string) (string, error) {
 }
 
 func (node *node) Connect(nodeAddr string) error {
+	if address.ShouldRejectAddr(node.GetAddrStr(), nodeAddr) {
+		log.Info("Skip remote node with different port")
+		return errors.New("Remote port is different from local port")
+	}
+
 	if node.IsAddrInNeighbors(nodeAddr) {
 		log.Info("Node addr", nodeAddr, "already in neighbors, cancel")
 		return nil
@@ -320,6 +326,7 @@ func (node *node) Tx(buf []byte) {
 	_, err := node.conn.Write(buf)
 	if err != nil {
 		log.Error("Error sending messge to peer node ", err.Error())
-		node.local.eventQueue.GetEvent("disconnect").Notify(events.EventNodeDisconnect, node)
+		node.SetState(INACTIVITY)
+		node.CloseConn()
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	nlog "github.com/nknorg/nkn/util/log"
 )
 
 /*
@@ -21,16 +23,18 @@ Internally, there is 1 Goroutine listening for inbound connections, 1 Goroutine 
 inbound connection.
 */
 type TCPTransport struct {
-	sock     *net.TCPListener
-	timeout  time.Duration
-	maxIdle  time.Duration
-	lock     sync.RWMutex
-	local    map[string]*localRPC
-	inbound  map[*net.TCPConn]time.Time
-	poolLock sync.Mutex
-	sockQue  chan int
-	pool     map[string][]*tcpOutConn
-	shutdown int32
+	sock           *net.TCPListener
+	timeout        time.Duration
+	maxIdle        time.Duration
+	lock           sync.RWMutex
+	local          map[string]*localRPC
+	inbound        map[*net.TCPConn]time.Time
+	inConnQue      chan struct{}
+	pool           map[string]chan *tcpOutConn
+	poolLock       sync.RWMutex
+	outConnQue     map[string]chan struct{}
+	outConnQueLock sync.RWMutex
+	shutdown       int32
 }
 
 type tcpOutConn struct {
@@ -89,8 +93,9 @@ type tcpBodyBoolError struct {
 	Err error
 }
 
-const maxOutConnPool = 1
-const maxInboundConns = 100
+const maxOutConnPool = 4
+const maxOutConnPerHost = 20
+const maxInboundConns = 1000
 
 // Creates a new TCP transport on the given listen address with the
 // configured timeout duration.
@@ -102,13 +107,16 @@ func InitTCPTransport(listen string, timeout time.Duration) (*TCPTransport, erro
 	}
 
 	// Setup the transport
-	tcp := &TCPTransport{sock: sock.(*net.TCPListener),
-		timeout: timeout,
-		maxIdle: time.Duration(60 * time.Second), // Maximum age of a connection
-		local:   make(map[string]*localRPC),      // allocate maps
-		inbound: make(map[*net.TCPConn]time.Time),
-		sockQue: make(chan int, maxInboundConns), // Quota of sock. TODO: get quota from config
-		pool:    make(map[string][]*tcpOutConn)}
+	tcp := &TCPTransport{
+		sock:       sock.(*net.TCPListener),
+		timeout:    timeout,
+		maxIdle:    time.Duration(60 * time.Second), // Maximum age of a connection
+		local:      make(map[string]*localRPC),      // allocate maps
+		inbound:    make(map[*net.TCPConn]time.Time),
+		inConnQue:  make(chan struct{}, maxInboundConns), // Quota of sock. TODO: get quota from config
+		pool:       make(map[string]chan *tcpOutConn),
+		outConnQue: make(map[string]chan struct{}),
+	}
 
 	// Listen for connections
 	go tcp.listen()
@@ -138,75 +146,121 @@ func (t *TCPTransport) get(vn *Vnode) (VnodeRPC, bool) {
 
 // Gets an outbound connection to a host
 func (t *TCPTransport) getConn(host string) (*tcpOutConn, error) {
-	t.poolLock.Lock()
-
 	if atomic.LoadInt32(&t.shutdown) == 1 {
-		t.poolLock.Unlock()
 		return nil, fmt.Errorf("TCP transport is shutdown")
 	}
 
-	// Check if we have a conn cached
+	t.poolLock.RLock()
+	outPool, ok := t.pool[host]
+	t.poolLock.RUnlock()
+
+	if !ok {
+		outPool = make(chan *tcpOutConn, maxOutConnPool)
+		t.poolLock.Lock()
+		t.pool[host] = outPool
+		t.poolLock.Unlock()
+	}
+
+	t.outConnQueLock.RLock()
+	outChan, ok := t.outConnQue[host]
+	t.outConnQueLock.RUnlock()
+
+	if !ok {
+		outChan = make(chan struct{}, maxOutConnPerHost)
+		t.outConnQueLock.Lock()
+		t.outConnQue[host] = outChan
+		t.outConnQueLock.Unlock()
+	}
+
 	var out *tcpOutConn
-	for list, ok := t.pool[host]; ok && len(list) > 0; {
-		out = list[len(list)-1]
-		list = list[:len(list)-1]
-		t.pool[host] = list
-		if out == nil {
-			continue
+	timeoutChan := make(chan struct{}, 1)
+
+	time.AfterFunc(t.timeout, func() {
+		timeoutChan <- struct{}{}
+	})
+
+	for {
+		select {
+		case out = <-outPool:
+			if out == nil {
+				return nil, fmt.Errorf("Out connection is nil")
+			}
+			_, err := out.sock.Read(nil)
+			if err == nil {
+				return out, nil
+			}
+			t.closeOutConn(out)
+		default:
 		}
-		_, err := out.sock.Read(nil)
-		if err == nil {
-			t.poolLock.Unlock()
+
+		select {
+		case outChan <- struct{}{}:
+			// Try to establish a connection
+			conn, err := net.DialTimeout("tcp", host, t.timeout)
+			if err != nil {
+				<-outChan
+				return nil, err
+			}
+
+			// Setup the socket
+			sock := conn.(*net.TCPConn)
+			t.setupConn(sock)
+			enc := gob.NewEncoder(sock)
+			dec := gob.NewDecoder(sock)
+			now := time.Now()
+
+			// Wrap the sock
+			out = &tcpOutConn{host: host, sock: sock, enc: enc, dec: dec, used: now}
 			return out, nil
-		} else {
-			out.sock.Close()
+		default:
 		}
+
+		select {
+		case <-timeoutChan:
+			return nil, fmt.Errorf("Get connection timeout to %s", host)
+		default:
+		}
+
+		<-time.After(100 * time.Millisecond)
 	}
-
-	t.poolLock.Unlock()
-
-	// Try to establish a connection
-	conn, err := net.DialTimeout("tcp", host, t.timeout)
-	if err != nil {
-		return nil, err
-	}
-
-	// Setup the socket
-	sock := conn.(*net.TCPConn)
-	t.setupConn(sock)
-	enc := gob.NewEncoder(sock)
-	dec := gob.NewDecoder(sock)
-	now := time.Now()
-
-	// Wrap the sock
-	out = &tcpOutConn{host: host, sock: sock, enc: enc, dec: dec, used: now}
-	return out, nil
 }
 
 // Returns an outbound TCP connection to the pool
-func (t *TCPTransport) returnConn(o *tcpOutConn) {
+func (t *TCPTransport) returnConn(o *tcpOutConn, success bool) {
 	// Update the last used time
-	o.used = time.Now()
+	if success {
+		o.used = time.Now()
+	}
 
 	// Push back into the pool
-	t.poolLock.Lock()
-	defer t.poolLock.Unlock()
 	if atomic.LoadInt32(&t.shutdown) == 1 {
-		o.sock.Close()
+		t.closeOutConn(o)
 		return
 	}
-	list, _ := t.pool[o.host]
-	if len(list) < maxOutConnPool {
-		t.pool[o.host] = append(list, o)
-	} else {
-		o.sock.Close()
+
+	t.poolLock.RLock()
+	outPool := t.pool[o.host]
+	t.poolLock.RUnlock()
+
+	select {
+	case outPool <- o:
+	default:
+		nlog.Infof("Connection pool to %s full, close conn.", o.host)
+		t.closeOutConn(o)
 	}
 }
 
 // Setup a connection
 func (t *TCPTransport) setupConn(c *net.TCPConn) {
-	c.SetNoDelay(true)
-	c.SetKeepAlive(true)
+	// c.SetNoDelay(true)
+	// c.SetKeepAlive(true)
+}
+
+func (t *TCPTransport) closeOutConn(o *tcpOutConn) {
+	o.sock.Close()
+	t.outConnQueLock.RLock()
+	<-t.outConnQue[o.host]
+	t.outConnQueLock.RUnlock()
 }
 
 // Gets a list of the vnodes on the box
@@ -240,8 +294,6 @@ func (t *TCPTransport) ListVnodes(host string) ([]*Vnode, error) {
 			errChan <- err
 		}
 
-		// Return the connection
-		t.returnConn(out)
 		if resp.Err == nil {
 			respChan <- resp.Vnodes
 		} else {
@@ -251,10 +303,13 @@ func (t *TCPTransport) ListVnodes(host string) ([]*Vnode, error) {
 
 	select {
 	case <-time.After(t.timeout):
-		return nil, fmt.Errorf("Command timed out!")
+		t.returnConn(out, false)
+		return nil, fmt.Errorf("ListVnodes timed out while connecting %s!", host)
 	case err := <-errChan:
+		t.returnConn(out, false)
 		return nil, err
 	case res := <-respChan:
+		t.returnConn(out, true)
 		return res, nil
 	}
 }
@@ -291,8 +346,6 @@ func (t *TCPTransport) Ping(vn *Vnode) (bool, error) {
 			return
 		}
 
-		// Return the connection
-		t.returnConn(out)
 		if resp.Err == nil {
 			respChan <- resp.B
 		} else {
@@ -302,10 +355,13 @@ func (t *TCPTransport) Ping(vn *Vnode) (bool, error) {
 
 	select {
 	case <-time.After(t.timeout):
-		return false, nil
+		t.returnConn(out, false)
+		return false, fmt.Errorf("Ping timed out while connecting %s!", vn.Host)
 	case err := <-errChan:
+		t.returnConn(out, false)
 		return false, err
 	case res := <-respChan:
+		t.returnConn(out, true)
 		return res, nil
 	}
 }
@@ -341,8 +397,6 @@ func (t *TCPTransport) GetPredecessor(vn *Vnode) (*Vnode, error) {
 			return
 		}
 
-		// Return the connection
-		t.returnConn(out)
 		if resp.Err == nil {
 			respChan <- resp.Vnode
 		} else {
@@ -352,10 +406,13 @@ func (t *TCPTransport) GetPredecessor(vn *Vnode) (*Vnode, error) {
 
 	select {
 	case <-time.After(t.timeout):
-		return nil, fmt.Errorf("Command timed out!")
+		t.returnConn(out, false)
+		return nil, fmt.Errorf("GetPredecessor timed out while connecting %s!", vn.Host)
 	case err := <-errChan:
+		t.returnConn(out, false)
 		return nil, err
 	case res := <-respChan:
+		t.returnConn(out, true)
 		return res, nil
 	}
 }
@@ -391,8 +448,6 @@ func (t *TCPTransport) Notify(target, self *Vnode) ([]*Vnode, error) {
 			return
 		}
 
-		// Return the connection
-		t.returnConn(out)
 		if resp.Err == nil {
 			respChan <- resp.Vnodes
 		} else {
@@ -402,10 +457,13 @@ func (t *TCPTransport) Notify(target, self *Vnode) ([]*Vnode, error) {
 
 	select {
 	case <-time.After(t.timeout):
-		return nil, fmt.Errorf("Command timed out!")
+		t.returnConn(out, false)
+		return nil, fmt.Errorf("Notify timed out while connecting %s!", target.Host)
 	case err := <-errChan:
+		t.returnConn(out, false)
 		return nil, err
 	case res := <-respChan:
+		t.returnConn(out, true)
 		return res, nil
 	}
 }
@@ -441,8 +499,6 @@ func (t *TCPTransport) FindSuccessors(vn *Vnode, n int, k []byte) ([]*Vnode, err
 			return
 		}
 
-		// Return the connection
-		t.returnConn(out)
 		if resp.Err == nil {
 			respChan <- resp.Vnodes
 		} else {
@@ -452,10 +508,13 @@ func (t *TCPTransport) FindSuccessors(vn *Vnode, n int, k []byte) ([]*Vnode, err
 
 	select {
 	case <-time.After(t.timeout):
-		return nil, fmt.Errorf("Command timed out!")
+		t.returnConn(out, false)
+		return nil, fmt.Errorf("FindSuccessors timed out while connecting %s!", vn.Host)
 	case err := <-errChan:
+		t.returnConn(out, false)
 		return nil, err
 	case res := <-respChan:
+		t.returnConn(out, true)
 		return res, nil
 	}
 }
@@ -491,8 +550,6 @@ func (t *TCPTransport) ClearPredecessor(target, self *Vnode) error {
 			return
 		}
 
-		// Return the connection
-		t.returnConn(out)
 		if resp.Err == nil {
 			respChan <- true
 		} else {
@@ -502,10 +559,13 @@ func (t *TCPTransport) ClearPredecessor(target, self *Vnode) error {
 
 	select {
 	case <-time.After(t.timeout):
-		return fmt.Errorf("Command timed out!")
+		t.returnConn(out, false)
+		return fmt.Errorf("ClearPredecessor timed out while connecting %s!", target.Host)
 	case err := <-errChan:
+		t.returnConn(out, false)
 		return err
 	case <-respChan:
+		t.returnConn(out, true)
 		return nil
 	}
 }
@@ -541,8 +601,6 @@ func (t *TCPTransport) SkipSuccessor(target, self *Vnode) error {
 			return
 		}
 
-		// Return the connection
-		t.returnConn(out)
 		if resp.Err == nil {
 			respChan <- true
 		} else {
@@ -552,10 +610,13 @@ func (t *TCPTransport) SkipSuccessor(target, self *Vnode) error {
 
 	select {
 	case <-time.After(t.timeout):
-		return fmt.Errorf("Command timed out!")
+		t.returnConn(out, false)
+		return fmt.Errorf("SkipSuccessor timed out while connecting %s!", target.Host)
 	case err := <-errChan:
+		t.returnConn(out, false)
 		return err
 	case <-respChan:
+		t.returnConn(out, true)
 		return nil
 	}
 }
@@ -583,8 +644,9 @@ func (t *TCPTransport) Shutdown() {
 	// Close all the outbound
 	t.poolLock.Lock()
 	for _, conns := range t.pool {
-		for _, out := range conns {
-			out.sock.Close()
+		close(conns)
+		for out := range conns {
+			t.closeOutConn(out)
 		}
 	}
 	t.pool = nil
@@ -604,31 +666,39 @@ func (t *TCPTransport) reapOld() {
 
 func (t *TCPTransport) reapOnce() {
 	t.poolLock.Lock()
-	defer t.poolLock.Unlock()
 	for host, conns := range t.pool {
 		if len(conns) == 0 {
 			continue
 		}
+
+		// close non neighbors
 		if ring != nil && !ring.shouldConnectToHost(host) {
 			log.Printf("[INFO] Disconnect with %d chord nodes at %s.", len(conns), host)
-			for _, conn := range conns {
-				conn.sock.Close()
+			close(conns)
+			for conn := range conns {
+				t.closeOutConn(conn)
 			}
-			t.pool[host] = make([]*tcpOutConn, 0)
+			t.pool[host] = make(chan *tcpOutConn, maxOutConnPool)
 			continue
 		}
-		max := len(conns)
-		for i := 0; i < max; i++ {
-			if time.Since(conns[i].used) > t.maxIdle {
-				conns[i].sock.Close()
-				conns[i], conns[max-1] = conns[max-1], nil
-				max--
-				i--
+
+		// check timeout
+		select {
+		case o := <-conns:
+			if time.Since(o.used) > t.maxIdle {
+				log.Printf("[INFO] Disconnect with idle chord node at %s.", host)
+				t.closeOutConn(o)
+			} else {
+				select {
+				case conns <- o:
+				default:
+					t.closeOutConn(o)
+				}
 			}
+		default:
 		}
-		// Trim any idle conns
-		t.pool[host] = conns[:max]
 	}
+	t.poolLock.Unlock()
 
 	t.lock.Lock()
 	for conn, lastUsed := range t.inbound {
@@ -647,7 +717,7 @@ func (t *TCPTransport) listen() {
 		conn, err := t.sock.AcceptTCP()
 		if err != nil {
 			if atomic.LoadInt32(&t.shutdown) == 0 {
-				fmt.Printf("[ERR] Error accepting TCP connection! %s\n", err)
+				log.Printf("[ERR] Error accepting TCP connection! %s\n", err)
 				time.Sleep(time.Millisecond * 300) // Add delay before try again sock Accept
 				continue
 			} else {
@@ -663,12 +733,12 @@ func (t *TCPTransport) listen() {
 		t.inbound[conn] = time.Now()
 		t.lock.Unlock()
 
-		if len(t.sockQue) >= maxInboundConns {
-			log.Printf("[WARN] The quota reach the limitation %d\n", len(t.sockQue))
+		if len(t.inConnQue) >= maxInboundConns {
+			log.Printf("[WARN] The quota reach the limitation %d\n", len(t.inConnQue))
 		}
 
-		t.sockQue <- 1        // Push
-		go t.handleConn(conn) // Start handler
+		t.inConnQue <- struct{}{} // Push
+		go t.handleConn(conn)     // Start handler
 	}
 }
 
@@ -680,7 +750,7 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 		delete(t.inbound, conn)
 		t.lock.Unlock()
 		conn.Close()
-		<-t.sockQue // Pop
+		<-t.inConnQue // Pop
 	}()
 
 	dec := gob.NewDecoder(conn)
@@ -712,6 +782,8 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 			} else {
 				sendResp = tcpBodyBoolError{B: ok, Err: fmt.Errorf("Target VN not found! Target %s:%s",
 					body.Vn.Host, body.Vn.String())}
+				log.Printf("[ERR] Target VN not found! Target %s:%s",
+					body.Vn.Host, body.Vn.String())
 			}
 
 		case tcpListReq:
@@ -753,6 +825,9 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 				resp.Err = fmt.Errorf("Target VN not found! Target %s:%s",
 					body.Vn.Host, body.Vn.String())
 			}
+			if resp.Err != nil {
+				log.Println("[ERR]", resp.Err)
+			}
 
 		case tcpNotifyReq:
 			body := tcpBodyTwoVnode{}
@@ -776,6 +851,9 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 				resp.Err = fmt.Errorf("Target VN not found! Target %s:%s",
 					body.Target.Host, body.Target.String())
 			}
+			if resp.Err != nil {
+				log.Println("[ERR]", resp.Err)
+			}
 
 		case tcpFindSucReq:
 			body := tcpBodyFindSuc{}
@@ -796,6 +874,9 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 				resp.Err = fmt.Errorf("Target VN not found! Target %s:%s",
 					body.Target.Host, body.Target.String())
 			}
+			if resp.Err != nil {
+				log.Println("[ERR]", resp.Err)
+			}
 
 		case tcpClearPredReq:
 			body := tcpBodyTwoVnode{}
@@ -813,6 +894,9 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 			} else {
 				resp.Err = fmt.Errorf("Target VN not found! Target %s:%s",
 					body.Target.Host, body.Target.String())
+			}
+			if resp.Err != nil {
+				log.Println("[ERR]", resp.Err)
 			}
 
 		case tcpSkipSucReq:
@@ -832,6 +916,9 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 				resp.Err = fmt.Errorf("Target VN not found! Target %s:%s",
 					body.Target.Host, body.Target.String())
 			}
+			if resp.Err != nil {
+				log.Println("[ERR]", resp.Err)
+			}
 
 		default:
 			log.Printf("[ERR] Unknown request type! Got %d", header.ReqType)
@@ -840,7 +927,7 @@ func (t *TCPTransport) handleConn(conn *net.TCPConn) {
 
 		// Send the response
 		if err := enc.Encode(sendResp); err != nil {
-			log.Printf("[ERR] Failed to send TCP body! Got %s", err)
+			log.Printf("[ERR] Failed to send TCP body! Got %s", err.Error())
 			return
 		}
 
@@ -858,7 +945,7 @@ func trimSlice(vn []*Vnode) []*Vnode {
 
 	// Find a non-nil index
 	idx := len(vn) - 1
-	for vn[idx] == nil {
+	for idx >= 0 && vn[idx] == nil {
 		idx--
 	}
 	return vn[:idx+1]
