@@ -12,7 +12,9 @@ import (
 	"strconv"
 	"time"
 
+	gonat "github.com/nknorg/go-nat"
 	"github.com/nknorg/go-portscanner"
+	"github.com/nknorg/nnet/transport"
 	"github.com/rdegges/go-ipify"
 )
 
@@ -21,22 +23,23 @@ const (
 )
 
 const (
-	ConsensusTime      = 10 * time.Second
-	ProposerChangeTime = time.Minute
+	ConsensusTime       = 18 * time.Second
+	ProposerChangeTime  = time.Minute
+	DefaultMiningReward = 15
+	MinNumSuccessors    = 8
 )
 
 var (
 	Version       string
 	SkipCheckPort bool
 	Parameters    = &Configuration{
-		Magic:         99281,
-		Version:       1,
-		ChordPort:     30000,
-		NodePort:      30001,
-		HttpWsPort:    30002,
-		HttpJsonPort:  30003,
-		LogLevel:      1,
-		ConsensusType: "ising",
+		Version:      1,
+		Transport:    "tcp",
+		NodePort:     30001,
+		HttpWsPort:   30002,
+		HttpJsonPort: 30003,
+		NAT:          false,
+		LogLevel:     1,
 		SeedList: []string{
 			"http://127.0.0.1:30003",
 		},
@@ -44,16 +47,12 @@ var (
 )
 
 type Configuration struct {
-	Magic                int64    `json:"Magic"`
 	Version              int      `json:"Version"`
 	SeedList             []string `json:"SeedList"`
-	BookKeepers          []string `json:"BookKeepers"`
 	RestCertPath         string   `json:"RestCertPath"`
 	RestKeyPath          string   `json:"RestKeyPath"`
 	RPCCert              string   `json:"RPCCert"`
 	RPCKey               string   `json:"RPCKey"`
-	HttpInfoPort         uint16   `json:"HttpInfoPort"`
-	HttpInfoStart        bool     `json:"HttpInfoStart"`
 	HttpWsPort           uint16   `json:"HttpWsPort"`
 	HttpJsonPort         uint16   `json:"HttpJsonPort"`
 	NodePort             uint16   `json:"-"`
@@ -67,10 +66,11 @@ type Configuration struct {
 	MaxLogSize           int64    `json:"MaxLogSize"`
 	MaxTxInBlock         int      `json:"MaxTransactionInBlock"`
 	MaxHdrSyncReqs       int      `json:"MaxConcurrentSyncHeaderReqs"`
-	ConsensusType        string   `json:"ConsensusType"`
-	ChordPort            uint16   `json:"-"`
 	GenesisBlockProposer string   `json:"GenesisBlockProposer"`
 	Hostname             string   `json:"Hostname"`
+	Transport            string   `json:"Transport"`
+	NAT                  bool     `json:"NAT"`
+	BeneficiaryAddr	     string   `json:"BeneficiaryAddr"`
 }
 
 func Init() error {
@@ -91,6 +91,44 @@ func Init() error {
 		log.Println("Config file not exists, use default parameters.")
 	}
 
+	if Parameters.Hostname == "127.0.0.1" {
+		Parameters.IncrementPort()
+	}
+
+	if Parameters.NAT {
+		log.Println("Discovering NAT gateway...")
+
+		nat, err := gonat.DiscoverGateway()
+		if err != nil {
+			return err
+		}
+
+		log.Printf("Found %s gateway", nat.Type())
+
+		transport, err := transport.NewTransport(Parameters.Transport)
+		if err != nil {
+			return err
+		}
+
+		externalPort, internalPort, err := nat.AddPortMapping(transport.GetNetwork(), int(Parameters.NodePort), int(Parameters.NodePort), "nkn", 10*time.Second)
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
+
+		externalPort, internalPort, err = nat.AddPortMapping("tcp", int(Parameters.HttpWsPort), int(Parameters.HttpWsPort), "nkn", 10*time.Second)
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
+
+		externalPort, internalPort, err = nat.AddPortMapping("tcp", int(Parameters.HttpJsonPort), int(Parameters.HttpJsonPort), "nkn", 10*time.Second)
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
+	}
+
 	if Parameters.Hostname == "" {
 		ip, err := ipify.GetIp()
 		if err != nil {
@@ -99,17 +137,15 @@ func Init() error {
 
 		Parameters.Hostname = ip
 
-		if !SkipCheckPort {
-			ok, err := Parameters.CheckPorts(ip)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return errors.New("Some ports are not open. Please make sure you set up port forwarding or firewall correctly")
-			}
-		}
-	} else if Parameters.Hostname == "127.0.0.1" {
-		Parameters.IncrementPort()
+		// if !SkipCheckPort {
+		// 	ok, err := Parameters.CheckPorts(ip)
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// 	if !ok {
+		// 		return errors.New("Some ports are not open. Please make sure you set up port forwarding or firewall correctly")
+		// 	}
+		// }
 	}
 
 	err := check(Parameters)
@@ -121,13 +157,8 @@ func Init() error {
 }
 
 func check(config *Configuration) error {
-	switch config.ConsensusType {
-	case "ising":
-		if len(config.SeedList) == 0 {
-			return errors.New("seed list in config file should not be blank")
-		}
-	default:
-		return fmt.Errorf("invalid consensus type %s in config file", config.ConsensusType)
+	if len(config.SeedList) == 0 {
+		return errors.New("seed list in config file should not be blank")
 	}
 
 	return nil
@@ -149,7 +180,6 @@ func findMinMaxPort(array []uint16) (uint16, uint16) {
 
 func (config *Configuration) IncrementPort() {
 	allPorts := []uint16{
-		config.ChordPort,
 		config.NodePort,
 		config.HttpWsPort,
 		config.HttpJsonPort,
@@ -158,19 +188,34 @@ func (config *Configuration) IncrementPort() {
 	step := maxPort - minPort + 1
 	var delta uint16
 	for {
-		conn, err := net.Listen("tcp", ":"+strconv.Itoa(int(config.ChordPort+delta)))
-		if err == nil {
-			conn.Close()
-			break
+		tcpConn, err := net.Listen("tcp", ":"+strconv.Itoa(int(config.NodePort+delta)))
+		if err != nil {
+			fmt.Println(err)
+			delta += step
+			continue
 		}
-		delta += step
+		tcpConn.Close()
+
+		udpAddr, err := net.ResolveUDPAddr("udp", ":"+strconv.Itoa(int(config.NodePort+delta)))
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		udpConn, err := net.ListenUDP("udp", udpAddr)
+		if err != nil {
+			fmt.Println(err)
+			delta += step
+			continue
+		}
+		udpConn.Close()
+
+		break
 	}
-	config.ChordPort += delta
 	config.NodePort += delta
 	config.HttpWsPort += delta
 	config.HttpJsonPort += delta
 	if delta > 0 {
-		log.Println("[WARNING] Port in use! All ports are automatically increased by", delta)
+		log.Println("Port in use! All ports are automatically increased by", delta)
 	}
 }
 
@@ -187,13 +232,12 @@ func checkPort(host string, port uint16) (bool, error) {
 
 func (config *Configuration) CheckPorts(myIP string) (bool, error) {
 	allPorts := []uint16{
-		config.ChordPort,
 		config.NodePort,
 		config.HttpWsPort,
 		config.HttpJsonPort,
 	}
 	for _, port := range allPorts {
-		log.Printf("[INFO] Checking TCP port %d", port)
+		log.Printf("Checking TCP port %d", port)
 		isOpen, err := checkPort(myIP, port)
 		if err != nil {
 			return false, err
@@ -201,7 +245,7 @@ func (config *Configuration) CheckPorts(myIP string) (bool, error) {
 		if !isOpen {
 			return false, fmt.Errorf("Port %d is not open", port)
 		}
-		log.Printf("[INFO] Port %d is open", port)
+		log.Printf("Port %d is open", port)
 	}
 	return true, nil
 }

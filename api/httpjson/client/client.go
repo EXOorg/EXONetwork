@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -77,4 +78,25 @@ func GetNodeState(remote string) (*comm.NodeInfo, error) {
 	log.Printf("NodeInfo: %v\n", ret)
 
 	return &ret.Result, nil
+}
+
+func FindSuccessorAddrs(remote string, key []byte) ([]string, error) {
+	resp, err := Call(remote, "findsuccessoraddrs", 0, map[string]interface{}{
+		"key": hex.EncodeToString(key),
+	})
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("FindSuccessorAddrs: %s\n", string(resp))
+
+	var ret struct {
+		Result []string `json:"result"`
+	}
+	if err := json.Unmarshal(resp, &ret); err != nil {
+		log.Println(err)
+		return nil, err
+	}
+	log.Printf("Successor Address: %v\n", ret)
+
+	return ret.Result, nil
 }

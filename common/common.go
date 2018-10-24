@@ -15,6 +15,8 @@ import (
 	"github.com/golang/crypto/ripemd160"
 )
 
+const MaxUint32 = ^uint32(0)
+
 func ToCodeHash(code []byte) (Uint160, error) {
 	temp := sha256.Sum256(code)
 	md := ripemd160.New()
@@ -158,4 +160,11 @@ func SliceRemove(slice []uint32, h uint32) []uint32 {
 func FileExisted(filename string) bool {
 	_, err := os.Stat(filename)
 	return err == nil || os.IsExist(err)
+}
+
+func AbsUint(n1 uint, n2 uint) uint {
+	if n1 > n2 {
+		return n1 - n2
+	}
+	return n2 - n1
 }

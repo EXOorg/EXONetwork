@@ -10,8 +10,8 @@ import (
 	"github.com/nknorg/nkn/core/asset"
 	"github.com/nknorg/nkn/core/transaction/payload"
 	"github.com/nknorg/nkn/core/validation"
-	"github.com/nknorg/nkn/crypto"
 	. "github.com/nknorg/nkn/errors"
+	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 
 	"github.com/syndtr/goleveldb/leveldb"
@@ -22,43 +22,45 @@ type TxnStore interface {
 	GetQuantityIssued(AssetId Uint256) (Fixed64, error)
 	IsDoubleSpend(tx *Transaction) bool
 	GetAsset(hash Uint256) (*asset.Asset, error)
-	GetBookKeeperList() ([]*crypto.PubKey, []*crypto.PubKey, error)
 	GetPrepaidInfo(programHash Uint160) (*Fixed64, *Fixed64, error)
 	IsTxHashDuplicate(txhash Uint256) bool
 	GetName(registrant []byte) (*string, error)
 	GetRegistrant(name string) ([]byte, error)
 }
 
+type Iterator interface {
+	Iterate(handler func(item *Transaction) ErrCode) ErrCode
+}
+
 // VerifyTransaction verifys received single transaction
 func VerifyTransaction(Tx *Transaction) ErrCode {
-
 	if err := CheckDuplicateInput(Tx); err != nil {
-		log.Warn("[VerifyTransaction],", err)
+		log.Warning("[VerifyTransaction],", err)
 		return ErrDuplicateInput
 	}
 
 	if err := CheckAssetPrecision(Tx); err != nil {
-		log.Warn("[VerifyTransaction],", err)
+		log.Warning("[VerifyTransaction],", err)
 		return ErrAssetPrecision
 	}
 
 	if err := CheckTransactionBalance(Tx); err != nil {
-		log.Warn("[VerifyTransaction],", err)
+		log.Warning("[VerifyTransaction],", err)
 		return ErrTransactionBalance
 	}
 
 	if err := CheckAttributeProgram(Tx); err != nil {
-		log.Warn("[VerifyTransaction],", err)
+		log.Warning("[VerifyTransaction],", err)
 		return ErrAttributeProgram
 	}
 
 	if err := CheckTransactionContracts(Tx); err != nil {
-		log.Warn("[VerifyTransaction],", err)
+		log.Warning("[VerifyTransaction],", err)
 		return ErrTransactionContracts
 	}
 
 	if err := CheckTransactionPayload(Tx); err != nil {
-		log.Warn("[VerifyTransaction],", err)
+		log.Warning("[VerifyTransaction],", err)
 		return ErrTransactionPayload
 	}
 
@@ -66,38 +68,48 @@ func VerifyTransaction(Tx *Transaction) ErrCode {
 }
 
 // VerifyTransactionWithBlock verifys a transaction with current transaction pool in memory
-func VerifyTransactionWithBlock(TxPool []*Transaction) error {
+func VerifyTransactionWithBlock(iterator Iterator) ErrCode {
 	//initial
-	txnlist := make(map[Uint256]*Transaction, 0)
-	var txPoolInputs []string
-	//sum all inputs in TxPool
-	for _, Tx := range TxPool {
-		for _, UTXOinput := range Tx.Inputs {
-			txPoolInputs = append(txPoolInputs, UTXOinput.ToString())
-		}
-	}
+	txnlist := make(map[Uint256]struct{}, 0)
+	txPoolInputs := make(map[string]struct{}, 0)
+	issueSummary := make(map[Uint256]Fixed64, 0)
+	registeredNames := make(map[string]struct{}, 0)
+	nameRegistrants := make(map[string]struct{}, 0)
 	//start check
-	for _, txn := range TxPool {
+	return iterator.Iterate(func(txn *Transaction) ErrCode {
 		//1.check weather have duplicate transaction.
 		if _, exist := txnlist[txn.Hash()]; exist {
-			return errors.New("[VerifyTransactionWithBlock], duplicate transaction exist in block.")
+			log.Warning("[VerifyTransactionWithBlock], duplicate transaction exist in block.")
+			return ErrDuplicatedTx
 		} else {
-			txnlist[txn.Hash()] = txn
+			txnlist[txn.Hash()] = struct{}{}
 		}
 		//2.check Duplicate Utxo input
-		if err := CheckDuplicateUtxoInBlock(txn, txPoolInputs); err != nil {
-			return err
+		for _, UTXOinput := range txn.Inputs {
+			inputString := UTXOinput.ToString()
+			if _, ok := txPoolInputs[inputString]; ok {
+				log.Warning("[VerifyTransactionWithBlock], duplicate input exist in block.")
+				return ErrDuplicateInput
+			}
+			txPoolInputs[inputString] = struct{}{}
 		}
 		//3.check issue amount
 		switch txn.TxType {
+		case Coinbase:
+			if txn.Outputs[0].Value != Fixed64(config.DefaultMiningReward*StorageFactor) {
+				log.Warning("Mining reward incorrectly.")
+				return ErrMineReward
+			}
 		case IssueAsset:
-			//TODO: use delta mode to improve performance
 			results := txn.GetMergedAssetIDValueFromOutputs()
-			for k, _ := range results {
+			for k, delta := range results {
+				issueSummary[k] = issueSummary[k] + delta
+
 				//Get the Asset amount when RegisterAsseted.
 				trx, err := Store.GetTransaction(k)
 				if trx.TxType != RegisterAsset {
-					return errors.New("[VerifyTransaction], TxType is illegal.")
+					log.Warning("[VerifyTransactionWithBlock], TxType is illegal.")
+					return ErrSummaryAsset
 				}
 				AssetReg := trx.Payload.(*payload.RegisterAsset)
 
@@ -108,36 +120,49 @@ func VerifyTransactionWithBlock(TxPool []*Transaction) error {
 				} else {
 					quantity_issued, err = Store.GetQuantityIssued(k)
 					if err != nil {
-						return errors.New("[VerifyTransaction], GetQuantityIssued failed.")
-					}
-				}
-
-				//calc the amounts in txPool which are also IssueAsset
-				var txPoolAmounts Fixed64
-				for _, t := range TxPool {
-					if t.TxType == IssueAsset {
-						outputResult := t.GetMergedAssetIDValueFromOutputs()
-						for txidInPool, txValueInPool := range outputResult {
-							if txidInPool == k {
-								txPoolAmounts = txPoolAmounts + txValueInPool
-							}
-						}
+						log.Warning("[VerifyTransactionWithBlock], GetQuantityIssued failed.")
+						return ErrSummaryAsset
 					}
 				}
 
 				//calc weather out off the amount when Registed.
 				//AssetReg.Amount : amount when RegisterAsset of this assedID
 				//quantity_issued : amount has been issued of this assedID
-				//txPoolAmounts   : amount in transactionPool of this assedID of issue transaction.
-				if AssetReg.Amount-quantity_issued < txPoolAmounts {
-					return errors.New("[VerifyTransaction], Amount check error.")
+				//issueSummary[k] : amount in transactionPool of this assedID of issue transaction.
+				if AssetReg.Amount-quantity_issued < issueSummary[k] {
+					log.Warning("[VerifyTransactionWithBlock], Amount check error.")
+					return ErrSummaryAsset
 				}
 			}
+		case RegisterName:
+			namePayload := txn.Payload.(*payload.RegisterName)
+
+			name := namePayload.Name
+			if _, ok := registeredNames[name]; ok {
+				log.Warning("[VerifyTransactionWithBlock], duplicate name exist in block.")
+				return ErrDuplicateName
+			}
+			registeredNames[name] = struct{}{}
+
+			registrant := BytesToHexString(namePayload.Registrant)
+			if _, ok := nameRegistrants[registrant]; ok {
+				log.Warning("[VerifyTransactionWithBlock], duplicate registrant exist in block.")
+				return ErrDuplicateName
+			}
+			nameRegistrants[registrant] = struct{}{}
+		case DeleteName:
+			namePayload := txn.Payload.(*payload.DeleteName)
+
+			registrant := BytesToHexString(namePayload.Registrant)
+			if _, ok := nameRegistrants[registrant]; ok {
+				log.Warning("[VerifyTransactionWithBlock], duplicate registrant exist in block.")
+				return ErrDuplicateName
+			}
+			nameRegistrants[registrant] = struct{}{}
 		}
 
-	}
-
-	return nil
+		return ErrNoError
+	})
 }
 
 // VerifyTransactionWithLedger verifys a transaction with history transaction in ledger
@@ -155,30 +180,13 @@ func VerifyTransactionWithLedger(Tx *Transaction) ErrCode {
 
 //validate the transaction of duplicate UTXO input
 func CheckDuplicateInput(tx *Transaction) error {
-	if len(tx.Inputs) == 0 {
-		return nil
-	}
-	for i, utxoin := range tx.Inputs {
-		for j := 0; j < i; j++ {
-			if utxoin.ReferTxID == tx.Inputs[j].ReferTxID && utxoin.ReferTxOutputIndex == tx.Inputs[j].ReferTxOutputIndex {
-				return errors.New("invalid transaction")
-			}
+	dupMap := make(map[string]struct{})
+	for _, utxoin := range tx.Inputs {
+		k := utxoin.ToString()
+		if _, ok := dupMap[k]; ok { // ok means duplicate
+			return errors.New("invalid transaction")
 		}
-	}
-	return nil
-}
-
-func CheckDuplicateUtxoInBlock(tx *Transaction, txPoolInputs []string) error {
-	var txInputs []string
-	for _, t := range tx.Inputs {
-		txInputs = append(txInputs, t.ToString())
-	}
-	for _, i := range txInputs {
-		for _, j := range txPoolInputs {
-			if i == j {
-				return errors.New("Duplicated UTXO inputs found in tx pool")
-			}
-		}
+		dupMap[k] = struct{}{}
 	}
 	return nil
 }
@@ -258,29 +266,9 @@ func checkAmountPrecise(amount Fixed64, precision byte) bool {
 	return amount.GetData()%int64(math.Pow(10, 8-float64(precision))) != 0
 }
 
-func checkIssuerInBookkeeperList(issuer *crypto.PubKey, bookKeepers []*crypto.PubKey) bool {
-	for _, bk := range bookKeepers {
-		r := crypto.Equal(issuer, bk)
-		if r == true {
-			return true
-		}
-	}
-
-	return false
-}
-
 func CheckTransactionPayload(txn *Transaction) error {
 
 	switch pld := txn.Payload.(type) {
-	case *payload.BookKeeper:
-		//Todo: validate bookKeeper Cert
-		_ = pld.Cert
-		bookKeepers, _, _ := Store.GetBookKeeperList()
-		r := checkIssuerInBookkeeperList(pld.Issuer, bookKeepers)
-		if r == false {
-			return errors.New("The issuer isn't bookekeeper, can't add other in bookkeepers list.")
-		}
-		return nil
 	case *payload.RegisterAsset:
 		if pld.Asset.Precision < asset.MinPrecision || pld.Asset.Precision > asset.MaxPrecision {
 			return errors.New("Invalide asset Precision.")

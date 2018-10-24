@@ -2,11 +2,11 @@ package vault
 
 import (
 	"errors"
+	"fmt"
 
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/contract"
 	"github.com/nknorg/nkn/crypto"
-	. "github.com/nknorg/nkn/errors"
 )
 
 type Account struct {
@@ -17,18 +17,15 @@ type Account struct {
 
 func NewAccount() (*Account, error) {
 	priKey, pubKey, _ := crypto.GenKeyPair()
-	signatureRedeemScript, err := contract.CreateSignatureRedeemScript(&pubKey)
+
+	redeemHash, err := contract.CreateRedeemHash(&pubKey)
 	if err != nil {
-		return nil, NewDetailErr(err, ErrNoCode, "CreateSignatureRedeemScript failed")
-	}
-	programHash, err := ToCodeHash(signatureRedeemScript)
-	if err != nil {
-		return nil, NewDetailErr(err, ErrNoCode, "ToCodeHash failed")
+		return nil, fmt.Errorf("%v\n%s", err, "New account redeemhash generated failed")
 	}
 	return &Account{
 		PrivateKey:  priKey,
 		PublicKey:   &pubKey,
-		ProgramHash: programHash,
+		ProgramHash: redeemHash,
 	}, nil
 }
 
@@ -38,18 +35,15 @@ func NewAccountWithPrivatekey(privateKey []byte) (*Account, error) {
 		return nil, errors.New("invalid private key length")
 	}
 	pubKey := crypto.NewPubKey(privateKey)
-	signatureRedeemScript, err := contract.CreateSignatureRedeemScript(pubKey)
+	redeemHash, err := contract.CreateRedeemHash(pubKey)
 	if err != nil {
-		return nil, NewDetailErr(err, ErrNoCode, "CreateSignatureRedeemScript failed")
+		return nil, fmt.Errorf("%v\n%s", err, "New account redeemhash generated failed")
 	}
-	programHash, err := ToCodeHash(signatureRedeemScript)
-	if err != nil {
-		return nil, NewDetailErr(err, ErrNoCode, "ToCodeHash failed")
-	}
+
 	return &Account{
 		PrivateKey:  privateKey,
 		PublicKey:   pubKey,
-		ProgramHash: programHash,
+		ProgramHash: redeemHash,
 	}, nil
 }
 

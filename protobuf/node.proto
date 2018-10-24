@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package client;
+package protobuf;
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 
@@ -10,20 +10,13 @@ option (gogoproto.stringer_all) =  true;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.sizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
-
  // For tests
 option (gogoproto.testgen_all) = true;
 option (gogoproto.equal_all) = true;
 option (gogoproto.populate_all) = true;
 
-message OutboundMessage {
-  string dest = 1;
-  bytes payload = 2;
-  repeated string dests = 3;
-  uint32 max_holding_seconds = 4;
-}
-
-message InboundMessage {
-  string src = 1;
-  bytes payload = 2;
+message NodeData {
+  bytes public_key = 1;
+  uint32 websocket_port = 2;
+  uint32 json_rpc_port = 3;
 }

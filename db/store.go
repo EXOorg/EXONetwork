@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"math/big"
 	"sort"
 	"sync"
 
@@ -16,7 +15,6 @@ import (
 	. "github.com/nknorg/nkn/core/ledger"
 	tx "github.com/nknorg/nkn/core/transaction"
 	"github.com/nknorg/nkn/core/transaction/payload"
-	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/events"
 	"github.com/nknorg/nkn/util/log"
 )
@@ -140,7 +138,7 @@ func (cs *ChainStore) clearCache() {
 
 }
 
-func (cs *ChainStore) InitLedgerStoreWithGenesisBlock(genesisBlock *Block, defaultBookKeeper []*crypto.PubKey) (uint32, error) {
+func (cs *ChainStore) InitLedgerStoreWithGenesisBlock(genesisBlock *Block) (uint32, error) {
 	hash := genesisBlock.Hash()
 	cs.headerIndex[0] = hash
 
@@ -152,7 +150,6 @@ func (cs *ChainStore) InitLedgerStoreWithGenesisBlock(genesisBlock *Block, defau
 
 	if version[0] == 0x01 {
 		// GenesisBlock should exist in chain
-		// Or the bookkeepers are not consistent with the chain
 		if !cs.IsBlockInStore(hash) {
 			estr := fmt.Sprintf("Hash %s is NOT in BlockStore.", hash.ToHexString())
 			log.Error(estr)
@@ -237,27 +234,6 @@ func (cs *ChainStore) InitLedgerStoreWithGenesisBlock(genesisBlock *Block, defau
 		if err != nil {
 			return 0, err
 		}
-		sort.Sort(crypto.PubKeySlice(defaultBookKeeper))
-
-		// currBookKeeper key
-		bkListKey := bytes.NewBuffer(nil)
-		bkListKey.WriteByte(byte(SYS_CurrentBookKeeper))
-
-		// currBookKeeper value
-		bkListValue := bytes.NewBuffer(nil)
-		serialization.WriteUint8(bkListValue, uint8(len(defaultBookKeeper)))
-		for k := 0; k < len(defaultBookKeeper); k++ {
-			defaultBookKeeper[k].Serialize(bkListValue)
-		}
-
-		// nextBookKeeper value
-		serialization.WriteUint8(bkListValue, uint8(len(defaultBookKeeper)))
-		for k := 0; k < len(defaultBookKeeper); k++ {
-			defaultBookKeeper[k].Serialize(bkListValue)
-		}
-
-		// defaultBookKeeper put value
-		cs.st.Put(bkListKey.Bytes(), bkListValue.Bytes())
 
 		// persist genesis block
 		cs.persist(genesisBlock)
@@ -275,11 +251,7 @@ func (cs *ChainStore) InitLedgerStoreWithGenesisBlock(genesisBlock *Block, defau
 func (cs *ChainStore) IsTxHashDuplicate(txhash Uint256) bool {
 	prefix := []byte{byte(DATA_Transaction)}
 	_, err_get := cs.st.Get(append(prefix, txhash.ToArray()...))
-	if err_get != nil {
-		return false
-	} else {
-		return true
-	}
+	return err_get == nil
 }
 
 func (cs *ChainStore) IsDoubleSpend(tx *tx.Transaction) bool {
@@ -373,20 +345,20 @@ func (cs *ChainStore) GetContract(codeHash Uint160) ([]byte, error) {
 	return bData, nil
 }
 
-func (cs *ChainStore) getHeaderWithCache(hash Uint256) *Header {
+func (cs *ChainStore) getHeaderWithCache(hash Uint256) (*Header, error) {
+	cs.mu.RLock()
 	if _, ok := cs.headerCache[hash]; ok {
-		return cs.headerCache[hash]
+		cs.mu.RUnlock()
+		return cs.headerCache[hash], nil
 	}
+	cs.mu.RUnlock()
 
-	header, _ := cs.GetHeader(hash)
-
-	return header
+	return cs.GetHeader(hash)
 }
 
 func (cs *ChainStore) verifyHeader(header *Header) bool {
-	prevHeader := cs.getHeaderWithCache(header.PrevBlockHash)
-
-	if prevHeader == nil {
+	prevHeader, err := cs.getHeaderWithCache(header.PrevBlockHash)
+	if err != nil || prevHeader == nil {
 		log.Error("[verifyHeader] failed, not found prevHeader.")
 		return false
 	}
@@ -724,51 +696,6 @@ func (cs *ChainStore) GetVotingWeight(hash Uint160) (int, error) {
 	return 1, nil
 }
 
-func (cs *ChainStore) GetBookKeeperList() ([]*crypto.PubKey, []*crypto.PubKey, error) {
-	prefix := []byte{byte(SYS_CurrentBookKeeper)}
-	bkListValue, err := cs.st.Get(prefix)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	r := bytes.NewReader(bkListValue)
-
-	// first 1 bytes is length of list
-	currCount, err := serialization.ReadUint8(r)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var currBookKeeper = make([]*crypto.PubKey, currCount)
-	for i := uint8(0); i < currCount; i++ {
-		bk := new(crypto.PubKey)
-		err := bk.Deserialize(r)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		currBookKeeper[i] = bk
-	}
-
-	nextCount, err := serialization.ReadUint8(r)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var nextBookKeeper = make([]*crypto.PubKey, nextCount)
-	for i := uint8(0); i < nextCount; i++ {
-		bk := new(crypto.PubKey)
-		err := bk.Deserialize(r)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		nextBookKeeper[i] = bk
-	}
-
-	return currBookKeeper, nextBookKeeper, nil
-}
-
 func (cs *ChainStore) persist(b *Block) error {
 	utxoUnspents := newUTXOs(cs)
 	unspents := make(map[Uint256][]uint16)
@@ -810,28 +737,6 @@ func (cs *ChainStore) persist(b *Block) error {
 	hashValue := b.Header.Hash()
 	hashValue.Serialize(hashWriter)
 
-	needUpdateBookKeeper := false
-	currBookKeeper, nextBookKeeper, err := cs.GetBookKeeperList()
-	// update current BookKeeperList
-	if len(currBookKeeper) != len(nextBookKeeper) {
-		needUpdateBookKeeper = true
-	} else {
-		for i := range currBookKeeper {
-			if currBookKeeper[i].X.Cmp(nextBookKeeper[i].X) != 0 ||
-				currBookKeeper[i].Y.Cmp(nextBookKeeper[i].Y) != 0 {
-				needUpdateBookKeeper = true
-				break
-			}
-		}
-	}
-	if needUpdateBookKeeper {
-		currBookKeeper = make([]*crypto.PubKey, len(nextBookKeeper))
-		for i := 0; i < len(nextBookKeeper); i++ {
-			currBookKeeper[i] = new(crypto.PubKey)
-			currBookKeeper[i].X = new(big.Int).Set(nextBookKeeper[i].X)
-			currBookKeeper[i].Y = new(big.Int).Set(nextBookKeeper[i].Y)
-		}
-	}
 	// BATCH PUT VALUE
 	cs.st.BatchPut(bhash.Bytes(), hashWriter.Bytes())
 
@@ -995,70 +900,7 @@ func (cs *ChainStore) persist(b *Block) error {
 			}
 		}
 
-		// bookkeeper
-		if b.Transactions[i].TxType == tx.BookKeeper {
-			bk := b.Transactions[i].Payload.(*payload.BookKeeper)
-
-			switch bk.Action {
-			case payload.BookKeeperAction_ADD:
-				findflag := false
-				for k := 0; k < len(nextBookKeeper); k++ {
-					if bk.PubKey.X.Cmp(nextBookKeeper[k].X) == 0 && bk.PubKey.Y.Cmp(nextBookKeeper[k].Y) == 0 {
-						findflag = true
-						break
-					}
-				}
-
-				if !findflag {
-					needUpdateBookKeeper = true
-					nextBookKeeper = append(nextBookKeeper, bk.PubKey)
-					sort.Sort(crypto.PubKeySlice(nextBookKeeper))
-				}
-			case payload.BookKeeperAction_SUB:
-				ind := -1
-				for k := 0; k < len(nextBookKeeper); k++ {
-					if bk.PubKey.X.Cmp(nextBookKeeper[k].X) == 0 && bk.PubKey.Y.Cmp(nextBookKeeper[k].Y) == 0 {
-						ind = k
-						break
-					}
-				}
-
-				if ind != -1 {
-					needUpdateBookKeeper = true
-					// already sorted
-					nextBookKeeper = append(nextBookKeeper[:ind], nextBookKeeper[ind+1:]...)
-				}
-			}
-
-		}
-
 	}
-
-	if needUpdateBookKeeper {
-		//bookKeeper key
-		bkListKey := bytes.NewBuffer(nil)
-		bkListKey.WriteByte(byte(SYS_CurrentBookKeeper))
-
-		//bookKeeper value
-		bkListValue := bytes.NewBuffer(nil)
-
-		serialization.WriteUint8(bkListValue, uint8(len(currBookKeeper)))
-		for k := 0; k < len(currBookKeeper); k++ {
-			currBookKeeper[k].Serialize(bkListValue)
-		}
-
-		serialization.WriteUint8(bkListValue, uint8(len(nextBookKeeper)))
-		for k := 0; k < len(nextBookKeeper); k++ {
-			nextBookKeeper[k].Serialize(bkListValue)
-		}
-
-		// BookKeeper put value
-		cs.st.BatchPut(bkListKey.Bytes(), bkListValue.Bytes())
-
-		///////////////////////////////////////////////////////
-	}
-	///////////////////////////////////////////////////////
-	//*/
 
 	// batch put the utxoUnspents
 	if err := utxoUnspents.persistUTXOs(); err != nil {
@@ -1140,7 +982,7 @@ func (cs *ChainStore) addHeader(header *Header) {
 
 func (cs *ChainStore) handlePersistHeaderTask(header *Header) {
 
-	if header.Height != uint32(len(cs.headerIndex)) {
+	if header.Height != cs.GetHeaderHeight()+1 {
 		return
 	}
 
@@ -1195,7 +1037,7 @@ func (cs *ChainStore) handlePersistBlockTask(b *Block, ledger *Ledger) {
 	cs.blockCache[b.Hash()] = b
 	cs.mu.Unlock()
 
-	if b.Header.Height < uint32(len(cs.headerIndex)) {
+	if b.Header.Height < cs.GetHeaderHeight()+1 {
 		cs.persistBlocks(ledger)
 
 		cs.st.NewBatch()
@@ -1206,7 +1048,9 @@ func (cs *ChainStore) handlePersistBlockTask(b *Block, ledger *Ledger) {
 			var hashArray []byte
 			for i := 0; i < HeaderHashListCount; i++ {
 				index := storedHeaderCount + uint32(i)
+				cs.mu.RLock()
 				thash := cs.headerIndex[index]
+				cs.mu.RUnlock()
 				thehash := thash.ToArray()
 				hashArray = append(hashArray, thehash...)
 			}
@@ -1234,10 +1078,16 @@ func (cs *ChainStore) handlePersistBlockTask(b *Block, ledger *Ledger) {
 }
 
 func (cs *ChainStore) persistBlocks(ledger *Ledger) {
-	stopHeight := uint32(len(cs.headerIndex))
-	for h := cs.currentBlockHeight + 1; h <= stopHeight; h++ {
+	cs.mu.RLock()
+	initHeight := cs.currentBlockHeight + 1
+	cs.mu.RUnlock()
+
+	stopHeight := cs.GetHeaderHeight() + 1
+	for h := initHeight; h <= stopHeight; h++ {
+		cs.mu.RLock()
 		hash := cs.headerIndex[h]
 		block, ok := cs.blockCache[hash]
+		cs.mu.RUnlock()
 		if !ok {
 			break
 		}
@@ -1342,6 +1192,11 @@ func (cs *ChainStore) GetHeight() uint32 {
 }
 
 func (cs *ChainStore) GetHeightByBlockHash(hash Uint256) (uint32, error) {
+	header, err := cs.getHeaderWithCache(hash)
+	if err == nil {
+		return header.Height, nil
+	}
+
 	block, err := cs.GetBlock(hash)
 	if err != nil {
 		return 0, err

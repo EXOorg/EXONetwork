@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
+	"fmt"
 	"io"
 
 	"github.com/nknorg/nkn/common"
@@ -30,31 +30,15 @@ type trn struct {
 func (msg trn) Handle(node Noder) error {
 	txn := &msg.txn
 	if !node.LocalNode().ExistHash(txn.Hash()) {
-		// broadcast transaction if never received
-		node.LocalNode().BroadcastTransaction(node, txn)
 		node.LocalNode().IncRxTxnCnt()
 
 		// add transaction to pool when in consensus state
 		if node.LocalNode().GetSyncState() == PersistFinished {
 			if errCode := node.LocalNode().AppendTxnPool(txn); errCode != ErrNoError {
-				return errors.New("[message] VerifyTransaction failed when AppendTxnPool.")
+				return fmt.Errorf("[message] VerifyTransaction failed with %v when AppendTxnPool.", errCode)
 			}
 		}
 	}
-
-	return nil
-}
-
-func reqTxnData(node Noder, hash common.Uint256) error {
-	var msg dataReq
-	msg.dataType = common.TRANSACTION
-	// TODO handle the hash array case
-	buff := bytes.NewBuffer(nil)
-	err := msg.Serialize(buff)
-	if err != nil {
-		return err
-	}
-	go node.Tx(buff.Bytes())
 
 	return nil
 }
@@ -158,23 +142,6 @@ func (msg *trn) Deserialize(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-
-	return nil
-}
-
-type txnPool struct {
-	msgHdr
-	//TBD
-}
-
-func ReqTxnPool(node Noder) error {
-	msg := AllocMsg("txnpool", 0)
-	buff := bytes.NewBuffer(nil)
-	err := msg.Serialize(buff)
-	if err != nil {
-		return err
-	}
-	go node.Tx(buff.Bytes())
 
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/core/contract"
 	"github.com/nknorg/nkn/core/ledger"
 	"github.com/nknorg/nkn/core/transaction"
 	"github.com/nknorg/nkn/errors"
@@ -114,11 +115,11 @@ func getBlockCount(s Serverer, params map[string]interface{}) map[string]interfa
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getChordRingInfo(s Serverer, params map[string]interface{}) map[string]interface{} {
-	node, err := s.GetNetNode()
-	if err != nil {
-		return respPacking(nil, INTERNAL_ERROR)
-	}
-	return respPacking(node.GetChordRing().ToData(), SUCCESS)
+	// node, err := s.GetNetNode()
+	// if err != nil {
+	// 	return respPacking(nil, INTERNAL_ERROR)
+	// }
+	return respPacking(nil, SUCCESS)
 }
 
 // getLatestBlockHeight gets the latest block height
@@ -334,18 +335,13 @@ func getNodeState(s Serverer, params map[string]interface{}) map[string]interfac
 	}
 
 	n := netcomm.NodeInfo{
-		State:     node.GetState(),
 		SyncState: protocol.SyncStateString[node.GetSyncState()],
 		Time:      node.GetTime(),
-		Addr:      node.GetAddr(),
-		NodePort:  node.GetPort(),
-		ChordPort: node.GetChordPort(),
+		Addr:      node.GetAddrStr(),
 		JsonPort:  node.GetHttpJsonPort(),
-		WsPort:    node.GetWebSockPort(),
+		WsPort:    node.GetWsPort(),
 		ID:        node.GetID(),
 		Version:   node.Version(),
-		Services:  node.Services(),
-		Relay:     node.GetRelay(),
 		Height:    node.GetHeight(),
 		TxnCnt:    node.GetTxnCnt(),
 		RxTxnCnt:  node.GetRxTxnCnt(),
@@ -808,17 +804,7 @@ func getWsAddr(s Serverer, params map[string]interface{}) map[string]interface{}
 		if err != nil {
 			return respPacking(nil, INTERNAL_ERROR)
 		}
-		ring := node.GetChordRing()
-		if ring == nil {
-			log.Error("Empty ring")
-			return respPacking(nil, INVALID_PARAMS)
-		}
-		vnode, err := ring.GetPredecessor(clientID)
-		if err != nil {
-			log.Error("Cannot get predecessor")
-			return respPacking(nil, INTERNAL_ERROR)
-		}
-		addr, err := vnode.HttpWsAddr()
+		addr, err := node.FindWsAddr(clientID)
 		if err != nil {
 			log.Error("Cannot get websocket address")
 			return respPacking(nil, INTERNAL_ERROR)
@@ -1072,7 +1058,7 @@ func getUnspends(s Serverer, params map[string]interface{}) map[string]interface
 
 func VerifyAndSendTx(n protocol.Noder, txn *transaction.Transaction) errors.ErrCode {
 	if errCode := n.AppendTxnPool(txn); errCode != errors.ErrNoError {
-		log.Warn("Can NOT add the transaction to TxnPool")
+		log.Warning("Can NOT add the transaction to TxnPool")
 		return errCode
 	}
 	if err := n.Xmit(txn); err != nil {
@@ -1080,6 +1066,106 @@ func VerifyAndSendTx(n protocol.Noder, txn *transaction.Transaction) errors.ErrC
 		return errors.ErrXmitFail
 	}
 	return errors.ErrNoError
+}
+
+// getAddressByName get address by name
+// params: ["name":<name>]
+// return: {"result":<result>, "error":<errcode>}
+func getAddressByName(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	name, ok := params["name"].(string)
+	if !ok {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	publicKey, err := ledger.DefaultLedger.Store.GetRegistrant(name)
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+
+	script, err := contract.CreateSignatureRedeemScriptWithEncodedPublicKey(publicKey)
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+
+	scriptHash, err := common.ToCodeHash(script)
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+
+	address, err := scriptHash.ToAddress()
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+
+	return respPacking(address, SUCCESS)
+}
+
+// findSuccessorAddrs find the successors of a key
+// params: ["address":<address>]
+// return: {"result":<result>, "error":<errcode>}
+func findSuccessorAddrs(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	if str, ok := params["key"].(string); ok {
+		key, err := hex.DecodeString(str)
+		if err != nil {
+			log.Error("Invalid hex string:", err)
+			return respPacking(nil, INVALID_PARAMS)
+		}
+
+		node, err := s.GetNetNode()
+		if err != nil {
+			log.Error("Cannot get node:", err)
+			return respPacking(nil, INTERNAL_ERROR)
+		}
+
+		addrs, err := node.FindSuccessorAddrs(key, config.MinNumSuccessors)
+		if err != nil {
+			log.Error("Cannot get successor address:", err)
+			return respPacking(nil, INTERNAL_ERROR)
+		}
+
+		return respPacking(addrs, SUCCESS)
+	} else {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+}
+
+// Depracated, use findSuccessorAddrs instead
+func findSuccessorAddr(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	if str, ok := params["key"].(string); ok {
+		key, err := hex.DecodeString(str)
+		if err != nil {
+			log.Error("Invalid hex string:", err)
+			return respPacking(nil, INVALID_PARAMS)
+		}
+
+		node, err := s.GetNetNode()
+		if err != nil {
+			log.Error("Cannot get node:", err)
+			return respPacking(nil, INTERNAL_ERROR)
+		}
+
+		addrs, err := node.FindSuccessorAddrs(key, 1)
+		if err != nil || len(addrs) == 0 {
+			log.Error("Cannot get successor address:", err)
+			return respPacking(nil, INTERNAL_ERROR)
+		}
+
+		return respPacking(addrs[0], SUCCESS)
+	} else {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
 }
 
 var InitialAPIHandlers = map[string]APIHandler{
@@ -1114,4 +1200,7 @@ var InitialAPIHandlers = map[string]APIHandler{
 	"getbalancebyaddr":     {Handler: getBalanceByAddr},
 	"getbalancebyasset":    {Handler: getBalanceByAsset},
 	"getunspends":          {Handler: getUnspends},
+	"getaddressbyname":     {Handler: getAddressByName, AccessCtrl: BIT_JSONRPC},
+	"findsuccessoraddr":    {Handler: findSuccessorAddr, AccessCtrl: BIT_JSONRPC},
+	"findsuccessoraddrs":   {Handler: findSuccessorAddrs, AccessCtrl: BIT_JSONRPC},
 }
