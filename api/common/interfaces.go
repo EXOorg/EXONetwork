@@ -115,11 +115,11 @@ func getBlockCount(s Serverer, params map[string]interface{}) map[string]interfa
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getChordRingInfo(s Serverer, params map[string]interface{}) map[string]interface{} {
-	// node, err := s.GetNetNode()
-	// if err != nil {
-	// 	return respPacking(nil, INTERNAL_ERROR)
-	// }
-	return respPacking(nil, SUCCESS)
+	node, err := s.GetNetNode()
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+	return respPacking(node.DumpChordInfo(), SUCCESS)
 }
 
 // getLatestBlockHeight gets the latest block height
@@ -334,6 +334,7 @@ func getNodeState(s Serverer, params map[string]interface{}) map[string]interfac
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
+	key, _ := node.GetPubKey().EncodePoint(true)
 	n := netcomm.NodeInfo{
 		SyncState: protocol.SyncStateString[node.GetSyncState()],
 		Time:      node.GetTime(),
@@ -343,6 +344,7 @@ func getNodeState(s Serverer, params map[string]interface{}) map[string]interfac
 		ID:        node.GetID(),
 		Version:   node.Version(),
 		Height:    node.GetHeight(),
+		PubKey:    hex.EncodeToString(key),
 		TxnCnt:    node.GetTxnCnt(),
 		RxTxnCnt:  node.GetRxTxnCnt(),
 		ChordID:   hex.EncodeToString(node.GetChordAddr()),
@@ -815,6 +817,31 @@ func getWsAddr(s Serverer, params map[string]interface{}) map[string]interface{}
 	}
 }
 
+// getHttpProxyAddr get a websocket address
+// params: ["address":<address>]
+// return: {"result":<result>, "error":<errcode>}
+func getHttpProxyAddr(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	if str, ok := params["address"].(string); ok {
+		clientID, _, err := address.ParseClientAddress(str)
+		node, err := s.GetNetNode()
+		if err != nil {
+			return respPacking(nil, INTERNAL_ERROR)
+		}
+		addr, err := node.FindHttpProxyAddr(clientID)
+		if err != nil {
+			log.Error("Cannot get http proxy address")
+			return respPacking(nil, INTERNAL_ERROR)
+		}
+		return respPacking(addr, SUCCESS)
+	} else {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
+}
+
 // getTotalIssued gets total issued asset
 // params: ["assetid":<assetid>]
 // return: {"result":<result>, "error":<errcode>}
@@ -1104,6 +1131,23 @@ func getAddressByName(s Serverer, params map[string]interface{}) map[string]inte
 	return respPacking(address, SUCCESS)
 }
 
+// getSubscribers get subscribers by topic
+// params: ["topic":<topic>]
+// return: {"result":<result>, "error":<errcode>}
+func getSubscribers(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	topic, ok := params["topic"].(string)
+	if !ok {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	subscribers := ledger.DefaultLedger.Store.GetSubscribers(topic)
+	return respPacking(subscribers, SUCCESS)
+}
+
 // findSuccessorAddrs find the successors of a key
 // params: ["address":<address>]
 // return: {"result":<result>, "error":<errcode>}
@@ -1179,28 +1223,30 @@ var InitialAPIHandlers = map[string]APIHandler{
 	"gettransaction":       {Handler: getTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
 	"sendrawtransaction":   {Handler: sendRawTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
 	"getwsaddr":            {Handler: getWsAddr, AccessCtrl: BIT_JSONRPC},
+	"gethttpproxyaddr":     {Handler: getHttpProxyAddr, AccessCtrl: BIT_JSONRPC},
 	"getversion":           {Handler: getVersion, AccessCtrl: BIT_JSONRPC},
 	"getneighbor":          {Handler: getNeighbor, AccessCtrl: BIT_JSONRPC},
 	"getnodestate":         {Handler: getNodeState, AccessCtrl: BIT_JSONRPC},
 	"getchordringinfo":     {Handler: getChordRingInfo, AccessCtrl: BIT_JSONRPC},
 	"getunspendoutput":     {Handler: getUnspendOutput, AccessCtrl: BIT_JSONRPC},
-	"getbalance":           {Handler: getBalance, AccessCtrl: BIT_JSONRPC},
+	"getbalance":           {Handler: getBalance},
 	"setdebuginfo":         {Handler: setDebugInfo},
 	"registasset":          {Handler: registAsset},
 	"issueasset":           {Handler: issueAsset},
 	"sendtoaddress":        {Handler: sendToAddress},
 	"prepaidasset":         {Handler: prepaidAsset},
-	"registername":         {Handler: registerName, AccessCtrl: BIT_JSONRPC},
-	"deletename":           {Handler: deleteName, AccessCtrl: BIT_JSONRPC},
+	"registername":         {Handler: registerName},
+	"deletename":           {Handler: deleteName},
 	"withdrawasset":        {Handler: withdrawAsset},
 	"commitpor":            {Handler: commitPor},
 	"sigchaintest":         {Handler: sigchaintest},
 	"gettotalissued":       {Handler: getTotalIssued},
 	"getassetbyhash":       {Handler: getAssetByHash},
-	"getbalancebyaddr":     {Handler: getBalanceByAddr},
+	"getbalancebyaddr":     {Handler: getBalanceByAddr, AccessCtrl: BIT_JSONRPC},
 	"getbalancebyasset":    {Handler: getBalanceByAsset},
 	"getunspends":          {Handler: getUnspends},
 	"getaddressbyname":     {Handler: getAddressByName, AccessCtrl: BIT_JSONRPC},
+	"getsubscribers":       {Handler: getSubscribers, AccessCtrl: BIT_JSONRPC},
 	"findsuccessoraddr":    {Handler: findSuccessorAddr, AccessCtrl: BIT_JSONRPC},
 	"findsuccessoraddrs":   {Handler: findSuccessorAddrs, AccessCtrl: BIT_JSONRPC},
 }

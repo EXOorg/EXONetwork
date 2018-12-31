@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -127,6 +128,7 @@ func InitNode(pubKey *crypto.PubKey, nn *nnet.NNet) (Noder, error) {
 
 	n.WebsocketPort = uint32(Parameters.HttpWsPort)
 	n.JsonRpcPort = uint32(Parameters.HttpJsonPort)
+	n.HttpProxyPort = uint32(Parameters.HttpProxyPort)
 
 	n.id, err = chordIDToNodeID(nn.GetLocalNode().Id)
 	if err != nil {
@@ -361,7 +363,10 @@ func (node *node) GetTxnPool() *pool.TxnPool {
 }
 
 func (node *node) GetHeight() uint32 {
-	return node.height
+	if node.nnet != nil { // LocalNode
+		return ledger.DefaultLedger.Store.GetHeight()
+	}
+	return node.height // RemoteNode
 }
 
 func (node *node) SetHeight(height uint32) {
@@ -412,6 +417,16 @@ func (node *node) GetAddrStr() string {
 		return node.nnet.GetLocalNode().Addr
 	}
 	return node.nnetNode.Addr
+}
+
+func (node *node) GetConnDirection() string {
+	if node.nnet != nil {
+		return "LocalNode"
+	}
+	if node.nnetNode.IsOutbound { // is RemoteNode
+		return "Outbound"
+	}
+	return "Inbound"
 }
 
 func (node *node) GetTime() int64 {
@@ -642,7 +657,7 @@ func (node *node) FindSuccessorAddrs(key []byte, numSucc int) ([]string, error) 
 	return addrs, nil
 }
 
-func (node *node) FindWsAddr(key []byte) (string, error) {
+func (node *node) findAddr(key []byte, portSupplier func(nodeData *protobuf.NodeData) uint32) (string, error) {
 	if node.nnet == nil {
 		return "", errors.New("Node is not local node")
 	}
@@ -678,9 +693,21 @@ func (node *node) FindWsAddr(key []byte) (string, error) {
 		return "", errors.New("Hostname is empty")
 	}
 
-	wsAddr := fmt.Sprintf("%s:%d", host, nodeData.WebsocketPort)
+	wsAddr := fmt.Sprintf("%s:%d", host, portSupplier(nodeData))
 
 	return wsAddr, nil
+}
+
+func (node *node) FindWsAddr(key []byte) (string, error) {
+	return node.findAddr(key, func(nodeData *protobuf.NodeData) uint32 {
+		return nodeData.WebsocketPort
+	})
+}
+
+func (node *node) FindHttpProxyAddr(key []byte) (string, error) {
+	return node.findAddr(key, func(nodeData *protobuf.NodeData) uint32 {
+		return nodeData.HttpProxyPort
+	})
 }
 
 func (node *node) GetChordAddr() []byte {
@@ -714,4 +741,71 @@ func (node *node) Broadcast(buf []byte) error {
 	}
 
 	return nil
+}
+
+func (node *node) DumpChordInfo() *ChordInfo {
+	c, ok := node.nnet.Network.(*chord.Chord)
+	if !ok {
+		log.Errorf("Overlay is not chord")
+		return nil
+	}
+
+	n := c.GetLocalNode()
+	ret := ChordInfo{
+		Node:         ChordNodeInfo{ID: hex.EncodeToString(n.GetId()), Addr: n.GetAddr()},
+		Successors:   node.GetSuccessors(),
+		Predecessors: node.GetPredecessors(),
+		FingerTable:  node.GetFingerTab(),
+	}
+	ret.Node.NodeData.Unmarshal(n.GetData())
+	return &ret
+}
+
+func (node *node) GetSuccessors() (ret []*ChordNodeInfo) {
+	c, ok := node.nnet.Network.(*chord.Chord)
+	if !ok {
+		log.Errorf("Overlay is not chord")
+		return []*ChordNodeInfo{}
+	}
+	for _, n := range c.Successors() {
+		info := ChordNodeInfo{ID: hex.EncodeToString(n.GetId()), Addr: n.GetAddr(), IsOutbound: n.IsOutbound}
+		info.NodeData.Unmarshal(n.GetData())
+		ret = append(ret, &info)
+	}
+	return ret
+}
+
+func (node *node) GetPredecessors() (ret []*ChordNodeInfo) {
+	c, ok := node.nnet.Network.(*chord.Chord)
+	if !ok {
+		log.Errorf("Overlay is not chord")
+		return []*ChordNodeInfo{}
+	}
+	for _, n := range c.Predecessors() {
+		info := ChordNodeInfo{ID: hex.EncodeToString(n.GetId()), Addr: n.GetAddr(), IsOutbound: n.IsOutbound}
+		info.NodeData.Unmarshal(n.GetData())
+		ret = append(ret, &info)
+	}
+	return ret
+}
+
+func (node *node) GetFingerTab() (ret map[int][]*ChordNodeInfo) {
+	c, ok := node.nnet.Network.(*chord.Chord)
+	if !ok {
+		log.Errorf("Overlay is not chord")
+		return make(map[int][]*ChordNodeInfo)
+	}
+	ret = make(map[int][]*ChordNodeInfo)
+	for i, lst := range c.FingerTable() {
+		if len(lst) == 0 {
+			continue
+		}
+		ret[i] = []*ChordNodeInfo{}
+		for _, n := range lst {
+			info := ChordNodeInfo{ID: hex.EncodeToString(n.GetId()), Addr: n.GetAddr(), IsOutbound: n.IsOutbound}
+			info.NodeData.Unmarshal(n.GetData())
+			ret[i] = append(ret[i], &info)
+		}
+	}
+	return ret
 }

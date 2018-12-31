@@ -9,13 +9,13 @@ import (
 
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
-	"github.com/nknorg/nkn/core/account"
 	. "github.com/nknorg/nkn/core/asset"
 	"github.com/nknorg/nkn/core/contract/program"
 	. "github.com/nknorg/nkn/core/ledger"
 	tx "github.com/nknorg/nkn/core/transaction"
 	"github.com/nknorg/nkn/core/transaction/payload"
 	"github.com/nknorg/nkn/events"
+	"github.com/nknorg/nkn/util/address"
 	"github.com/nknorg/nkn/util/log"
 )
 
@@ -255,30 +255,28 @@ func (cs *ChainStore) IsTxHashDuplicate(txhash Uint256) bool {
 }
 
 func (cs *ChainStore) IsDoubleSpend(tx *tx.Transaction) bool {
-	if len(tx.Inputs) == 0 {
-		return false
-	}
-
 	unspentPrefix := []byte{byte(IX_Unspent)}
-	for i := 0; i < len(tx.Inputs); i++ {
-		txhash := tx.Inputs[i].ReferTxID
+NEXT:
+	for _, input := range tx.Inputs {
+		txhash := input.ReferTxID
 		unspentValue, err_get := cs.st.Get(append(unspentPrefix, txhash.ToArray()...))
 		if err_get != nil {
+			log.Error(err_get)
 			return true
 		}
 
-		unspents, _ := GetUint16Array(unspentValue)
-		findFlag := false
-		for k := 0; k < len(unspents); k++ {
-			if unspents[k] == tx.Inputs[i].ReferTxOutputIndex {
-				findFlag = true
-				break
+		unspents, err := GetUint16Array(unspentValue)
+		if err != nil {
+			log.Error(err)
+			return true
+		}
+		for _, v := range unspents {
+			if v == input.ReferTxOutputIndex {
+				continue NEXT // found in unspents
 			}
 		}
-
-		if !findFlag {
-			return true
-		}
+		log.Warningf("Transaction %s refer a spent Output [%x:%d]", tx.Hash(), txhash, input.ReferTxOutputIndex)
+		return true // ReferTxOutputIndex not in unspents
 	}
 
 	return false
@@ -566,6 +564,169 @@ func (cs *ChainStore) GetRegistrant(name string) ([]byte, error) {
 	return registrant, nil
 }
 
+func generateSubscriberKey(subscriber []byte, identifier string, topic string) []byte {
+	subscriberKey := bytes.NewBuffer(nil)
+	subscriberKey.WriteByte(byte(PS_Topic))
+	serialization.WriteVarString(subscriberKey, topic)
+	serialization.WriteVarBytes(subscriberKey, subscriber)
+	serialization.WriteVarString(subscriberKey, identifier)
+
+	return subscriberKey.Bytes()
+}
+
+func (cs *ChainStore) Subscribe(subscriber []byte, identifier string, topic string, duration uint32, height uint32) error {
+	if duration == 0 {
+		return nil
+	}
+
+	subscriberKey := generateSubscriberKey(subscriber, identifier, topic)
+
+	// PUT VALUE
+	err := cs.st.BatchPut(subscriberKey, []byte{})
+	if err != nil {
+		return err
+	}
+
+	err = cs.ExpireKeyAtBlock(height + duration, subscriberKey)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cs *ChainStore) Unsubscribe(subscriber []byte, identifier string, topic string, duration uint32, height uint32) error {
+	if duration == 0 {
+		return nil
+	}
+
+	subscriberKey := generateSubscriberKey(subscriber, identifier, topic)
+
+	// DELETE VALUE
+	err := cs.st.BatchDelete(subscriberKey)
+	if err != nil {
+		return err
+	}
+
+	err = cs.CancelKeyExpirationAtBlock(height + duration, subscriberKey)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cs *ChainStore) IsSubscribed(subscriber []byte, identifier string, topic string) (bool, error) {
+	subscriberKey := generateSubscriberKey(subscriber, identifier, topic)
+
+	return cs.st.Has(subscriberKey)
+}
+
+func (cs *ChainStore) GetSubscribers(topic string) []string {
+	subscribers := make([]string, 0)
+
+	prefix := append([]byte{byte(PS_Topic), byte(len(topic))}, []byte(topic)...)
+	iter := cs.st.NewIterator(prefix)
+	for iter.Next() {
+		rk := bytes.NewReader(iter.Key())
+
+		// read prefix
+		_, _ = serialization.ReadBytes(rk, uint64(len(prefix)))
+
+		subscriber, _ := serialization.ReadVarBytes(rk)
+		identifier, _ := serialization.ReadVarString(rk)
+		subscriberString := address.MakeAddressString(subscriber, identifier)
+
+		subscribers = append(subscribers, subscriberString)
+	}
+
+	return subscribers
+}
+
+func (cs *ChainStore) GetSubscribersCount(topic string) int {
+	subscribers := 0
+
+	prefix := append([]byte{byte(PS_Topic), byte(len(topic))}, []byte(topic)...)
+	iter := cs.st.NewIterator(prefix)
+	for iter.Next() {
+		subscribers++
+	}
+
+	return subscribers
+}
+
+func (cs *ChainStore) ExpireKeyAtBlock(height uint32, key []byte) error {
+	expireKey := bytes.NewBuffer(nil)
+	expireKey.WriteByte(byte(SYS_ExpireKey))
+	serialization.WriteUint32(expireKey, height)
+	serialization.WriteVarBytes(expireKey, key)
+
+	err := cs.st.BatchPut(expireKey.Bytes(), []byte{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cs *ChainStore) CancelKeyExpirationAtBlock(height uint32, key []byte) error {
+	expireKey := bytes.NewBuffer(nil)
+	expireKey.WriteByte(byte(SYS_ExpireKey))
+	serialization.WriteUint32(expireKey, height)
+	serialization.WriteVarBytes(expireKey, key)
+
+	err := cs.st.BatchDelete(expireKey.Bytes())
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cs *ChainStore) GetExpiredKeys(height uint32) [][]byte {
+	keys := make([][]byte, 0)
+
+	prefix := bytes.NewBuffer(nil)
+	prefix.WriteByte(byte(SYS_ExpireKey))
+	serialization.WriteUint32(prefix, height)
+
+	iter := cs.st.NewIterator(prefix.Bytes())
+	for iter.Next() {
+		key := make([]byte, len(iter.Key()))
+		copy(key, iter.Key())
+		keys = append(keys, key)
+	}
+
+	return keys
+}
+
+func (cs *ChainStore) RemoveExpiredKey(key []byte) error {
+	rk := bytes.NewReader(key)
+
+	// read prefix
+	_, err := serialization.ReadBytes(rk, 5)
+	if err != nil {
+		return err
+	}
+
+	expiredKey, err := serialization.ReadVarBytes(rk)
+	if err != nil {
+		return err
+	}
+
+	err = cs.st.BatchDelete(key)
+	if err != nil {
+		return err
+	}
+
+	err = cs.st.BatchDelete(expiredKey)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (cs *ChainStore) GetTransaction(hash Uint256) (*tx.Transaction, error) {
 	t, _, err := cs.getTx(hash)
 	if err != nil {
@@ -703,7 +864,6 @@ func (cs *ChainStore) persist(b *Block) error {
 
 	// Get Unspents for every tx
 	unspentPrefix := []byte{byte(IX_Unspent)}
-	accounts := make(map[Uint160]*account.AccountState, 0)
 
 	// batch write begin
 	cs.st.NewBatch()
@@ -739,26 +899,6 @@ func (cs *ChainStore) persist(b *Block) error {
 
 	// BATCH PUT VALUE
 	cs.st.BatchPut(bhash.Bytes(), hashWriter.Bytes())
-
-	getOrCreateAccount := func(programHash Uint160, create bool) (*account.AccountState, error) {
-		if value, ok := accounts[programHash]; ok {
-			return value, nil
-		} else {
-			accountState, err := cs.GetAccount(programHash)
-			if err != nil && err.Error() != ErrDBNotFound.Error() {
-				return nil, err
-			}
-			if accountState == nil {
-				if !create {
-					return nil, nil
-				}
-				balances := make(map[Uint256]Fixed64, 0)
-				accountState = account.NewAccountState(programHash, balances)
-			}
-			accounts[programHash] = accountState
-			return accountState, nil
-		}
-	}
 
 	nLen := len(b.Transactions)
 	for i := 0; i < nLen; i++ {
@@ -814,16 +954,17 @@ func (cs *ChainStore) persist(b *Block) error {
 			if err != nil {
 				return err
 			}
+		case tx.Subscribe:
+			subscribePayload := b.Transactions[i].Payload.(*payload.Subscribe)
+			err = cs.Subscribe(subscribePayload.Subscriber, subscribePayload.Identifier, subscribePayload.Topic, subscribePayload.Duration, b.Header.Height)
+			if err != nil {
+				return err
+			}
 		}
 		for index := 0; index < len(b.Transactions[i].Outputs); index++ {
 			output := b.Transactions[i].Outputs[index]
 			programHash := output.ProgramHash
 			assetId := output.AssetID
-			accountState, err := getOrCreateAccount(programHash, true)
-			if err != nil {
-				return err
-			}
-			accountState.Balances[assetId] += output.Value
 
 			unspent := &tx.UTXOUnspent{
 				Txid:  b.Transactions[i].Hash(),
@@ -844,14 +985,6 @@ func (cs *ChainStore) persist(b *Block) error {
 			output := transaction.Outputs[index]
 			programHash := output.ProgramHash
 			assetId := output.AssetID
-			accountState, err := getOrCreateAccount(programHash, false)
-			if err != nil {
-				return err
-			}
-			accountState.Balances[assetId] -= output.Value
-			if accountState.Balances[assetId] < 0 {
-				return errors.New(fmt.Sprintf("account programHash:%v, assetId:%v insufficient of balance", programHash, assetId))
-			}
 
 			unspent := &tx.UTXOUnspent{
 				Txid:  transaction.Hash(),
@@ -902,6 +1035,14 @@ func (cs *ChainStore) persist(b *Block) error {
 
 	}
 
+	expiredKeys := cs.GetExpiredKeys(b.Header.Height)
+	for i := 0; i < len(expiredKeys); i++ {
+		err := cs.RemoveExpiredKey(expiredKeys[i])
+		if err != nil {
+			return err
+		}
+	}
+
 	// batch put the utxoUnspents
 	if err := utxoUnspents.persistUTXOs(); err != nil {
 		return err
@@ -938,17 +1079,6 @@ func (cs *ChainStore) persist(b *Block) error {
 		qt.Serialize(quantityArray)
 
 		cs.st.BatchPut(quantityKey.Bytes(), quantityArray.Bytes())
-	}
-
-	for programHash, value := range accounts {
-		accountKey := new(bytes.Buffer)
-		accountKey.WriteByte(byte(ST_Account))
-		programHash.Serialize(accountKey)
-
-		accountValue := new(bytes.Buffer)
-		value.Serialize(accountValue)
-
-		cs.st.BatchPut(accountKey.Bytes(), accountValue.Bytes())
 	}
 
 	currentBlockKey := bytes.NewBuffer(nil)
@@ -1203,19 +1333,6 @@ func (cs *ChainStore) GetHeightByBlockHash(hash Uint256) (uint32, error) {
 	}
 
 	return block.Header.Height, nil
-}
-
-func (cs *ChainStore) GetAccount(programHash Uint160) (*account.AccountState, error) {
-	accountPrefix := []byte{byte(ST_Account)}
-	state, err := cs.st.Get(append(accountPrefix, programHash.ToArray()...))
-	if err != nil {
-		return nil, err
-	}
-
-	accountState := new(account.AccountState)
-	accountState.Deserialize(bytes.NewBuffer(state))
-
-	return accountState, nil
 }
 
 func (cs *ChainStore) IsBlockInStore(hash Uint256) bool {

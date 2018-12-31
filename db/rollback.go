@@ -41,6 +41,10 @@ func (cs *ChainStore) Rollback(b *ledger.Block) error {
 		return err
 	}
 
+	if err := cs.rollbackPubSub(b); err != nil {
+		return err
+	}
+
 	if err := cs.rollbackUnspentIndex(b); err != nil {
 		return err
 	}
@@ -244,6 +248,22 @@ func (cs *ChainStore) rollbackAsset(b *ledger.Block) error {
 		if txn.TxType == tx.RegisterAsset {
 			txhash := txn.Hash()
 			if err := cs.st.BatchDelete(append([]byte{byte(ST_Info)}, txhash.ToArray()...)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (cs *ChainStore) rollbackPubSub(b *ledger.Block) error {
+	height := b.Header.Height
+
+	for _, txn := range b.Transactions {
+		if txn.TxType == tx.Subscribe {
+			subscribePayload := txn.Payload.(*payload.Subscribe)
+			err := cs.Unsubscribe(subscribePayload.Subscriber, subscribePayload.Identifier, subscribePayload.Topic, subscribePayload.Duration, height)
+			if err != nil {
 				return err
 			}
 		}
