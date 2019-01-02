@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package pb;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+option (gogoproto.gostring_all) = true;
+option (gogoproto.goproto_stringer_all) = false;
+option (gogoproto.stringer_all) =  true;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+option (gogoproto.testgen_all) = true;
+option (gogoproto.equal_all) = true;
+option (gogoproto.populate_all) = true;
+
+enum SyncState {
+  SyncStarted = 0;
+  SyncFinished = 1;
+  PersistFinished = 2;
+  WaitForSyncing = 3;
+}
+
+message NodeData {
+  bytes public_key = 1;
+  uint32 websocket_port = 2;
+  uint32 json_rpc_port = 3;
+  uint32 http_proxy_port = 4;
+}

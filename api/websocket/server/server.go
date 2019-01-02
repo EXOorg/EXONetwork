@@ -13,10 +13,12 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/api/common"
-	"github.com/nknorg/nkn/api/websocket/client"
+	"github.com/nknorg/nkn/api/websocket/messagebuffer"
 	. "github.com/nknorg/nkn/api/websocket/session"
 	"github.com/nknorg/nkn/crypto"
-	"github.com/nknorg/nkn/net/protocol"
+	"github.com/nknorg/nkn/events"
+	"github.com/nknorg/nkn/net/node"
+	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/util/address"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
@@ -36,23 +38,25 @@ type Handler struct {
 
 type WsServer struct {
 	sync.RWMutex
-	Upgrader    websocket.Upgrader
-	listener    net.Listener
-	server      *http.Server
-	SessionList *SessionList
-	ActionMap   map[string]Handler
-	TxHashMap   map[string]string //key: txHash   value:sessionid
-	node        protocol.Noder
-	wallet      vault.Wallet
+	Upgrader      websocket.Upgrader
+	listener      net.Listener
+	server        *http.Server
+	SessionList   *SessionList
+	ActionMap     map[string]Handler
+	TxHashMap     map[string]string //key: txHash   value:sessionid
+	localNode     *node.LocalNode
+	wallet        vault.Wallet
+	messageBuffer *messagebuffer.MessageBuffer
 }
 
-func InitWsServer(node protocol.Noder, wallet vault.Wallet) *WsServer {
+func InitWsServer(localNode *node.LocalNode, wallet vault.Wallet) *WsServer {
 	ws := &WsServer{
-		Upgrader:    websocket.Upgrader{},
-		SessionList: NewSessionList(),
-		TxHashMap:   make(map[string]string),
-		node:        node,
-		wallet:      wallet,
+		Upgrader:      websocket.Upgrader{},
+		SessionList:   NewSessionList(),
+		TxHashMap:     make(map[string]string),
+		localNode:     localNode,
+		wallet:        wallet,
+		messageBuffer: messagebuffer.NewMessageBuffer(),
 	}
 	return ws
 }
@@ -83,6 +87,9 @@ func (ws *WsServer) Start() error {
 			return err
 		}
 	}
+
+	ws.localNode.GetEvent("relay").Subscribe(events.EventSendInboundMessageToClient, ws.sendInboundRelayMessageToClient)
+
 	var done = make(chan bool)
 	go ws.checkSessionsTimeout(done)
 
@@ -134,18 +141,18 @@ func (ws *WsServer) registryMethod() {
 
 		// TODO: use signature (or better, with one-time challange) to verify identity
 
-		node, err := s.GetNetNode()
+		localNode, err := s.GetNetNode()
 		if err != nil {
 			return common.RespPacking(nil, common.INTERNAL_ERROR)
 		}
 
-		addr, err := node.FindWsAddr(clientID)
+		addr, err := localNode.FindWsAddr(clientID)
 		if err != nil {
 			log.Error("Cannot get websocket address")
 			return common.RespPacking(nil, common.INTERNAL_ERROR)
 		}
 
-		if addr != node.GetWsAddr() {
+		if addr != localNode.GetWsAddr() {
 			return common.RespPacking(addr, common.WRONG_NODE)
 		}
 
@@ -156,7 +163,13 @@ func (ws *WsServer) registryMethod() {
 			return common.RespPacking(nil, common.INTERNAL_ERROR)
 		}
 		session.SetClient(clientID, pubKey, &addrStr)
-		go node.SendRelayPacketsInBuffer(clientID)
+
+		go func() {
+			messages := ws.messageBuffer.PopMessages(clientID)
+			for _, message := range messages {
+				ws.sendInboundRelayMessage(message)
+			}
+		}()
 
 		return common.RespPacking(nil, common.SUCCESS)
 	}
@@ -272,13 +285,13 @@ func (ws *WsServer) IsValidMsg(reqMsg map[string]interface{}) bool {
 
 func (ws *WsServer) OnDataHandle(curSession *Session, messageType int, bysMsg []byte, r *http.Request) bool {
 	if messageType == websocket.BinaryMessage {
-		msg := &client.OutboundMessage{}
+		msg := &pb.OutboundMessage{}
 		err := proto.Unmarshal(bysMsg, msg)
 		if err != nil {
 			log.Error("Parse client message error:", err)
 			return false
 		}
-		ws.SendRelayPacket(curSession.GetSessionId(), msg)
+		ws.sendOutboundRelayMessage(curSession.GetAddrStr(), msg)
 		return true
 	}
 
@@ -423,8 +436,8 @@ func (ws *WsServer) GetClientsById(cliendID []byte) []*Session {
 	return sessions
 }
 
-func (ws *WsServer) GetNetNode() (protocol.Noder, error) {
-	return ws.node, nil
+func (ws *WsServer) GetNetNode() (*node.LocalNode, error) {
+	return ws.localNode, nil
 }
 
 func (ws *WsServer) GetWallet() (vault.Wallet, error) {
@@ -438,21 +451,29 @@ func (ws *WsServer) NotifyWrongClients() {
 			return
 		}
 
-		node, err := ws.GetNetNode()
+		localNode, err := ws.GetNetNode()
 		if err != nil {
 			return
 		}
 
-		addr, err := node.FindWsAddr(clientID)
+		addr, err := localNode.FindWsAddr(clientID)
 		if err != nil {
 			log.Error("Cannot get websocket address")
 			return
 		}
 
-		if addr != node.GetWsAddr() {
+		if addr != localNode.GetWsAddr() {
 			resp := common.ResponsePack(common.WRONG_NODE)
 			resp["Result"] = addr
 			ws.respondToSession(client, resp)
 		}
 	})
+}
+
+func (ws *WsServer) sendInboundRelayMessageToClient(v interface{}) {
+	if msg, ok := v.(*pb.Relay); ok {
+		ws.sendInboundRelayMessage(msg)
+	} else {
+		log.Error("Decode relay message failed")
+	}
 }

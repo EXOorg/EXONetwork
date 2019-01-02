@@ -19,8 +19,9 @@ type ILedgerStore interface {
 
 	IsDoubleSpend(tx *tx.Transaction) bool
 
-	AddHeaders(headers []Header, ledger *Ledger) error
+	AddHeaders(headers []*Header) error
 	GetHeader(hash Uint256) (*Header, error)
+	GetHeaderByHeight(height uint32) (*Header, error)
 
 	GetTransaction(hash Uint256) (*tx.Transaction, error)
 
@@ -31,9 +32,11 @@ type ILedgerStore interface {
 	GetName(registrant []byte) (*string, error)
 	GetRegistrant(name string) ([]byte, error)
 
-	IsSubscribed(subscriber []byte, identifier string, topic string) (bool, error)
-	GetSubscribers(topic string) []string
-	GetSubscribersCount(topic string) int
+	IsSubscribed(subscriber []byte, identifier string, topic string, bucket uint32) (bool, error)
+	GetSubscribers(topic string, bucket uint32) []string
+	GetSubscribersCount(topic string, bucket uint32) int
+	GetFirstAvailableTopicBucket(topic string) int
+	GetTopicBucketsCount(topic string) uint32
 
 	GetContract(codeHash Uint160) ([]byte, error)
 	GetStorage(key []byte) ([]byte, error)

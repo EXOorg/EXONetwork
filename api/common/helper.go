@@ -302,3 +302,25 @@ func MakeDeleteNameTransaction(wallet vault.Wallet) (*transaction.Transaction, e
 
 	return txn, nil
 }
+
+func MakeSubscribeTransaction(wallet vault.Wallet, identifier string, topic string, bucket uint32, duration uint32) (*transaction.Transaction, error) {
+	account, err := wallet.GetDefaultAccount()
+	if err != nil {
+		return nil, err
+	}
+	subscriber, err := account.PubKey().EncodePoint(true)
+	if err != nil {
+		return nil, err
+	}
+	txn, err := transaction.NewSubscribeTransaction(subscriber, identifier, topic, bucket, duration)
+	if err != nil {
+		return nil, err
+	}
+
+	// sign transaction contract
+	ctx := contract.NewContractContext(txn)
+	wallet.Sign(ctx)
+	txn.SetPrograms(ctx.GetPrograms())
+
+	return txn, nil
+}

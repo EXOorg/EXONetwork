@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package pb;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+import "github.com/nknorg/nkn/por/sigchain.proto";
+import "pb/node.proto";
+
+option (gogoproto.gostring_all) = true;
+option (gogoproto.goproto_stringer_all) = false;
+option (gogoproto.stringer_all) =  true;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+option (gogoproto.testgen_all) = true;
+option (gogoproto.equal_all) = true;
+option (gogoproto.populate_all) = true;
+
+enum MessageType {
+  MESSAGE_TYPE_PLACEHOLDER_DO_NOT_USE = 0; // Placeholder, do not use or change
+  VOTE = 1;
+  I_HAVE_BLOCK_PROPOSAL = 2;
+  REQUEST_BLOCK_PROPOSAL = 3;
+  REQUEST_BLOCK_PROPOSAL_REPLY = 4;
+  GET_CONSENSUS_STATE = 5;
+  GET_CONSENSUS_STATE_REPLY = 6;
+  GET_BLOCK_HEADERS = 7;
+  GET_BLOCK_HEADERS_REPLY = 8;
+  GET_BLOCKS = 9;
+  GET_BLOCKS_REPLY = 10;
+  RELAY = 11;
+  TRANSACTIONS = 12;
+}
+
+// Message type that can be signed message
+// Name doesn't matter, but value nees to match the value in MessageType
+enum AllowedSignedMessageType {
+  ALLOW_SIGNED_PLACEHOLDER_DO_NOT_USE = 0; // Placeholder, do not use or change
+  ALLOW_SIGNED_VOTE = 1;
+  ALLOW_SIGNED_I_HAVE_BLOCK_PROPOSAL = 2;
+  ALLOW_SIGNED_REQUEST_BLOCK_PROPOSAL = 3;
+  ALLOW_SIGNED_GET_CONSENSUS_STATE = 5;
+  ALLOW_SIGNED_GET_CONSENSUS_STATE_REPLY = 6;
+  ALLOW_SIGNED_GET_BLOCK_HEADERS = 7;
+  ALLOW_SIGNED_GET_BLOCKS = 9;
+}
+
+// Message type that can be unsigned message
+// Name doesn't matter, but value nees to match the value in MessageType
+enum AllowedUnsignedMessageType {
+  ALLOW_UNSIGNED_PLACEHOLDER_DO_NOT_USE = 0; // Placeholder, do not use or change
+  ALLOW_UNSIGNED_REQUEST_BLOCK_REPLY = 4;
+  ALLOW_UNSIGNED_GET_BLOCK_HEADERS_REPLY = 8;
+  ALLOW_UNSIGNED_GET_BLOCKS_REPLY = 10;
+  ALLOW_UNSIGNED_RELAY = 11;
+  ALLOW_UNSIGNED_TRANSACTIONS = 12;
+}
+
+// Message type that can be sent as direct message
+// Name doesn't matter, but value nees to match the value in MessageType
+enum AllowedDirectMessageType {
+  ALLOW_DIRECT_PLACEHOLDER_DO_NOT_USE = 0; // Placeholder, do not use or change
+  ALLOW_DIRECT_VOTE = 1;
+  ALLOW_DIRECT_I_HAVE_BLOCK_PROPOSAL = 2;
+  ALLOW_DIRECT_REQUEST_BLOCK_PROPOSAL = 3;
+  ALLOW_DIRECT_REQUEST_BLOCK_REPLY = 4;
+  ALLOW_DIRECT_GET_CONSENSUS_STATE = 5;
+  ALLOW_DIRECT_GET_CONSENSUS_STATE_REPLY = 6;
+  ALLOW_DIRECT_GET_BLOCK_HEADERS = 7;
+  ALLOW_DIRECT_GET_BLOCK_HEADERS_REPLY = 8;
+  ALLOW_DIRECT_GET_BLOCKS = 9;
+  ALLOW_DIRECT_GET_BLOCKS_REPLY = 10;
+}
+
+// Message type that can be sent as relay message
+// Name doesn't matter, but value nees to match the value in MessageType
+enum AllowedRelayMessageType {
+  ALLOW_RELAY_PLACEHOLDER_DO_NOT_USE = 0; // Placeholder, do not use or change
+  ALLOW_RELAY_RELAY = 11;
+}
+
+// Message type that can be sent as broadcast_push message
+// Name doesn't matter, but value nees to match the value in MessageType
+enum AllowedBroadcastPushMessageType {
+  ALLOW_BROADCAST_PUSH_PLACEHOLDER_DO_NOT_USE = 0; // Placeholder, do not use or change
+  ALLOW_BROADCAST_PUSH_TRANSACTIONS = 12;
+}
+
+// Message type that can be sent as broadcast_pull message
+// Name doesn't matter, but value nees to match the value in MessageType
+enum AllowedBroadcastPullMessageType {
+  ALLOW_BROADCAST_PULL_PLACEHOLDER_DO_NOT_USE = 0; // Placeholder, do not use or change
+}
+
+// Message type that can be sent as broadcast_tree message
+// Name doesn't matter, but value nees to match the value in MessageType
+enum AllowedBroadcastTreeMessageType {
+  ALLOW_BROADCAST_TREE_PLACEHOLDER_DO_NOT_USE = 0; // Placeholder, do not use or change
+  ALLOW_BROADCAST_TREE_TRANSACTIONS = 12;
+}
+
+message UnsignedMessage {
+  MessageType message_type = 1;
+  bytes message = 2;
+}
+
+message SignedMessage {
+  bytes message = 1;
+  bytes signature = 2;
+}
+
+message Vote {
+  uint32 height = 1;
+  bytes block_hash = 2;
+}
+
+message IHaveBlockProposal {
+  uint32 height = 1;
+  bytes block_hash = 2;
+}
+
+message RequestBlockProposal {
+  bytes block_hash = 1;
+}
+
+message RequestBlockProposalReply {
+  bytes block = 1;
+}
+
+message GetConsensusState {
+}
+
+message GetConsensusStateReply {
+  uint32 ledger_height = 1;
+  bytes ledger_block_hash = 2;
+  uint32 consensus_height = 3;
+  SyncState sync_state = 4;
+}
+
+message GetBlockHeaders {
+  uint32 start_height = 1;
+  uint32 end_height = 2;
+}
+
+message GetBlockHeadersReply {
+  repeated bytes block_headers = 1;
+}
+
+message GetBlocks {
+  uint32 start_height = 1;
+  uint32 end_height = 2;
+}
+
+message GetBlocksReply {
+  repeated bytes blocks = 1;
+}
+
+message Relay {
+  string src_addr = 1;
+  bytes dest_id = 2;
+  bytes payload = 3;
+  por.SigChain sig_chain = 4;
+  uint32 max_holding_seconds = 5;
+}
+
+message Transactions {
+  repeated bytes transactions = 1;
+}

@@ -12,8 +12,8 @@ import (
 	"github.com/nknorg/nkn/core/ledger"
 	"github.com/nknorg/nkn/core/transaction"
 	"github.com/nknorg/nkn/errors"
-	netcomm "github.com/nknorg/nkn/net/common"
-	"github.com/nknorg/nkn/net/protocol"
+	"github.com/nknorg/nkn/net/node"
+	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/por"
 	"github.com/nknorg/nkn/util/address"
 	"github.com/nknorg/nkn/util/config"
@@ -115,11 +115,11 @@ func getBlockCount(s Serverer, params map[string]interface{}) map[string]interfa
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getChordRingInfo(s Serverer, params map[string]interface{}) map[string]interface{} {
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
-	return respPacking(node.DumpChordInfo(), SUCCESS)
+	return respPacking(localNode.GetChordInfo(), SUCCESS)
 }
 
 // getLatestBlockHeight gets the latest block height
@@ -205,25 +205,25 @@ func getBlockTxsByHeight(s Serverer, params map[string]interface{}) map[string]i
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getConnectionCount(s Serverer, params map[string]interface{}) map[string]interface{} {
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	return respPacking(node.GetConnectionCnt(), SUCCESS)
+	return respPacking(localNode.GetConnectionCnt(), SUCCESS)
 }
 
 // getRawMemPool gets the transactions in txpool
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getRawMemPool(s Serverer, params map[string]interface{}) map[string]interface{} {
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
 	txs := []interface{}{}
-	txpool := node.GetTxnPool()
+	txpool := localNode.GetTxnPool()
 	for _, t := range txpool.GetAllTransactions() {
 		info, err := t.MarshalJson()
 		if err != nil {
@@ -279,13 +279,13 @@ func getTransaction(s Serverer, params map[string]interface{}) map[string]interf
 
 // sendRawTransaction  sends raw transaction to the block chain
 // params: ["tx":<transaction>]
-// return: {"result":<result>, "error":<errcode>}
+// return: {"result":<result>, "error":<errcode>, "details":<details>}
 func sendRawTransaction(s Serverer, params map[string]interface{}) map[string]interface{} {
 	if len(params) < 1 {
 		return respPacking(nil, INVALID_PARAMS)
 	}
 
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
@@ -302,8 +302,8 @@ func sendRawTransaction(s Serverer, params map[string]interface{}) map[string]in
 		}
 
 		hash = txn.Hash()
-		if errCode := VerifyAndSendTx(node, &txn); errCode != errors.ErrNoError {
-			return respPacking(nil, INVALID_TRANSACTION)
+		if errCode := VerifyAndSendTx(localNode, &txn); errCode != errors.ErrNoError {
+			return respPackingDetails(nil, INVALID_TRANSACTION, errCode)
 		}
 	} else {
 		return respPacking(nil, INVALID_PARAMS)
@@ -316,41 +316,24 @@ func sendRawTransaction(s Serverer, params map[string]interface{}) map[string]in
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getNeighbor(s Serverer, params map[string]interface{}) map[string]interface{} {
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	result, _ := node.GetNeighborAddrs()
-	return respPacking(result, SUCCESS)
+	return respPacking(localNode.GetNeighborInfo(), SUCCESS)
 }
 
 // getNodeState gets the state of this node
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getNodeState(s Serverer, params map[string]interface{}) map[string]interface{} {
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	key, _ := node.GetPubKey().EncodePoint(true)
-	n := netcomm.NodeInfo{
-		SyncState: protocol.SyncStateString[node.GetSyncState()],
-		Time:      node.GetTime(),
-		Addr:      node.GetAddrStr(),
-		JsonPort:  node.GetHttpJsonPort(),
-		WsPort:    node.GetWsPort(),
-		ID:        node.GetID(),
-		Version:   node.Version(),
-		Height:    node.GetHeight(),
-		PubKey:    hex.EncodeToString(key),
-		TxnCnt:    node.GetTxnCnt(),
-		RxTxnCnt:  node.GetRxTxnCnt(),
-		ChordID:   hex.EncodeToString(node.GetChordAddr()),
-	}
-
-	return respPacking(n, SUCCESS)
+	return respPacking(localNode, SUCCESS)
 }
 
 // setDebugInfo sets log level
@@ -431,12 +414,12 @@ func registAsset(s Serverer, params map[string]interface{}) map[string]interface
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+	if errCode := VerifyAndSendTx(localNode, txn); errCode != errors.ErrNoError {
 		return respPacking(nil, INVALID_TRANSACTION)
 	}
 
@@ -476,12 +459,12 @@ func issueAsset(s Serverer, params map[string]interface{}) map[string]interface{
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+	if errCode := VerifyAndSendTx(localNode, txn); errCode != errors.ErrNoError {
 		return respPacking(nil, INVALID_TRANSACTION)
 	}
 
@@ -525,12 +508,12 @@ func sendToAddress(s Serverer, params map[string]interface{}) map[string]interfa
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+	if errCode := VerifyAndSendTx(localNode, txn); errCode != errors.ErrNoError {
 		return respPacking(nil, INVALID_TRANSACTION)
 	}
 
@@ -569,12 +552,12 @@ func prepaidAsset(s Serverer, params map[string]interface{}) map[string]interfac
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+	if errCode := VerifyAndSendTx(localNode, txn); errCode != errors.ErrNoError {
 		return respPacking(nil, INVALID_TRANSACTION)
 	}
 
@@ -603,12 +586,12 @@ func registerName(s Serverer, params map[string]interface{}) map[string]interfac
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+	if errCode := VerifyAndSendTx(localNode, txn); errCode != errors.ErrNoError {
 		return respPacking(nil, INVALID_TRANSACTION)
 	}
 
@@ -632,12 +615,12 @@ func deleteName(s Serverer, params map[string]interface{}) map[string]interface{
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+	if errCode := VerifyAndSendTx(localNode, txn); errCode != errors.ErrNoError {
 		return respPacking(nil, INVALID_TRANSACTION)
 	}
 
@@ -678,12 +661,12 @@ func withdrawAsset(s Serverer, params map[string]interface{}) map[string]interfa
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+	if errCode := VerifyAndSendTx(localNode, txn); errCode != errors.ErrNoError {
 		return respPacking(nil, INVALID_TRANSACTION)
 	}
 
@@ -720,12 +703,12 @@ func commitPor(s Serverer, params map[string]interface{}) map[string]interface{}
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+	if errCode := VerifyAndSendTx(localNode, txn); errCode != errors.ErrNoError {
 		return respPacking(nil, INVALID_TRANSACTION)
 	}
 
@@ -753,18 +736,18 @@ func sigchaintest(s Serverer, params map[string]interface{}) map[string]interfac
 		return respPacking(nil, UNKNOWN_HASH)
 	}
 
-	node, err := s.GetNetNode()
+	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
-	srcID := node.GetChordAddr()
+	srcID := localNode.GetChordID()
 	encodedPublickKey, err := account.PubKey().EncodePoint(true)
 	if err != nil {
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
 	mining := false
-	if node.GetSyncState() == protocol.PersistFinished {
+	if localNode.GetSyncState() == pb.PersistFinished {
 		mining = true
 	}
 	sigChain, err := por.NewSigChain(account, 1, dataHash[:], blockHash[:], srcID,
@@ -784,7 +767,7 @@ func sigchaintest(s Serverer, params map[string]interface{}) map[string]interfac
 		return respPacking(nil, INTERNAL_ERROR)
 	}
 
-	if errCode := VerifyAndSendTx(node, txn); errCode != errors.ErrNoError {
+	if errCode := VerifyAndSendTx(localNode, txn); errCode != errors.ErrNoError {
 		return respPacking(nil, INVALID_TRANSACTION)
 	}
 
@@ -802,11 +785,11 @@ func getWsAddr(s Serverer, params map[string]interface{}) map[string]interface{}
 
 	if str, ok := params["address"].(string); ok {
 		clientID, _, err := address.ParseClientAddress(str)
-		node, err := s.GetNetNode()
+		localNode, err := s.GetNetNode()
 		if err != nil {
 			return respPacking(nil, INTERNAL_ERROR)
 		}
-		addr, err := node.FindWsAddr(clientID)
+		addr, err := localNode.FindWsAddr(clientID)
 		if err != nil {
 			log.Error("Cannot get websocket address")
 			return respPacking(nil, INTERNAL_ERROR)
@@ -827,11 +810,11 @@ func getHttpProxyAddr(s Serverer, params map[string]interface{}) map[string]inte
 
 	if str, ok := params["address"].(string); ok {
 		clientID, _, err := address.ParseClientAddress(str)
-		node, err := s.GetNetNode()
+		localNode, err := s.GetNetNode()
 		if err != nil {
 			return respPacking(nil, INTERNAL_ERROR)
 		}
-		addr, err := node.FindHttpProxyAddr(clientID)
+		addr, err := localNode.FindHttpProxyAddr(clientID)
 		if err != nil {
 			log.Error("Cannot get http proxy address")
 			return respPacking(nil, INTERNAL_ERROR)
@@ -1083,12 +1066,12 @@ func getUnspends(s Serverer, params map[string]interface{}) map[string]interface
 	return respPacking(results, SUCCESS)
 }
 
-func VerifyAndSendTx(n protocol.Noder, txn *transaction.Transaction) errors.ErrCode {
-	if errCode := n.AppendTxnPool(txn); errCode != errors.ErrNoError {
+func VerifyAndSendTx(localNode *node.LocalNode, txn *transaction.Transaction) errors.ErrCode {
+	if errCode := localNode.AppendTxnPool(txn); errCode != errors.ErrNoError {
 		log.Warning("Can NOT add the transaction to TxnPool")
 		return errCode
 	}
-	if err := n.Xmit(txn); err != nil {
+	if err := localNode.BroadcastTransaction(txn); err != nil {
 		log.Error("Xmit Tx Error:Xmit transaction failed.", err)
 		return errors.ErrXmitFail
 	}
@@ -1132,7 +1115,7 @@ func getAddressByName(s Serverer, params map[string]interface{}) map[string]inte
 }
 
 // getSubscribers get subscribers by topic
-// params: ["topic":<topic>]
+// params: ["topic":<topic>, "bucket":<bucket>]
 // return: {"result":<result>, "error":<errcode>}
 func getSubscribers(s Serverer, params map[string]interface{}) map[string]interface{} {
 	if len(params) < 1 {
@@ -1144,8 +1127,47 @@ func getSubscribers(s Serverer, params map[string]interface{}) map[string]interf
 		return respPacking(nil, INVALID_PARAMS)
 	}
 
-	subscribers := ledger.DefaultLedger.Store.GetSubscribers(topic)
+	bucket, ok := params["bucket"].(float64)
+	if !ok {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	subscribers := ledger.DefaultLedger.Store.GetSubscribers(topic, uint32(bucket))
 	return respPacking(subscribers, SUCCESS)
+}
+
+// getFirstAvailableTopicBucket get free topic bucket
+// params: ["topic":<topic>]
+// return: {"result":<result>, "error":<errcode>}
+func getFirstAvailableTopicBucket(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	topic, ok := params["topic"].(string)
+	if !ok {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	bucket := ledger.DefaultLedger.Store.GetFirstAvailableTopicBucket(topic)
+	return respPacking(bucket, SUCCESS)
+}
+
+// getTopicBucketsCount get topic buckets count
+// params: ["topic":<topic>]
+// return: {"result":<result>, "error":<errcode>}
+func getTopicBucketsCount(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	topic, ok := params["topic"].(string)
+	if !ok {
+		return respPacking(nil, INVALID_PARAMS)
+	}
+
+	count := ledger.DefaultLedger.Store.GetTopicBucketsCount(topic)
+	return respPacking(count, SUCCESS)
 }
 
 // findSuccessorAddrs find the successors of a key
@@ -1163,13 +1185,13 @@ func findSuccessorAddrs(s Serverer, params map[string]interface{}) map[string]in
 			return respPacking(nil, INVALID_PARAMS)
 		}
 
-		node, err := s.GetNetNode()
+		localNode, err := s.GetNetNode()
 		if err != nil {
 			log.Error("Cannot get node:", err)
 			return respPacking(nil, INTERNAL_ERROR)
 		}
 
-		addrs, err := node.FindSuccessorAddrs(key, config.MinNumSuccessors)
+		addrs, err := localNode.FindSuccessorAddrs(key, config.MinNumSuccessors)
 		if err != nil {
 			log.Error("Cannot get successor address:", err)
 			return respPacking(nil, INTERNAL_ERROR)
@@ -1194,13 +1216,13 @@ func findSuccessorAddr(s Serverer, params map[string]interface{}) map[string]int
 			return respPacking(nil, INVALID_PARAMS)
 		}
 
-		node, err := s.GetNetNode()
+		localNode, err := s.GetNetNode()
 		if err != nil {
 			log.Error("Cannot get node:", err)
 			return respPacking(nil, INTERNAL_ERROR)
 		}
 
-		addrs, err := node.FindSuccessorAddrs(key, 1)
+		addrs, err := localNode.FindSuccessorAddrs(key, 1)
 		if err != nil || len(addrs) == 0 {
 			log.Error("Cannot get successor address:", err)
 			return respPacking(nil, INTERNAL_ERROR)
@@ -1213,40 +1235,42 @@ func findSuccessorAddr(s Serverer, params map[string]interface{}) map[string]int
 }
 
 var InitialAPIHandlers = map[string]APIHandler{
-	"getlatestblockhash":   {Handler: getLatestBlockHash, AccessCtrl: BIT_JSONRPC},
-	"getblock":             {Handler: getBlock, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
-	"getblockcount":        {Handler: getBlockCount, AccessCtrl: BIT_JSONRPC},
-	"getlatestblockheight": {Handler: getLatestBlockHeight, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
-	"getblocktxsbyheight":  {Handler: getBlockTxsByHeight, AccessCtrl: BIT_JSONRPC},
-	"getconnectioncount":   {Handler: getConnectionCount, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
-	"getrawmempool":        {Handler: getRawMemPool, AccessCtrl: BIT_JSONRPC},
-	"gettransaction":       {Handler: getTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
-	"sendrawtransaction":   {Handler: sendRawTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
-	"getwsaddr":            {Handler: getWsAddr, AccessCtrl: BIT_JSONRPC},
-	"gethttpproxyaddr":     {Handler: getHttpProxyAddr, AccessCtrl: BIT_JSONRPC},
-	"getversion":           {Handler: getVersion, AccessCtrl: BIT_JSONRPC},
-	"getneighbor":          {Handler: getNeighbor, AccessCtrl: BIT_JSONRPC},
-	"getnodestate":         {Handler: getNodeState, AccessCtrl: BIT_JSONRPC},
-	"getchordringinfo":     {Handler: getChordRingInfo, AccessCtrl: BIT_JSONRPC},
-	"getunspendoutput":     {Handler: getUnspendOutput, AccessCtrl: BIT_JSONRPC},
-	"getbalance":           {Handler: getBalance},
-	"setdebuginfo":         {Handler: setDebugInfo},
-	"registasset":          {Handler: registAsset},
-	"issueasset":           {Handler: issueAsset},
-	"sendtoaddress":        {Handler: sendToAddress},
-	"prepaidasset":         {Handler: prepaidAsset},
-	"registername":         {Handler: registerName},
-	"deletename":           {Handler: deleteName},
-	"withdrawasset":        {Handler: withdrawAsset},
-	"commitpor":            {Handler: commitPor},
-	"sigchaintest":         {Handler: sigchaintest},
-	"gettotalissued":       {Handler: getTotalIssued},
-	"getassetbyhash":       {Handler: getAssetByHash},
-	"getbalancebyaddr":     {Handler: getBalanceByAddr, AccessCtrl: BIT_JSONRPC},
-	"getbalancebyasset":    {Handler: getBalanceByAsset},
-	"getunspends":          {Handler: getUnspends},
-	"getaddressbyname":     {Handler: getAddressByName, AccessCtrl: BIT_JSONRPC},
-	"getsubscribers":       {Handler: getSubscribers, AccessCtrl: BIT_JSONRPC},
-	"findsuccessoraddr":    {Handler: findSuccessorAddr, AccessCtrl: BIT_JSONRPC},
-	"findsuccessoraddrs":   {Handler: findSuccessorAddrs, AccessCtrl: BIT_JSONRPC},
+	"getlatestblockhash":           {Handler: getLatestBlockHash, AccessCtrl: BIT_JSONRPC},
+	"getblock":                     {Handler: getBlock, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
+	"getblockcount":                {Handler: getBlockCount, AccessCtrl: BIT_JSONRPC},
+	"getlatestblockheight":         {Handler: getLatestBlockHeight, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
+	"getblocktxsbyheight":          {Handler: getBlockTxsByHeight, AccessCtrl: BIT_JSONRPC},
+	"getconnectioncount":           {Handler: getConnectionCount, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
+	"getrawmempool":                {Handler: getRawMemPool, AccessCtrl: BIT_JSONRPC},
+	"gettransaction":               {Handler: getTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
+	"sendrawtransaction":           {Handler: sendRawTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
+	"getwsaddr":                    {Handler: getWsAddr, AccessCtrl: BIT_JSONRPC},
+	"gethttpproxyaddr":             {Handler: getHttpProxyAddr, AccessCtrl: BIT_JSONRPC},
+	"getversion":                   {Handler: getVersion, AccessCtrl: BIT_JSONRPC},
+	"getneighbor":                  {Handler: getNeighbor, AccessCtrl: BIT_JSONRPC},
+	"getnodestate":                 {Handler: getNodeState, AccessCtrl: BIT_JSONRPC},
+	"getchordringinfo":             {Handler: getChordRingInfo, AccessCtrl: BIT_JSONRPC},
+	"getunspendoutput":             {Handler: getUnspendOutput, AccessCtrl: BIT_JSONRPC},
+	"getbalance":                   {Handler: getBalance},
+	"setdebuginfo":                 {Handler: setDebugInfo},
+	"registasset":                  {Handler: registAsset},
+	"issueasset":                   {Handler: issueAsset},
+	"sendtoaddress":                {Handler: sendToAddress},
+	"prepaidasset":                 {Handler: prepaidAsset},
+	"registername":                 {Handler: registerName},
+	"deletename":                   {Handler: deleteName},
+	"withdrawasset":                {Handler: withdrawAsset},
+	"commitpor":                    {Handler: commitPor},
+	"sigchaintest":                 {Handler: sigchaintest},
+	"gettotalissued":               {Handler: getTotalIssued},
+	"getassetbyhash":               {Handler: getAssetByHash},
+	"getbalancebyaddr":             {Handler: getBalanceByAddr, AccessCtrl: BIT_JSONRPC},
+	"getbalancebyasset":            {Handler: getBalanceByAsset},
+	"getunspends":                  {Handler: getUnspends},
+	"getaddressbyname":             {Handler: getAddressByName, AccessCtrl: BIT_JSONRPC},
+	"getsubscribers":               {Handler: getSubscribers, AccessCtrl: BIT_JSONRPC},
+	"getfirstavailabletopicbucket": {Handler: getFirstAvailableTopicBucket, AccessCtrl: BIT_JSONRPC},
+	"gettopicbucketscount":         {Handler: getTopicBucketsCount, AccessCtrl: BIT_JSONRPC},
+	"findsuccessoraddr":            {Handler: findSuccessorAddr, AccessCtrl: BIT_JSONRPC},
+	"findsuccessoraddrs":           {Handler: findSuccessorAddrs, AccessCtrl: BIT_JSONRPC},
 }

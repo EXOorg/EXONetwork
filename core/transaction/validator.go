@@ -19,6 +19,7 @@ import (
 
 const (
 	SubscriptionsLimit = 1000
+	BucketsLimit = 1000
 	MaxSubscriptionDuration = 65535
 )
 
@@ -31,8 +32,8 @@ type TxnStore interface {
 	IsTxHashDuplicate(txhash Uint256) bool
 	GetName(registrant []byte) (*string, error)
 	GetRegistrant(name string) ([]byte, error)
-	IsSubscribed(subscriber []byte, identifier string, topic string) (bool, error)
-	GetSubscribersCount(topic string) int
+	IsSubscribed(subscriber []byte, identifier string, topic string, bucket uint32) (bool, error)
+	GetSubscribersCount(topic string, bucket uint32) int
 }
 
 type Iterator interface {
@@ -71,6 +72,9 @@ func VerifyTransaction(Tx *Transaction) ErrCode {
 
 	if err := CheckTransactionPayload(Tx); err != nil {
 		log.Warning("[VerifyTransaction],", err)
+		if err, ok := err.(ErrCode); ok {
+			return err
+		}
 		return ErrTransactionPayload
 	}
 
@@ -86,10 +90,11 @@ func VerifyTransactionWithBlock(iterator Iterator) ErrCode {
 	registeredNames := make(map[string]struct{}, 0)
 	nameRegistrants := make(map[string]struct{}, 0)
 
-	type subscription struct {topic, subscriber string}
+	type subscription struct {topic string; bucket uint32; subscriber string}
+	type topicKey struct {topic string; bucket uint32}
 	subscriptions := make(map[subscription]struct{}, 0)
 
-	subscriptionCount := make(map[string]int, 0)
+	subscriptionCount := make(map[topicKey]int, 0)
 
 	//start check
 	return iterator.Iterate(func(txn *Transaction) ErrCode {
@@ -178,21 +183,23 @@ func VerifyTransactionWithBlock(iterator Iterator) ErrCode {
 		case Subscribe:
 			subscribePayload := txn.Payload.(*payload.Subscribe)
 			topic := subscribePayload.Topic
-			key := subscription{topic, subscribePayload.SubscriberString()}
+			bucket := subscribePayload.Bucket
+			key := subscription{topic, bucket, subscribePayload.SubscriberString()}
 			if _, ok := subscriptions[key]; ok {
 				log.Warning("[VerifyTransactionWithBlock], duplicate subscription exist in block.")
 				return ErrDuplicateSubscription
 			}
 			subscriptions[key] = struct{}{}
 
-			if _, ok := subscriptionCount[topic]; !ok {
-				subscriptionCount[topic] = Store.GetSubscribersCount(topic)
+			topicKey := topicKey{topic, bucket}
+			if _, ok := subscriptionCount[topicKey]; !ok {
+				subscriptionCount[topicKey] = Store.GetSubscribersCount(topic, bucket)
 			}
-			if subscriptionCount[topic] >= SubscriptionsLimit {
+			if subscriptionCount[topicKey] >= SubscriptionsLimit {
 				log.Warning("[VerifyTransactionWithBlock], subscription limit exceeded in block.")
 				return ErrSubscriptionLimit
 			}
-			subscriptionCount[topic]++
+			subscriptionCount[topicKey]++
 		}
 
 		return ErrNoError
@@ -265,12 +272,12 @@ func CheckTransactionBalance(txn *Transaction) error {
 	}
 	for _, v := range txn.Outputs {
 		if v.Value <= Fixed64(0) {
-			return errors.New("Invalide transaction UTXO output.")
+			return errors.New("invalid transaction UTXO output.")
 		}
 	}
 	if txn.TxType == IssueAsset {
 		if len(txn.Inputs) > 0 {
-			return errors.New("Invalide Issue transaction.")
+			return errors.New("invalid Issue transaction.")
 		}
 		return nil
 	}
@@ -310,10 +317,10 @@ func CheckTransactionPayload(txn *Transaction) error {
 	switch pld := txn.Payload.(type) {
 	case *payload.RegisterAsset:
 		if pld.Asset.Precision < asset.MinPrecision || pld.Asset.Precision > asset.MaxPrecision {
-			return errors.New("Invalide asset Precision.")
+			return errors.New("invalid asset Precision.")
 		}
 		if checkAmountPrecise(pld.Amount, pld.Asset.Precision) {
-			return errors.New("Invalide asset value,out of precise.")
+			return errors.New("invalid asset value,out of precise.")
 		}
 	case *payload.IssueAsset:
 	case *payload.TransferAsset:
@@ -380,6 +387,11 @@ func CheckTransactionPayload(txn *Transaction) error {
 			return errors.New(fmt.Sprintf("no name registered for pubKey %+v", pld.Registrant))
 		}
 	case *payload.Subscribe:
+		bucket := pld.Bucket
+		if bucket > BucketsLimit {
+			return errors.New(fmt.Sprintf("topic bucket %d can't be bigger than %d", bucket, BucketsLimit))
+		}
+
 		duration := pld.Duration
 		if duration > MaxSubscriptionDuration {
 			return errors.New(fmt.Sprintf("subscription duration %d can't be bigger than %d", duration, MaxSubscriptionDuration))
@@ -394,7 +406,7 @@ func CheckTransactionPayload(txn *Transaction) error {
 			return errors.New(fmt.Sprintf("topic %s should only contain a-z and have length 8-12", topic))
 		}
 
-		subscribed, err := Store.IsSubscribed(pld.Subscriber, pld.Identifier, topic)
+		subscribed, err := Store.IsSubscribed(pld.Subscriber, pld.Identifier, topic, bucket)
 		if err != nil {
 			return err
 		}
@@ -402,9 +414,9 @@ func CheckTransactionPayload(txn *Transaction) error {
 			return errors.New(fmt.Sprintf("subscriber %s already subscribed to %s", pld.SubscriberString(), topic))
 		}
 
-		subscriptionCount := Store.GetSubscribersCount(topic)
+		subscriptionCount := Store.GetSubscribersCount(topic, bucket)
 		if subscriptionCount >= SubscriptionsLimit {
-			return errors.New(fmt.Sprintf("subscribtion count to %s can't be more than %d", topic, subscriptionCount))
+			return ErrSubscriptionLimit
 		}
 	default:
 		return errors.New("[txValidator],invalidate transaction payload type.")

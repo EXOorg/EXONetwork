@@ -304,17 +304,7 @@ func (cs *ChainStore) GetBlockHash(height uint32) (Uint256, error) {
 }
 
 func (cs *ChainStore) GetBlockByHeight(height uint32) (*Block, error) {
-	key := bytes.NewBuffer(nil)
-	key.WriteByte(byte(DATA_BlockHash))
-	err := serialization.WriteUint32(key, height)
-	if err != nil {
-		return nil, err
-	}
-	value, err := cs.st.Get(key.Bytes())
-	if err != nil {
-		return nil, err
-	}
-	hash, err := Uint256ParseFromBytes(value)
+	hash, err := cs.GetBlockHash(height)
 	if err != nil {
 		return nil, err
 	}
@@ -381,14 +371,14 @@ func (cs *ChainStore) verifyHeader(header *Header) bool {
 	return true
 }
 
-func (cs *ChainStore) AddHeaders(headers []Header, ledger *Ledger) error {
+func (cs *ChainStore) AddHeaders(headers []*Header) error {
 
 	sort.Slice(headers, func(i, j int) bool {
 		return headers[i].Height < headers[j].Height
 	})
 
 	for i := 0; i < len(headers); i++ {
-		cs.taskCh <- &persistHeaderTask{header: &headers[i]}
+		cs.taskCh <- &persistHeaderTask{header: headers[i]}
 	}
 
 	return nil
@@ -427,6 +417,11 @@ func (cs *ChainStore) GetHeader(hash Uint256) (*Header, error) {
 	}
 
 	return h, err
+}
+
+func (cs *ChainStore) GetHeaderByHeight(height uint32) (*Header, error) {
+	hash := cs.GetHeaderHashByHeight(height)
+	return cs.GetHeader(hash)
 }
 
 func (cs *ChainStore) SaveAsset(assetId Uint256, asset *Asset) error {
@@ -564,22 +559,39 @@ func (cs *ChainStore) GetRegistrant(name string) ([]byte, error) {
 	return registrant, nil
 }
 
-func generateSubscriberKey(subscriber []byte, identifier string, topic string) []byte {
+func generateTopicKey(topic string) []byte {
+	topicKey := bytes.NewBuffer(nil)
+	topicKey.WriteByte(byte(PS_Topic))
+	serialization.WriteVarString(topicKey, topic)
+
+	return topicKey.Bytes()
+}
+
+func generateTopicBucketKey(topic string, bucket uint32) []byte {
+	topicBucketKey := bytes.NewBuffer(nil)
+	topicKey := generateTopicKey(topic)
+	topicBucketKey.Write(topicKey)
+	serialization.WriteUint32(topicBucketKey, bucket)
+
+	return topicBucketKey.Bytes()
+}
+
+func generateSubscriberKey(subscriber []byte, identifier string, topic string, bucket uint32) []byte {
 	subscriberKey := bytes.NewBuffer(nil)
-	subscriberKey.WriteByte(byte(PS_Topic))
-	serialization.WriteVarString(subscriberKey, topic)
+	topicBucketKey := generateTopicBucketKey(topic, bucket)
+	subscriberKey.Write(topicBucketKey)
 	serialization.WriteVarBytes(subscriberKey, subscriber)
 	serialization.WriteVarString(subscriberKey, identifier)
 
 	return subscriberKey.Bytes()
 }
 
-func (cs *ChainStore) Subscribe(subscriber []byte, identifier string, topic string, duration uint32, height uint32) error {
+func (cs *ChainStore) Subscribe(subscriber []byte, identifier string, topic string, bucket uint32, duration uint32, height uint32) error {
 	if duration == 0 {
 		return nil
 	}
 
-	subscriberKey := generateSubscriberKey(subscriber, identifier, topic)
+	subscriberKey := generateSubscriberKey(subscriber, identifier, topic, bucket)
 
 	// PUT VALUE
 	err := cs.st.BatchPut(subscriberKey, []byte{})
@@ -587,7 +599,7 @@ func (cs *ChainStore) Subscribe(subscriber []byte, identifier string, topic stri
 		return err
 	}
 
-	err = cs.ExpireKeyAtBlock(height + duration, subscriberKey)
+	err = cs.ExpireKeyAtBlock(height+duration, subscriberKey)
 	if err != nil {
 		return err
 	}
@@ -595,12 +607,12 @@ func (cs *ChainStore) Subscribe(subscriber []byte, identifier string, topic stri
 	return nil
 }
 
-func (cs *ChainStore) Unsubscribe(subscriber []byte, identifier string, topic string, duration uint32, height uint32) error {
+func (cs *ChainStore) Unsubscribe(subscriber []byte, identifier string, topic string, bucket uint32, duration uint32, height uint32) error {
 	if duration == 0 {
 		return nil
 	}
 
-	subscriberKey := generateSubscriberKey(subscriber, identifier, topic)
+	subscriberKey := generateSubscriberKey(subscriber, identifier, topic, bucket)
 
 	// DELETE VALUE
 	err := cs.st.BatchDelete(subscriberKey)
@@ -608,7 +620,7 @@ func (cs *ChainStore) Unsubscribe(subscriber []byte, identifier string, topic st
 		return err
 	}
 
-	err = cs.CancelKeyExpirationAtBlock(height + duration, subscriberKey)
+	err = cs.CancelKeyExpirationAtBlock(height+duration, subscriberKey)
 	if err != nil {
 		return err
 	}
@@ -616,16 +628,16 @@ func (cs *ChainStore) Unsubscribe(subscriber []byte, identifier string, topic st
 	return nil
 }
 
-func (cs *ChainStore) IsSubscribed(subscriber []byte, identifier string, topic string) (bool, error) {
-	subscriberKey := generateSubscriberKey(subscriber, identifier, topic)
+func (cs *ChainStore) IsSubscribed(subscriber []byte, identifier string, topic string, bucket uint32) (bool, error) {
+	subscriberKey := generateSubscriberKey(subscriber, identifier, topic, bucket)
 
 	return cs.st.Has(subscriberKey)
 }
 
-func (cs *ChainStore) GetSubscribers(topic string) []string {
+func (cs *ChainStore) GetSubscribers(topic string, bucket uint32) []string {
 	subscribers := make([]string, 0)
 
-	prefix := append([]byte{byte(PS_Topic), byte(len(topic))}, []byte(topic)...)
+	prefix := generateTopicBucketKey(topic, bucket)
 	iter := cs.st.NewIterator(prefix)
 	for iter.Next() {
 		rk := bytes.NewReader(iter.Key())
@@ -643,16 +655,47 @@ func (cs *ChainStore) GetSubscribers(topic string) []string {
 	return subscribers
 }
 
-func (cs *ChainStore) GetSubscribersCount(topic string) int {
+func (cs *ChainStore) GetSubscribersCount(topic string, bucket uint32) int {
 	subscribers := 0
 
-	prefix := append([]byte{byte(PS_Topic), byte(len(topic))}, []byte(topic)...)
+	prefix := generateTopicBucketKey(topic, bucket)
 	iter := cs.st.NewIterator(prefix)
 	for iter.Next() {
 		subscribers++
 	}
 
 	return subscribers
+}
+
+func (cs *ChainStore) GetFirstAvailableTopicBucket(topic string) int {
+	for i := uint32(0); i < tx.BucketsLimit; i++ {
+		count := cs.GetSubscribersCount(topic, i)
+		if count < tx.SubscriptionsLimit {
+			return int(i)
+		}
+	}
+
+	return -1
+}
+
+func (cs *ChainStore) GetTopicBucketsCount(topic string) uint32 {
+	lastBucket := uint32(0)
+
+	prefix := generateTopicKey(topic)
+
+	iter := cs.st.NewIterator(prefix)
+	for iter.Next() {
+		rk := bytes.NewReader(iter.Key())
+
+		// read prefix
+		_, _ = serialization.ReadBytes(rk, uint64(len(prefix)))
+
+		bucket, _ := serialization.ReadUint32(rk)
+
+		lastBucket = bucket
+	}
+
+	return lastBucket
 }
 
 func (cs *ChainStore) ExpireKeyAtBlock(height uint32, key []byte) error {
@@ -956,7 +999,7 @@ func (cs *ChainStore) persist(b *Block) error {
 			}
 		case tx.Subscribe:
 			subscribePayload := b.Transactions[i].Payload.(*payload.Subscribe)
-			err = cs.Subscribe(subscribePayload.Subscriber, subscribePayload.Identifier, subscribePayload.Topic, subscribePayload.Duration, b.Header.Height)
+			err = cs.Subscribe(subscribePayload.Subscriber, subscribePayload.Identifier, subscribePayload.Topic, subscribePayload.Bucket, subscribePayload.Duration, b.Header.Height)
 			if err != nil {
 				return err
 			}

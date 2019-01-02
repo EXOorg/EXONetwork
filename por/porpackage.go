@@ -8,6 +8,7 @@ import (
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/core/transaction"
 	"github.com/nknorg/nkn/core/transaction/payload"
+	nknerrors "github.com/nknorg/nkn/errors"
 	"github.com/nknorg/nkn/util/log"
 )
 
@@ -19,7 +20,8 @@ const (
 	// if local block height is n, then n + 3 signature chain is in consensus) +
 	//  1 (since local node height may lower than neighbors at most 1) +
 	//  1 (for fully propagate)
-	HeightThreshold = 5
+	SigChainBlockHeightOffset  = 1
+	SigChainMiningHeightOffset = 4
 )
 
 type PorStore interface {
@@ -70,7 +72,7 @@ func NewPorPackage(txn *transaction.Transaction) (*PorPackage, error) {
 	if !found {
 		err := errors.New("no miner node in signature chain")
 		log.Error(err)
-		return nil, err
+		return nil, nknerrors.NewDetailErr(err, nknerrors.ErrNoCode, err.Error())
 	}
 
 	blockHash, err := Uint256ParseFromBytes(sigChain.BlockHash)
@@ -96,7 +98,7 @@ func NewPorPackage(txn *transaction.Transaction) (*PorPackage, error) {
 		return nil, err
 	}
 	pp := &PorPackage{
-		VoteForHeight: height + HeightThreshold,
+		VoteForHeight: height + SigChainMiningHeightOffset + SigChainBlockHeightOffset,
 		Owner:         owner,
 		BlockHash:     sigChain.BlockHash,
 		TxHash:        txHash[:],

@@ -137,24 +137,39 @@ func (ps *PorServer) LenOfSigChain(sc *SigChain) int {
 	return sc.Length()
 }
 
-func (ps *PorServer) GetMinSigChain(height uint32) (*SigChain, error) {
+func (ps *PorServer) GetMiningSigChain(height uint32) (*SigChain, error) {
 	ps.RLock()
 	defer ps.RUnlock()
 
-	var minSigChain *SigChain
 	length := len(ps.pors[height])
 	switch {
 	case length > 1:
 		sort.Sort(PorPackages(ps.pors[height]))
 		fallthrough
 	case length == 1:
-		minSigChain = ps.pors[height][0].GetSigChain()
-		return minSigChain, nil
-	case length < 1:
-		return nil, errors.New("no available signature chain")
+		return ps.pors[height][0].GetSigChain(), nil
+	default:
+		return nil, nil
+	}
+}
+
+func (ps *PorServer) GetMiningSigChainTxnHash(height uint32) (common.Uint256, error) {
+	sigChain, err := ps.GetMiningSigChain(height)
+	if err != nil || sigChain == nil {
+		return common.EmptyUint256, err
 	}
 
-	return minSigChain, nil
+	sigHash, err := sigChain.SignatureHash()
+	if err != nil {
+		return common.EmptyUint256, err
+	}
+
+	txnHash := ps.GetTxnHashBySigChainHash(sigHash, height)
+	if txnHash == common.EmptyUint256 {
+		return common.EmptyUint256, errors.New("signature chain doesn't exist")
+	}
+
+	return txnHash, nil
 }
 
 func (ps *PorServer) GetSigChain(height uint32, hash common.Uint256) (*SigChain, error) {
@@ -216,20 +231,20 @@ func (ps *PorServer) AddSigChainFromTx(txn *transaction.Transaction) (bool, erro
 	return true, nil
 }
 
-func (ps *PorServer) IsSigChainExist(hash []byte, height uint32) (*common.Uint256, bool) {
+func (ps *PorServer) GetTxnHashBySigChainHash(hash []byte, height uint32) common.Uint256 {
 	ps.RLock()
+	defer ps.RUnlock()
 	for _, pkg := range ps.pors[height] {
 		if bytes.Compare(pkg.SigHash, hash[:]) == 0 {
-			ps.RUnlock()
 			txHash, err := common.Uint256ParseFromBytes(pkg.GetTxHash())
 			if err != nil {
-				return nil, false
+				log.Error(err)
+				return common.EmptyUint256
 			}
-			return &txHash, true
+			return txHash
 		}
 	}
-	ps.RUnlock()
-	return nil, false
+	return common.EmptyUint256
 }
 
 func (ps *PorServer) GetThreshold() common.Uint256 {

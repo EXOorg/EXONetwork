@@ -1,10 +1,9 @@
 package node
 
 import (
-	"fmt"
 	"sync"
 
-	"github.com/nknorg/nkn/net/protocol"
+	nnetnode "github.com/nknorg/nnet/node"
 )
 
 // The neighbor node list
@@ -12,86 +11,57 @@ type nbrNodes struct {
 	List sync.Map
 }
 
-func (nm *nbrNodes) GetNbrNode(uid uint64) *node {
-	v, ok := nm.List.Load(uid)
+func (nm *nbrNodes) GetNbrNode(id string) *RemoteNode {
+	v, ok := nm.List.Load(id)
 	if !ok {
 		return nil
 	}
-	n, ok := v.(*node)
+	n, ok := v.(*RemoteNode)
 	if ok {
 		return n
 	}
 	return nil
 }
 
-func (nm *nbrNodes) AddNbrNode(n protocol.Noder) {
-	node, ok := n.(*node)
-	if !ok {
-		fmt.Println("Convert the noder error when add node")
-		return
-	}
-	nm.List.LoadOrStore(n.GetID(), node)
+func (nm *nbrNodes) AddNbrNode(remoteNode *RemoteNode) error {
+	nm.List.LoadOrStore(remoteNode.GetID(), remoteNode)
+	return nil
 }
 
-func (nm *nbrNodes) DelNbrNode(id uint64) (protocol.Noder, bool) {
-	v, ok := nm.List.Load(id)
-	if !ok {
-		return nil, false
-	}
-	n, _ := v.(*node)
+func (nm *nbrNodes) DelNbrNode(id string) {
 	nm.List.Delete(id)
-	return n, true
 }
 
 func (nm *nbrNodes) GetConnectionCnt() uint {
-	return uint(len(nm.GetNeighborNoder()))
-}
-
-func (nm *nbrNodes) GetNeighborAddrs() ([]protocol.NodeAddr, uint) {
-	var addrs []protocol.NodeAddr
-	for _, n := range nm.GetNeighborNoder() {
-		ip, _ := n.GetAddr16()
-		addrs = append(addrs, protocol.NodeAddr{
-			IpAddr:  ip,
-			IpStr:   n.GetAddr(),
-			InOut:   n.GetConnDirection(),
-			Time:    n.GetTime(),
-			Port:    n.GetPort(),
-			ID:      n.GetID(),
-			NKNaddr: fmt.Sprintf("%x", n.GetChordAddr()),
-		})
-	}
-	return addrs, uint(len(addrs))
+	return uint(len(nm.GetNeighbors(nil)))
 }
 
 func (nm *nbrNodes) GetNeighborHeights() ([]uint32, uint) {
 	heights := []uint32{}
-	for _, n := range nm.GetNeighborNoder() {
+	for _, n := range nm.GetNeighbors(nil) {
 		heights = append(heights, n.GetHeight())
 	}
 	return heights, uint(len(heights))
 }
 
-func (nm *nbrNodes) GetNeighborNoder() []protocol.Noder {
-	nodes := []protocol.Noder{}
+func (nm *nbrNodes) GetNeighbors(filter func(*RemoteNode) bool) []*RemoteNode {
+	neighbors := make([]*RemoteNode, 0)
 	nm.List.Range(func(key, value interface{}) bool {
-		n, ok := value.(*node)
-		if ok {
-			nodes = append(nodes, n)
+		if rn, ok := value.(*RemoteNode); ok {
+			if filter == nil || filter(rn) {
+				neighbors = append(neighbors, rn)
+			}
 		}
 		return true
 	})
-	return nodes
+	return neighbors
 }
 
-func (nm *nbrNodes) GetSyncFinishedNeighbors() []protocol.Noder {
-	var nodes []protocol.Noder
-	nm.List.Range(func(key, value interface{}) bool {
-		n, ok := value.(*node)
-		if ok && n.GetSyncState() == protocol.PersistFinished {
-			nodes = append(nodes, n)
-		}
-		return true
-	})
-	return nodes
+func (localNode *LocalNode) getNbrByNNetNode(nnetRemoteNode *nnetnode.RemoteNode) *RemoteNode {
+	if nnetRemoteNode == nil {
+		return nil
+	}
+
+	nbr := localNode.GetNbrNode(chordIDToNodeID(nnetRemoteNode.Id))
+	return nbr
 }
