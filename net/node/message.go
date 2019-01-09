@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/crypto"
@@ -51,7 +52,11 @@ func (remoteNode *RemoteNode) SendBytesAsync(buf []byte) error {
 }
 
 func (remoteNode *RemoteNode) SendBytesSync(buf []byte) ([]byte, error) {
-	reply, _, err := remoteNode.localNode.nnet.SendBytesDirectSync(buf, remoteNode.nnetNode)
+	return remoteNode.SendBytesSyncWithTimeout(buf, 0)
+}
+
+func (remoteNode *RemoteNode) SendBytesSyncWithTimeout(buf []byte, replyTimeout time.Duration) ([]byte, error) {
+	reply, _, err := remoteNode.localNode.nnet.SendBytesDirectSyncWithTimeout(buf, remoteNode.nnetNode, replyTimeout)
 	if err != nil {
 		log.Errorf("Error sending sync messge to node: %v", err.Error())
 	}
@@ -197,12 +202,13 @@ func (localNode *LocalNode) remoteMessageRouted(remoteMessage *nnetnode.RemoteMe
 				log.Errorf("Marshal new relay msg body error: %v", err)
 				return nil, nil, nil, false
 			}
+
+			localNode.IncrementRelayMessageCount()
 		}
 
 		// msg send to local node
 		if nnetLocalNode != nil {
-			// non-reply msg
-			if len(remoteMessage.Msg.ReplyToId) == 0 {
+			if len(remoteMessage.Msg.ReplyToId) == 0 { // non-reply msg
 				var reply []byte
 				reply, err = localNode.receiveMessage(senderNode, unsignedMsg)
 				if err != nil {
@@ -218,17 +224,20 @@ func (localNode *LocalNode) remoteMessageRouted(remoteMessage *nnetnode.RemoteMe
 					}
 				}
 
-				return nil, nil, nil, false
-			}
-
-			// reply msg
-			msgBody.Data = unsignedMsg.Message
-			remoteMessage.Msg.Message, err = proto.Marshal(msgBody)
-			if err != nil {
-				log.Errorf("Marshal reply msg body error: %v", err)
-				return nil, nil, nil, false
+				nnetLocalNode = nil
+			} else { // reply msg
+				msgBody.Data = unsignedMsg.Message
+				remoteMessage.Msg.Message, err = proto.Marshal(msgBody)
+				if err != nil {
+					log.Errorf("Marshal reply msg body error: %v", err)
+					return nil, nil, nil, false
+				}
 			}
 		}
+	}
+
+	if nnetLocalNode == nil && len(remoteNodes) == 0 {
+		return nil, nil, nil, false
 	}
 
 	return remoteMessage, nnetLocalNode, remoteNodes, true
@@ -246,17 +255,12 @@ func (localNode *LocalNode) receiveMessage(sender *Node, unsignedMsg *pb.Unsigne
 
 	for _, handler := range localNode.GetMessageHandlers(unsignedMsg.MessageType) {
 		reply, shouldCallNext, err = handler(remoteMessage)
-		if err != nil {
-			log.Errorf("Get error when handling message: %v", err)
-			continue
-		}
-
-		if !shouldCallNext {
+		if err != nil || !shouldCallNext {
 			break
 		}
 	}
 
-	return reply, nil
+	return reply, err
 }
 
 // checkMessageType checks if a message type is allowed

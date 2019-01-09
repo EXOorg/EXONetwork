@@ -61,6 +61,16 @@ func NewPorPackage(txn *transaction.Transaction) (*PorPackage, error) {
 		return nil, err
 	}
 
+	err = sigChain.Verify()
+	if err != nil {
+		return nil, err
+	}
+
+	err = sigChain.VerifyPath()
+	if err != nil {
+		return nil, err
+	}
+
 	//TODO threshold
 	found := false
 	for _, elem := range sigChain.Elems {
@@ -71,24 +81,20 @@ func NewPorPackage(txn *transaction.Transaction) (*PorPackage, error) {
 	}
 	if !found {
 		err := errors.New("no miner node in signature chain")
-		log.Error(err)
 		return nil, nknerrors.NewDetailErr(err, nknerrors.ErrNoCode, err.Error())
 	}
 
 	blockHash, err := Uint256ParseFromBytes(sigChain.BlockHash)
 	if err != nil {
-		log.Error("Parse block hash uint256 from bytes error:", err)
 		return nil, err
 	}
 	height, err := Store.GetHeightByBlockHash(blockHash)
 	if err != nil {
-		log.Error("Get block header error:", err)
 		return nil, err
 	}
 
 	owner, err := sigChain.GetOwner()
 	if err != nil {
-		log.Error("Get owner error:", err)
 		return nil, err
 	}
 

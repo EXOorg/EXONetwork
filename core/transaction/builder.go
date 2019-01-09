@@ -163,13 +163,15 @@ func NewRegisterNameTransaction(registrant []byte, name string) (*Transaction, e
 	}, nil
 }
 
-func NewDeleteNameTransaction(registrant []byte) (*Transaction, error) {
+func NewDeleteNameTransaction(registrant []byte, name string) (*Transaction, error) {
 	DeleteNamePayload := &payload.DeleteName{
 		Registrant: registrant,
+		Name:       name,
 	}
 
 	return &Transaction{
 		TxType:  DeleteName,
+		PayloadVersion: 1,
 		Payload: DeleteNamePayload,
 		Attributes: []*TxnAttribute{
 			{
@@ -193,6 +195,7 @@ func NewSubscribeTransaction(subscriber []byte, identifier string, topic string,
 
 	return &Transaction{
 		TxType:  Subscribe,
+		PayloadVersion: 1,
 		Payload: SubscribePayload,
 		Attributes: []*TxnAttribute{
 			{

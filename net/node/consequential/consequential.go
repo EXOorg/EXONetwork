@@ -4,7 +4,9 @@
 package consequential
 
 import (
+	"fmt"
 	"sync"
+	"time"
 )
 
 // RunJob runs a job with job id, returns result and whether success
@@ -13,16 +15,24 @@ type RunJob func(workerID, jobID uint32) (result interface{}, success bool)
 // FinishJob finish a job with job id, returns whether success
 type FinishJob func(jobID uint32, result interface{}) (success bool)
 
+// Config is the ConSequential config.
+type Config struct {
+	StartJobID          uint32
+	EndJobID            uint32
+	JobBufSize          uint32
+	WorkerPoolSize      uint32
+	MaxWorkerFails      uint32
+	WorkerStartInterval time.Duration
+	RunJob              RunJob
+	FinishJob           FinishJob
+}
+
 // ConSequential is short for CONcurrent SEQUENTIAL
 type ConSequential struct {
-	startJobID       uint32
-	endJobID         uint32
-	jobBufSize       uint32
-	workerPoolSize   uint32
-	runJob           RunJob
-	finishJob        FinishJob
+	*Config
 	unstartedJobChan chan uint32
 	failedJobChan    chan uint32
+	stopChans        []chan struct{}
 
 	sync.RWMutex
 	jobResultBuf      []interface{}
@@ -31,39 +41,38 @@ type ConSequential struct {
 }
 
 // NewConSequential creates a new ConSequential struct
-func NewConSequential(startJobID, endJobID, jobBufSize, workerPoolSize uint32, runJob RunJob, finishJob FinishJob) (*ConSequential, error) {
+func NewConSequential(config *Config) (*ConSequential, error) {
 	cs := &ConSequential{
-		startJobID:        startJobID,
-		endJobID:          endJobID,
-		jobBufSize:        jobBufSize,
-		workerPoolSize:    workerPoolSize,
-		runJob:            runJob,
-		finishJob:         finishJob,
-		unstartedJobChan:  make(chan uint32, jobBufSize),
-		failedJobChan:     make(chan uint32, jobBufSize),
-		jobResultBuf:      make([]interface{}, jobBufSize, jobBufSize),
-		ringBufStartJobID: startJobID,
+		Config:            config,
+		unstartedJobChan:  make(chan uint32, config.JobBufSize),
+		failedJobChan:     make(chan uint32, config.JobBufSize),
+		stopChans:         make([]chan struct{}, config.JobBufSize, config.JobBufSize),
+		jobResultBuf:      make([]interface{}, config.JobBufSize, config.JobBufSize),
+		ringBufStartJobID: config.StartJobID,
+	}
+	for i := uint32(0); i < config.JobBufSize; i++ {
+		cs.stopChans[i] = make(chan struct{}, 1)
 	}
 	return cs, nil
 }
 
 func (cs *ConSequential) isJobIDInRange(jobID uint32) bool {
-	if cs.startJobID <= cs.endJobID {
-		return jobID >= cs.startJobID && jobID <= cs.endJobID
+	if cs.StartJobID <= cs.EndJobID {
+		return jobID >= cs.StartJobID && jobID <= cs.EndJobID
 	}
-	return jobID <= cs.startJobID && jobID >= cs.endJobID
+	return jobID <= cs.StartJobID && jobID >= cs.EndJobID
 }
 
 func (cs *ConSequential) initJobChan() {
 	var i uint32
-	for i = 0; i < cs.jobBufSize; i++ {
-		if cs.startJobID <= cs.endJobID {
-			if cs.isJobIDInRange(cs.startJobID + i) {
-				cs.unstartedJobChan <- cs.startJobID + i
+	for i = 0; i < cs.JobBufSize; i++ {
+		if cs.StartJobID <= cs.EndJobID {
+			if cs.isJobIDInRange(cs.StartJobID + i) {
+				cs.unstartedJobChan <- cs.StartJobID + i
 			}
 		} else {
-			if cs.isJobIDInRange(cs.startJobID - i) {
-				cs.unstartedJobChan <- cs.startJobID - i
+			if cs.isJobIDInRange(cs.StartJobID - i) {
+				cs.unstartedJobChan <- cs.StartJobID - i
 			}
 		}
 	}
@@ -71,21 +80,25 @@ func (cs *ConSequential) initJobChan() {
 
 // shiftRingBuf shifts the ring buffer by one job id
 func (cs *ConSequential) shiftRingBuf() {
-	cs.jobResultBuf[cs.ringBufStartIdx] = nil
-	cs.ringBufStartIdx = (cs.ringBufStartIdx + 1) % cs.jobBufSize
+	if !cs.isJobIDInRange(cs.ringBufStartJobID) {
+		return
+	}
 
-	if cs.startJobID < cs.endJobID {
+	cs.jobResultBuf[cs.ringBufStartIdx] = nil
+	cs.ringBufStartIdx = (cs.ringBufStartIdx + 1) % cs.JobBufSize
+
+	if cs.StartJobID < cs.EndJobID {
 		cs.ringBufStartJobID++
 	} else {
 		cs.ringBufStartJobID--
 	}
 
 	var ringBufEndJobID uint32
-	if cs.startJobID < cs.endJobID {
-		ringBufEndJobID = cs.ringBufStartJobID + cs.jobBufSize - 1
+	if cs.StartJobID < cs.EndJobID {
+		ringBufEndJobID = cs.ringBufStartJobID + cs.JobBufSize - 1
 	} else {
-		if cs.ringBufStartJobID+1 > cs.jobBufSize {
-			ringBufEndJobID = cs.ringBufStartJobID + 1 - cs.jobBufSize
+		if cs.ringBufStartJobID+1 > cs.JobBufSize {
+			ringBufEndJobID = cs.ringBufStartJobID + 1 - cs.JobBufSize
 		} else {
 			ringBufEndJobID = 0
 		}
@@ -94,61 +107,67 @@ func (cs *ConSequential) shiftRingBuf() {
 	if cs.isJobIDInRange(ringBufEndJobID) {
 		cs.unstartedJobChan <- ringBufEndJobID
 	}
+
+	if !cs.isJobIDInRange(cs.ringBufStartJobID) {
+		for _, c := range cs.stopChans {
+			c <- struct{}{}
+		}
+	}
 }
 
 // Start starts workers concurrently
-func (cs *ConSequential) Start() {
+func (cs *ConSequential) Start() error {
 	cs.initJobChan()
 
 	var wg sync.WaitGroup
 	var workerID uint32
-	for workerID = 0; workerID < cs.workerPoolSize; workerID++ {
+	for workerID = 0; workerID < cs.WorkerPoolSize; workerID++ {
 		wg.Add(1)
 		go func(workerID uint32) {
 			defer wg.Done()
+			if cs.WorkerStartInterval > 0 {
+				time.Sleep(time.Duration(workerID) * cs.WorkerStartInterval)
+			}
 			cs.startWorker(workerID)
 		}(workerID)
 	}
 	wg.Wait()
+
+	cs.RLock()
+	defer cs.RUnlock()
+	if cs.isJobIDInRange(cs.ringBufStartJobID) {
+		return fmt.Errorf("all workers failed")
+	}
+
+	return nil
 }
 
 // startWorker starts a worker, and returns if any job fails to run or all jobs
 // have been finished
 func (cs *ConSequential) startWorker(workerID uint32) {
-	var jobID uint32
-	var success bool
+	var jobID, failCount uint32
 
 	for {
 		select {
 		case jobID = <-cs.failedJobChan:
-			success = cs.tryJob(workerID, jobID)
-			if !success {
-				return
-			}
-		default:
-		}
-
-		select {
 		case jobID = <-cs.unstartedJobChan:
-			success = cs.tryJob(workerID, jobID)
-			if !success {
-				return
-			}
-		default:
-		}
-
-		cs.RLock()
-		if !cs.isJobIDInRange(cs.ringBufStartJobID) {
-			cs.RUnlock()
+		case <-cs.stopChans[workerID]:
 			return
 		}
-		cs.RUnlock()
+
+		if !cs.tryJob(workerID, jobID) {
+			failCount++
+		}
+
+		if failCount > cs.MaxWorkerFails {
+			return
+		}
 	}
 }
 
 // tryJob tries to run a job and returns whether success
 func (cs *ConSequential) tryJob(workerID, jobID uint32) bool {
-	result, success := cs.runJob(workerID, jobID)
+	result, success := cs.RunJob(workerID, jobID)
 	if !success {
 		cs.failedJobChan <- jobID
 		return false
@@ -164,7 +183,7 @@ func (cs *ConSequential) tryJob(workerID, jobID uint32) bool {
 		idxOffset = cs.ringBufStartJobID - jobID
 	}
 
-	cs.jobResultBuf[(cs.ringBufStartIdx+idxOffset)%cs.jobBufSize] = result
+	cs.jobResultBuf[(cs.ringBufStartIdx+idxOffset)%cs.JobBufSize] = result
 
 	if idxOffset > 0 {
 		return true
@@ -191,7 +210,7 @@ func (cs *ConSequential) tryFinishJobs() uint32 {
 			break
 		}
 
-		success = cs.finishJob(jobID, result)
+		success = cs.FinishJob(jobID, result)
 		if success {
 			cs.shiftRingBuf()
 			numFinished++

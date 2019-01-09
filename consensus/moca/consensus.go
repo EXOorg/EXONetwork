@@ -158,7 +158,7 @@ func (consensus *Consensus) loadOrCreateElection(key []byte) (*election.Election
 	})
 	totalWeight := len(consensusNeighbors)
 	if consensus.localNode.GetSyncState() == pb.PersistFinished {
-		totalWeight += 1
+		totalWeight++
 	}
 
 	config := &election.Config{
@@ -247,14 +247,9 @@ func (consensus *Consensus) maybeUpdateConsensusHeight() {
 }
 
 func (consensus *Consensus) saveAcceptedBlock(electedBlockHash common.Uint256) error {
-	value, ok := consensus.proposals.Get(electedBlockHash.ToArray())
-	if !ok {
-		return fmt.Errorf("Block %s not found in local cache", electedBlockHash.ToHexString())
-	}
-
-	block, ok := value.(*ledger.Block)
-	if !ok {
-		return fmt.Errorf("Convert block %s from proposal cache error", electedBlockHash.ToHexString())
+	block, err := consensus.getBlockProposal(electedBlockHash)
+	if err != nil {
+		return err
 	}
 
 	if block.Header.Height == ledger.DefaultLedger.Store.GetHeight()+1 {
@@ -291,21 +286,26 @@ func (consensus *Consensus) saveAcceptedBlock(electedBlockHash common.Uint256) e
 
 	go func() {
 		started, err := consensus.localNode.StartSyncing(block.Header.PrevBlockHash, block.Header.Height-1, neighbors)
+		if err != nil {
+			log.Errorf("Error syncing blocks: %v", err)
+			if started {
+				panic(err)
+			}
+		}
 		if !started {
 			return
 		}
-		if err != nil {
-			panic(fmt.Errorf("Error syncing blocks: %v", err))
-		}
+
+		defer consensus.localNode.ResetSyncing()
 
 		err = consensus.saveBlocksAcceptedDuringSync(block.Header.Height)
 		if err != nil {
 			log.Errorf("Error saving blocks accepted during sync: %v", err)
+			consensus.localNode.SetSyncState(pb.WaitForSyncing)
 			return
 		}
 
 		consensus.localNode.SetSyncState(pb.PersistFinished)
-		consensus.localNode.ResetSyncing()
 	}()
 
 	return nil
@@ -339,7 +339,12 @@ func (consensus *Consensus) saveBlocksAcceptedDuringSync(startHeight uint32) err
 			return fmt.Errorf("Convert election result to block hash error")
 		}
 
-		err = consensus.saveAcceptedBlock(electedBlockHash)
+		block, err := consensus.getBlockProposal(electedBlockHash)
+		if err != nil {
+			return err
+		}
+
+		err = ledger.DefaultLedger.Blockchain.AddBlock(block)
 		if err != nil {
 			return err
 		}

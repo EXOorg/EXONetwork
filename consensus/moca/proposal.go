@@ -24,6 +24,21 @@ type requestProposalInfo struct {
 	blockHash  common.Uint256
 }
 
+// getBlockProposal gets a proposal from proposal cache and convert to block
+func (consensus *Consensus) getBlockProposal(blockHash common.Uint256) (*ledger.Block, error) {
+	value, ok := consensus.proposals.Get(blockHash.ToArray())
+	if !ok {
+		return nil, fmt.Errorf("Block %s not found in local cache", blockHash.ToHexString())
+	}
+
+	block, ok := value.(*ledger.Block)
+	if !ok {
+		return nil, fmt.Errorf("Convert block %s from proposal cache error", blockHash.ToHexString())
+	}
+
+	return block, nil
+}
+
 // waitAndHandleProposal waits for first valid proposal, and continues to handle
 // proposal for electionStartDelay duration.
 func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) {
@@ -70,6 +85,12 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 				continue
 			}
 
+			err = ledger.TimestampCheck(proposal.Header.Timestamp)
+			if err != nil {
+				log.Warningf("Ignore proposal that fails to pass timestamp check: %v", err)
+				continue
+			}
+
 			err := ledger.SignerCheck(proposal.Header)
 			if err != nil {
 				log.Warningf("Ignore proposal that fails to pass signer check: %v", err)
@@ -99,9 +120,9 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 				acceptProposal = false
 			}
 
-			err = ledger.TimestampCheck(proposal.Header.Timestamp)
+			err = ledger.NextBlockProposerCheck(proposal)
 			if err != nil {
-				log.Warningf("Proposal fails to pass timestamp check: %v", err)
+				log.Warningf("Proposal fails to pass next block proposal check: %v", err)
 				acceptProposal = false
 			}
 
@@ -213,13 +234,17 @@ func (consensus *Consensus) receiveProposal(block *ledger.Block) error {
 func (consensus *Consensus) receiveProposalHash(neighborID string, height uint32, blockHash common.Uint256) error {
 	log.Debugf("Receive block hash %s for height %d from neighbor %d", blockHash.ToHexString(), height, neighborID)
 
+	if blockHash == common.EmptyUint256 {
+		return errors.New("Receive empty block hash")
+	}
+
+	if _, ok := consensus.proposals.Get(blockHash.ToArray()); ok {
+		return nil
+	}
+
 	expectedHeight := consensus.GetExpectedHeight()
 	if height != expectedHeight {
 		return fmt.Errorf("Receive invalid block hash height %d instead of %d", height, expectedHeight)
-	}
-
-	if blockHash == common.EmptyUint256 {
-		return errors.New("Receive empty block hash")
 	}
 
 	if _, ok := consensus.proposals.Get(blockHash.ToArray()); !ok {

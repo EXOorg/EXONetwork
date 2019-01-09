@@ -12,6 +12,7 @@ import (
 	nnetpb "github.com/nknorg/nnet/protobuf"
 )
 
+
 type Node struct {
 	*nnetpb.Node
 	*pb.NodeData

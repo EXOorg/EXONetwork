@@ -16,13 +16,13 @@ import (
 	"github.com/nknorg/nkn/core/transaction/payload"
 	"github.com/nknorg/nkn/events"
 	"github.com/nknorg/nkn/util/address"
+	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 )
 
 const (
 	HeaderHashListCount = 2000
 	CleanCacheThreshold = 2
-	TaskChanCap         = 4
 )
 
 var (
@@ -83,7 +83,7 @@ func NewChainStore(file string) (*ChainStore, error) {
 		headerCache:        map[Uint256]*Header{},
 		currentBlockHeight: 0,
 		storedHeaderCount:  0,
-		taskCh:             make(chan persistTask, TaskChanCap),
+		taskCh:             make(chan persistTask, config.Parameters.SyncBatchWindowSize*config.Parameters.SyncBlocksBatchSize),
 		quit:               make(chan chan bool, 1),
 	}
 
@@ -119,23 +119,14 @@ func (cs *ChainStore) loop() {
 }
 
 // can only be invoked by backend write goroutine
-func (cs *ChainStore) clearCache() {
+func (cs *ChainStore) clearCache(height uint32) {
+	hashToDelete := cs.GetHeaderHashByHeight(height - CleanCacheThreshold - 1)
+
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	currBlockHeight := cs.currentBlockHeight
-	for hash, header := range cs.headerCache {
-		if header.Height+CleanCacheThreshold < currBlockHeight {
-			delete(cs.headerCache, hash)
-		}
-	}
-
-	for hash, block := range cs.blockCache {
-		if block.Header.Height+CleanCacheThreshold < currBlockHeight {
-			delete(cs.blockCache, hash)
-		}
-	}
-
+	delete(cs.headerCache, hashToDelete)
+	delete(cs.blockCache, hashToDelete)
 }
 
 func (cs *ChainStore) InitLedgerStoreWithGenesisBlock(genesisBlock *Block) (uint32, error) {
@@ -335,9 +326,9 @@ func (cs *ChainStore) GetContract(codeHash Uint160) ([]byte, error) {
 
 func (cs *ChainStore) getHeaderWithCache(hash Uint256) (*Header, error) {
 	cs.mu.RLock()
-	if _, ok := cs.headerCache[hash]; ok {
+	if header, ok := cs.headerCache[hash]; ok {
 		cs.mu.RUnlock()
-		return cs.headerCache[hash], nil
+		return header, nil
 	}
 	cs.mu.RUnlock()
 
@@ -1182,23 +1173,18 @@ func (cs *ChainStore) SaveBlock(b *Block, ledger *Ledger) error {
 	}
 
 	if b.Header.Height == headerHeight {
-		//err := VerifyBlock(b, ledger, false)
-		//if err != nil {
-		//	log.Error("VerifyBlock error!")
-		//	return err
-		//}
-
-		cs.taskCh <- &persistHeaderTask{header: b.Header}
-	} else {
-		//flag, err := validation.VerifySignableData(b)
-		//if flag == false || err != nil {
-		//	log.Error("VerifyBlock error!")
-		//	return err
-		//}
+		cs.handlePersistHeaderTask(b.Header)
 	}
 
 	cs.taskCh <- &persistBlockTask{block: b, ledger: ledger}
+
 	return nil
+}
+
+func (cs *ChainStore) addBlockToCache(b *Block) {
+	cs.mu.Lock()
+	cs.blockCache[b.Hash()] = b
+	cs.mu.Unlock()
 }
 
 func (cs *ChainStore) handlePersistBlockTask(b *Block, ledger *Ledger) {
@@ -1206,9 +1192,7 @@ func (cs *ChainStore) handlePersistBlockTask(b *Block, ledger *Ledger) {
 		return
 	}
 
-	cs.mu.Lock()
-	cs.blockCache[b.Hash()] = b
-	cs.mu.Unlock()
+	cs.addBlockToCache(b)
 
 	if b.Header.Height < cs.GetHeaderHeight()+1 {
 		cs.persistBlocks(ledger)
@@ -1245,8 +1229,6 @@ func (cs *ChainStore) handlePersistBlockTask(b *Block, ledger *Ledger) {
 		cs.mu.Lock()
 		cs.storedHeaderCount = storedHeaderCount
 		cs.mu.Unlock()
-
-		cs.clearCache()
 	}
 }
 
@@ -1278,6 +1260,8 @@ func (cs *ChainStore) persistBlocks(ledger *Ledger) {
 
 		ledger.Blockchain.BCEvents.Notify(events.EventBlockPersistCompleted, block)
 		log.Infof("# current block height: %d, block hash: %x", block.Header.Height, hash.ToArrayReverse())
+
+		cs.clearCache(h)
 	}
 
 }

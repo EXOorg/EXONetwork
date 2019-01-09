@@ -1,12 +1,13 @@
 package node
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"sync"
-	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/core/ledger"
@@ -23,19 +24,6 @@ import (
 	"github.com/nknorg/nnet/overlay/routing"
 )
 
-const (
-	MaxSyncHeaderReq     = 2                // max concurrent sync header request count
-	MaxMsgChanNum        = 2048             // max goroutine num for message handler
-	ConnectionMaxBackoff = 4000             // back off for retry
-	MaxRetryCount        = 3                // max retry count
-	KeepAliveTicker      = 3 * time.Second  // ticker for ping/pong and keepalive message
-	KeepaliveTimeout     = 9 * time.Second  // timeout for keeping alive
-	BlockSyncingTicker   = 3 * time.Second  // ticker for syncing block
-	ConnectionTicker     = 10 * time.Second // ticker for connection
-	MaxReqBlkOnce        = 16               // max block count requested
-	ConnectingTimeout    = 10 * time.Second // timeout for waiting for connection
-)
-
 type LocalNode struct {
 	*Node
 	account       *vault.Account // local node wallet account
@@ -49,7 +37,8 @@ type LocalNode struct {
 	*messageHandlerStore
 
 	sync.RWMutex
-	syncOnce *sync.Once
+	syncOnce          *sync.Once
+	relayMessageCount uint64 // count how many messages node has relayed since start
 }
 
 func (localNode *LocalNode) MarshalJSON() ([]byte, error) {
@@ -67,6 +56,7 @@ func (localNode *LocalNode) MarshalJSON() ([]byte, error) {
 
 	out["height"] = localNode.GetHeight()
 	out["version"] = config.Version
+	out["relayMessageCount"] = localNode.GetRelayMessageCount()
 
 	return json.Marshal(out)
 }
@@ -118,8 +108,9 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 	ledger.DefaultLedger.Blockchain.BCEvents.Subscribe(events.EventBlockPersistCompleted, localNode.cleanupTransactions)
 
 	nn.MustApplyMiddleware(nnetnode.RemoteNodeReady(func(remoteNode *nnetnode.RemoteNode) bool {
-		if address.ShouldRejectAddr(localNode.GetAddr(), remoteNode.GetAddr()) {
-			remoteNode.Stop(errors.New("Remote port is different from local port"))
+		err := localNode.validateRemoteNode(remoteNode)
+		if err != nil {
+			remoteNode.Stop(err)
 			return false
 		}
 		return true
@@ -155,6 +146,36 @@ func (localNode *LocalNode) Start() error {
 	return nil
 }
 
+func (localNode *LocalNode) validateRemoteNode(remoteNode *nnetnode.RemoteNode) error {
+	addr, err := url.Parse(remoteNode.GetAddr())
+	if err != nil {
+		return err
+	}
+
+	connHost, connPort, err := net.SplitHostPort(remoteNode.GetConn().RemoteAddr().String())
+	if err != nil {
+		return err
+	}
+
+	if !address.IsPrivateIP(net.ParseIP(connHost)) && addr.Hostname() != connHost {
+		return fmt.Errorf("Remote node host %s is different from its connection host %s", addr.Hostname(), connHost)
+	}
+
+	if remoteNode.IsOutbound && addr.Port() != connPort {
+		return fmt.Errorf("Remote node port %v is different from its connection port %v", addr.Port(), connPort)
+	}
+
+	if !bytes.Equal(address.GenChordID(addr.Host), remoteNode.GetId()) {
+		return fmt.Errorf("Remote node id should be %x instead of %x", address.GenChordID(addr.Host), remoteNode.GetId())
+	}
+
+	if address.ShouldRejectAddr(localNode.GetAddr(), remoteNode.GetAddr()) {
+		return errors.New("Remote port is different from local port")
+	}
+
+	return nil
+}
+
 func (localNode *LocalNode) addRemoteNode(nnetNode *nnetnode.RemoteNode) error {
 	remoteNode, err := NewRemoteNode(localNode, nnetNode)
 	if err != nil {
@@ -176,6 +197,18 @@ func (localNode *LocalNode) maybeAddRemoteNode(remoteNode *nnetnode.RemoteNode) 
 	return nil
 }
 
+func (localNode *LocalNode) GetRelayMessageCount() uint64 {
+	localNode.RLock()
+	defer localNode.RUnlock()
+	return localNode.relayMessageCount
+}
+
+func (localNode *LocalNode) IncrementRelayMessageCount() {
+	localNode.Lock()
+	localNode.relayMessageCount++
+	localNode.Unlock()
+}
+
 func (localNode *LocalNode) GetTxnPool() *pool.TxnPool {
 	return localNode.TxnPool
 }
@@ -185,9 +218,7 @@ func (localNode *LocalNode) GetHeight() uint32 {
 }
 
 func (localNode *LocalNode) SetSyncState(s pb.SyncState) {
-	localNode.Node.Lock()
-	defer localNode.Node.Unlock()
-	localNode.syncState = s
+	localNode.Node.SetSyncState(s)
 	log.Infof("Set sync state to %s", s.String())
 }
 

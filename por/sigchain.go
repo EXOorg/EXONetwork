@@ -6,14 +6,17 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
 	"github.com/nknorg/nkn/crypto"
+	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
+	"github.com/nknorg/nnet/overlay/chord"
 )
 
 // for the first relay node
@@ -23,7 +26,10 @@ import (
 // 1. Sign: sign the element created in Sign
 
 // TODO: move sigAlgo to config.json
-const sigAlgo = ECDSA
+const (
+	sigAlgo                    = ECDSA
+	bitShiftPerSigChainElement = 2
+)
 
 func (sce *SigChainElem) SerializationUnsigned(w io.Writer) error {
 	err := serialization.WriteVarBytes(w, sce.Addr)
@@ -281,6 +287,30 @@ func (sc *SigChain) Verify() error {
 	return nil
 }
 
+func (sc *SigChain) VerifyPath() error {
+	if !sc.IsFinal() {
+		return fmt.Errorf("signature chain")
+	}
+
+	if len(sc.Elems) < 3 {
+		return fmt.Errorf("signature chain should have at least 3 elements, but only has %d", len(sc.Elems))
+	}
+
+	var t big.Int
+	lastNodeAddr := sc.Elems[len(sc.Elems)-2].Addr
+	prevDistance := chord.Distance(sc.Elems[1].Addr, lastNodeAddr, config.NodeIDBytes*8)
+	for i := 2; i < len(sc.Elems)-2; i++ {
+		dist := chord.Distance(sc.Elems[i].Addr, lastNodeAddr, config.NodeIDBytes*8)
+		(&t).Mul(dist, big.NewInt(2))
+		if t.Cmp(prevDistance) > 0 {
+			return fmt.Errorf("signature chain path is invalid")
+		}
+		prevDistance = dist
+	}
+
+	return nil
+}
+
 // Path returns signer path in signature chain.
 func (sc *SigChain) Path() [][]byte {
 	publicKeys := [][]byte{sc.SrcPubkey}
@@ -438,8 +468,10 @@ func (sc *SigChain) SignatureHash() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	sigHash := sha256.Sum256(signature)
-	return sigHash[:], nil
+	sigHashArray := sha256.Sum256(signature)
+	sigHash := sigHashArray[:]
+	rightShiftBytes(sigHash, bitShiftPerSigChainElement*sc.Length())
+	return sigHash, nil
 }
 
 func (sc *SigChain) GetOwner() ([]byte, error) {
