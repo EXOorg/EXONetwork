@@ -62,6 +62,7 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 		if ledger.CanVerifyHeight(consensusHeight) {
 			break
 		}
+
 		if elc.NeighborVoteCount() > 0 {
 			timerStartOnce.Do(func() {
 				timer.StopTimer(timeoutTimer)
@@ -69,7 +70,13 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 			})
 			break
 		}
-		time.Sleep(50 * time.Millisecond)
+
+		select {
+		case <-timeoutTimer.C:
+			return nil, errors.New("Wait for proposal timeout")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 
 	for {
@@ -232,7 +239,7 @@ func (consensus *Consensus) receiveProposal(block *ledger.Block) error {
 // receiveProposalHash is called when a node receives a block proposal hash from
 // a neighbor
 func (consensus *Consensus) receiveProposalHash(neighborID string, height uint32, blockHash common.Uint256) error {
-	log.Debugf("Receive block hash %s for height %d from neighbor %d", blockHash.ToHexString(), height, neighborID)
+	log.Debugf("Receive block hash %s for height %d from neighbor %v", blockHash.ToHexString(), height, neighborID)
 
 	if blockHash == common.EmptyUint256 {
 		return errors.New("Receive empty block hash")
@@ -296,6 +303,11 @@ func (consensus *Consensus) requestProposal(neighbor *node.RemoteNode, blockHash
 	err = block.Deserialize(bytes.NewReader(replyMsg.Block))
 	if err != nil {
 		return nil, err
+	}
+
+	receivedBlockHash := block.Header.Hash()
+	if receivedBlockHash != blockHash {
+		return nil, fmt.Errorf("Received block hash %s is different from requested hash %s", receivedBlockHash.ToHexString(), blockHash.ToHexString())
 	}
 
 	return block, nil

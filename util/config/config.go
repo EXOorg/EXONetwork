@@ -28,6 +28,7 @@ const (
 	DefaultMiningReward = 15
 	MinNumSuccessors    = 8
 	NodeIDBytes         = 32
+	MaxRollbackBlocks   = 1
 )
 
 var (
@@ -35,53 +36,56 @@ var (
 	SkipCheckPort bool
 	SkipNAT       bool
 	Parameters    = &Configuration{
-		Version:       1,
-		Transport:     "tcp",
-		NodePort:      30001,
-		HttpWsPort:    30002,
-		HttpJsonPort:  30003,
-		HttpProxyPort: 30004,
-		NAT:           true,
-		LogLevel:      1,
+		Version:      1,
+		Transport:    "tcp",
+		NodePort:     30001,
+		HttpWsPort:   30002,
+		HttpJsonPort: 30003,
+		NAT:          true,
+		LogLevel:     1,
 		SeedList: []string{
 			"http://127.0.0.1:30003",
 		},
 		SyncBatchWindowSize:       1024,
 		SyncBlockHeadersBatchSize: 256,
 		SyncBlocksBatchSize:       8,
+		RPCReadTimeout:            5,
+		RPCWriteTimeout:           10,
+		KeepAliveTimeout:          15,
 	}
 )
 
 type Configuration struct {
-	Version                   int      `json:"Version"`
-	SeedList                  []string `json:"SeedList"`
-	RestCertPath              string   `json:"RestCertPath"`
-	RestKeyPath               string   `json:"RestKeyPath"`
-	RPCCert                   string   `json:"RPCCert"`
-	RPCKey                    string   `json:"RPCKey"`
-	HttpWsPort                uint16   `json:"HttpWsPort"`
-	HttpJsonPort              uint16   `json:"HttpJsonPort"`
-	HttpProxyPort             uint16   `json:"HttpProxyPort"`
-	HttpProxyDialTimeout      uint16   `json:"HttpProxyDialTimeout"`
-	NodePort                  uint16   `json:"-"`
-	LogLevel                  int      `json:"LogLevel"`
-	IsTLS                     bool     `json:"IsTLS"`
-	CertPath                  string   `json:"CertPath"`
-	KeyPath                   string   `json:"KeyPath"`
-	CAPath                    string   `json:"CAPath"`
-	GenBlockTime              uint     `json:"GenBlockTime"`
-	EncryptAlg                string   `json:"EncryptAlg"`
-	MaxLogSize                int64    `json:"MaxLogSize"`
-	MaxTxInBlock              int      `json:"MaxTransactionInBlock"`
-	MaxHdrSyncReqs            int      `json:"MaxConcurrentSyncHeaderReqs"`
-	GenesisBlockProposer      string   `json:"GenesisBlockProposer"`
-	Hostname                  string   `json:"Hostname"`
-	Transport                 string   `json:"Transport"`
-	NAT                       bool     `json:"NAT"`
-	BeneficiaryAddr           string   `json:"BeneficiaryAddr"`
-	SyncBatchWindowSize       uint32   `json:"SyncBatchWindowSize"`
-	SyncBlockHeadersBatchSize uint32   `json:"SyncBlockHeadersBatchSize"`
-	SyncBlocksBatchSize       uint32   `json:"SyncBlocksBatchSize"`
+	Version                   int           `json:"Version"`
+	SeedList                  []string      `json:"SeedList"`
+	RestCertPath              string        `json:"RestCertPath"`
+	RestKeyPath               string        `json:"RestKeyPath"`
+	RPCCert                   string        `json:"RPCCert"`
+	RPCKey                    string        `json:"RPCKey"`
+	HttpWsPort                uint16        `json:"HttpWsPort"`
+	HttpJsonPort              uint16        `json:"HttpJsonPort"`
+	NodePort                  uint16        `json:"-"`
+	LogLevel                  int           `json:"LogLevel"`
+	IsTLS                     bool          `json:"IsTLS"`
+	CertPath                  string        `json:"CertPath"`
+	KeyPath                   string        `json:"KeyPath"`
+	CAPath                    string        `json:"CAPath"`
+	GenBlockTime              uint          `json:"GenBlockTime"`
+	EncryptAlg                string        `json:"EncryptAlg"`
+	MaxLogSize                int64         `json:"MaxLogSize"`
+	MaxTxInBlock              int           `json:"MaxTransactionInBlock"`
+	MaxHdrSyncReqs            int           `json:"MaxConcurrentSyncHeaderReqs"`
+	GenesisBlockProposer      string        `json:"GenesisBlockProposer"`
+	Hostname                  string        `json:"Hostname"`
+	Transport                 string        `json:"Transport"`
+	NAT                       bool          `json:"NAT"`
+	BeneficiaryAddr           string        `json:"BeneficiaryAddr"`
+	SyncBatchWindowSize       uint32        `json:"SyncBatchWindowSize"`
+	SyncBlockHeadersBatchSize uint32        `json:"SyncBlockHeadersBatchSize"`
+	SyncBlocksBatchSize       uint32        `json:"SyncBlocksBatchSize"`
+	RPCReadTimeout            time.Duration `json:"RPCReadTimeout"`
+	RPCWriteTimeout           time.Duration `json:"RPCWriteTimeout"`
+	KeepAliveTimeout          time.Duration `json:"KeepAliveTimeout"`
 }
 
 func Init() error {
@@ -126,10 +130,12 @@ func Init() error {
 	}
 
 	if Parameters.Hostname == "" {
+		log.Println("Getting my IP address...")
 		ip, err := ipify.GetIp()
 		if err != nil {
 			return err
 		}
+		log.Printf("My IP address is %s", ip)
 
 		Parameters.Hostname = ip
 
@@ -176,12 +182,6 @@ func (config *Configuration) addPortMapping(nat gonat.NAT) error {
 	}
 	log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
 
-	externalPort, internalPort, err = nat.AddPortMapping(transport.GetNetwork(), int(config.HttpProxyPort), int(config.HttpProxyPort), "nkn", 10*time.Second)
-	if err != nil {
-		return err
-	}
-	log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
-
 	return nil
 }
 
@@ -212,7 +212,6 @@ func (config *Configuration) incrementPort() {
 		config.NodePort,
 		config.HttpWsPort,
 		config.HttpJsonPort,
-		config.HttpProxyPort,
 	}
 	minPort, maxPort := findMinMaxPort(allPorts)
 	step := maxPort - minPort + 1
@@ -244,7 +243,6 @@ func (config *Configuration) incrementPort() {
 	config.NodePort += delta
 	config.HttpWsPort += delta
 	config.HttpJsonPort += delta
-	config.HttpProxyPort += delta
 	if delta > 0 {
 		log.Println("Port in use! All ports are automatically increased by", delta)
 	}
@@ -266,7 +264,6 @@ func (config *Configuration) CheckPorts(myIP string) (bool, error) {
 		config.NodePort,
 		config.HttpWsPort,
 		config.HttpJsonPort,
-		config.HttpProxyPort,
 	}
 	for _, port := range allPorts {
 		log.Printf("Checking TCP port %d", port)

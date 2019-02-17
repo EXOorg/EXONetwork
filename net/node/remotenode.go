@@ -2,7 +2,9 @@ package node
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/pb"
@@ -32,19 +34,24 @@ func (remoteNode *RemoteNode) MarshalJSON() ([]byte, error) {
 	}
 
 	out["height"] = remoteNode.GetHeight()
-	out["isOutBound"] = remoteNode.nnetNode.IsOutbound
+	out["isOutbound"] = remoteNode.nnetNode.IsOutbound
+	out["roundTripTime"] = remoteNode.nnetNode.GetRoundTripTime() / time.Millisecond
 
 	return json.Marshal(out)
 }
 
 func NewRemoteNode(localNode *LocalNode, nnetNode *nnetnode.RemoteNode) (*RemoteNode, error) {
-	var nodeData pb.NodeData
-	err := proto.Unmarshal(nnetNode.Node.Data, &nodeData)
+	nodeData := &pb.NodeData{}
+	err := proto.Unmarshal(nnetNode.Node.Data, nodeData)
 	if err != nil {
 		return nil, err
 	}
 
-	node, err := NewNode(nnetNode.Node.Node, &nodeData)
+	if nodeData.ProtocolVersion < minCompatibleProtocolVersion || nodeData.ProtocolVersion > maxCompatibleProtocolVersion {
+		return nil, fmt.Errorf("remote node has protocol version %d, which is not compatible with local node protocol verison %d", nodeData.ProtocolVersion, protocolVersion)
+	}
+
+	node, err := NewNode(nnetNode.Node.Node, nodeData)
 	if err != nil {
 		return nil, err
 	}

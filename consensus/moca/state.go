@@ -30,10 +30,13 @@ func (consensus *Consensus) startGettingNeighborConsensusState() {
 			if localConsensusHeight == 0 || localConsensusHeight+1 < majorityConsensusHeight {
 				if majorityConsensusHeight+1 > localLedgerHeight {
 					consensus.setNextConsensusHeight(majorityConsensusHeight + 1)
+					if consensus.localNode.GetSyncState() == pb.PersistFinished {
+						consensus.localNode.SetSyncState(pb.WaitForSyncing)
+					}
 				}
 			}
 		}
-		timer.ResetTimer(getNeighborConsensusStateTimer, randDuration(getConsensusStateInterval))
+		timer.ResetTimer(getNeighborConsensusStateTimer, randDuration(getConsensusStateInterval, 1.0/6.0))
 	}
 }
 
@@ -79,6 +82,7 @@ func (consensus *Consensus) getAllNeighborsConsensusState() (*sync.Map, error) {
 			consensusState, err := consensus.getNeighborConsensusState(neighbor)
 			if err != nil {
 				log.Warningf("Get latest block info from neighbor %v error: %v", neighbor.GetID(), err)
+				return
 			}
 			allInfo.Store(neighbor.GetID(), consensusState)
 		}(neighbor)
@@ -116,7 +120,7 @@ func (consensus *Consensus) getNeighborsMajorityConsensusHeight() uint32 {
 		}
 
 		for consensusHeight, count := range counter {
-			if count > int(consensusMinRelativeWeight*float32(totalCount)) {
+			if count > int(syncMinRelativeWeight*float32(totalCount)) {
 				return consensusHeight
 			}
 		}

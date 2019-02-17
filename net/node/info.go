@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/hex"
 	"encoding/json"
+	"time"
 
 	"github.com/nknorg/nkn/util/log"
 	nnetnode "github.com/nknorg/nnet/node"
@@ -37,7 +38,8 @@ func (rn *ChordRemoteNodeInfo) MarshalJSON() ([]byte, error) {
 
 	delete(out, "data")
 	out["id"] = hex.EncodeToString(rn.Node.Node.Id)
-	out["isOutBound"] = rn.IsOutbound
+	out["isOutbound"] = rn.IsOutbound
+	out["roundTripTime"] = (*nnetnode.RemoteNode)(rn).GetRoundTripTime() / time.Millisecond
 
 	return json.Marshal(out)
 }

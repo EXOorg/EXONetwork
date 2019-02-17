@@ -56,10 +56,14 @@ func (ah *APIHandler) IsAccessableByWebsocket() bool {
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getLatestBlockHash(s Serverer, params map[string]interface{}) map[string]interface{} {
-	hash := ledger.DefaultLedger.Blockchain.CurrentBlockHash()
+	height := ledger.DefaultLedger.Store.GetHeight()
+	hash, err := ledger.DefaultLedger.Store.GetBlockHash(height)
+	if err != nil {
+		return respPacking(nil, INTERNAL_ERROR)
+	}
 	ret := map[string]interface{}{
-		"height": ledger.DefaultLedger.Blockchain.BlockHeight,
-		"hash":   common.BytesToHexString(hash.ToArrayReverse()),
+		"height": height,
+		"hash":   hash.ToHexString(),
 	}
 	return respPacking(ret, SUCCESS)
 }
@@ -108,7 +112,7 @@ func getBlock(s Serverer, params map[string]interface{}) map[string]interface{} 
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getBlockCount(s Serverer, params map[string]interface{}) map[string]interface{} {
-	return respPacking(ledger.DefaultLedger.Blockchain.BlockHeight+1, SUCCESS)
+	return respPacking(ledger.DefaultLedger.Store.GetHeight()+1, SUCCESS)
 }
 
 // getChordRingInfo gets the information of Chord
@@ -126,7 +130,7 @@ func getChordRingInfo(s Serverer, params map[string]interface{}) map[string]inte
 // params: []
 // return: {"result":<result>, "error":<errcode>}
 func getLatestBlockHeight(s Serverer, params map[string]interface{}) map[string]interface{} {
-	return respPacking(ledger.DefaultLedger.Blockchain.BlockHeight, SUCCESS)
+	return respPacking(ledger.DefaultLedger.Store.GetHeight(), SUCCESS)
 }
 
 //// getBlockHash gets the block hash by height
@@ -805,31 +809,6 @@ func getWsAddr(s Serverer, params map[string]interface{}) map[string]interface{}
 	}
 }
 
-// getHttpProxyAddr get a websocket address
-// params: ["address":<address>]
-// return: {"result":<result>, "error":<errcode>}
-func getHttpProxyAddr(s Serverer, params map[string]interface{}) map[string]interface{} {
-	if len(params) < 1 {
-		return respPacking(nil, INVALID_PARAMS)
-	}
-
-	if str, ok := params["address"].(string); ok {
-		clientID, _, err := address.ParseClientAddress(str)
-		localNode, err := s.GetNetNode()
-		if err != nil {
-			return respPacking(nil, INTERNAL_ERROR)
-		}
-		addr, err := localNode.FindHttpProxyAddr(clientID)
-		if err != nil {
-			log.Error("Cannot get http proxy address")
-			return respPacking(nil, INTERNAL_ERROR)
-		}
-		return respPacking(addr, SUCCESS)
-	} else {
-		return respPacking(nil, INTERNAL_ERROR)
-	}
-}
-
 // getTotalIssued gets total issued asset
 // params: ["assetid":<assetid>]
 // return: {"result":<result>, "error":<errcode>}
@@ -1073,11 +1052,11 @@ func getUnspends(s Serverer, params map[string]interface{}) map[string]interface
 
 func VerifyAndSendTx(localNode *node.LocalNode, txn *transaction.Transaction) errors.ErrCode {
 	if errCode := localNode.AppendTxnPool(txn); errCode != errors.ErrNoError {
-		log.Warning("Can NOT add the transaction to TxnPool")
+		log.Warningf("Can NOT add the transaction to TxnPool: %v", errCode)
 		return errCode
 	}
 	if err := localNode.BroadcastTransaction(txn); err != nil {
-		log.Error("Xmit Tx Error:Xmit transaction failed.", err)
+		log.Errorf("Broadcast Tx Error: %v", err)
 		return errors.ErrXmitFail
 	}
 	return errors.ErrNoError
@@ -1250,7 +1229,6 @@ var InitialAPIHandlers = map[string]APIHandler{
 	"gettransaction":               {Handler: getTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
 	"sendrawtransaction":           {Handler: sendRawTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
 	"getwsaddr":                    {Handler: getWsAddr, AccessCtrl: BIT_JSONRPC},
-	"gethttpproxyaddr":             {Handler: getHttpProxyAddr, AccessCtrl: BIT_JSONRPC},
 	"getversion":                   {Handler: getVersion, AccessCtrl: BIT_JSONRPC},
 	"getneighbor":                  {Handler: getNeighbor, AccessCtrl: BIT_JSONRPC},
 	"getnodestate":                 {Handler: getNodeState, AccessCtrl: BIT_JSONRPC},

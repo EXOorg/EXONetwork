@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/core/ledger"
@@ -24,6 +25,12 @@ import (
 	"github.com/nknorg/nnet/overlay/routing"
 )
 
+const (
+	protocolVersion              = 1
+	minCompatibleProtocolVersion = 0
+	maxCompatibleProtocolVersion = 10
+)
+
 type LocalNode struct {
 	*Node
 	account       *vault.Account // local node wallet account
@@ -38,7 +45,8 @@ type LocalNode struct {
 
 	sync.RWMutex
 	syncOnce          *sync.Once
-	relayMessageCount uint64 // count how many messages node has relayed since start
+	relayMessageCount uint64    // count how many messages node has relayed since start
+	startTime         time.Time // Time of localNode init
 }
 
 func (localNode *LocalNode) MarshalJSON() ([]byte, error) {
@@ -55,6 +63,7 @@ func (localNode *LocalNode) MarshalJSON() ([]byte, error) {
 	}
 
 	out["height"] = localNode.GetHeight()
+	out["uptime"] = time.Since(localNode.startTime).Truncate(time.Second).Seconds()
 	out["version"] = config.Version
 	out["relayMessageCount"] = localNode.GetRelayMessageCount()
 
@@ -73,10 +82,10 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 	}
 
 	nodeData := &pb.NodeData{
-		PublicKey:     publicKey,
-		WebsocketPort: uint32(config.Parameters.HttpWsPort),
-		JsonRpcPort:   uint32(config.Parameters.HttpJsonPort),
-		HttpProxyPort: uint32(config.Parameters.HttpProxyPort),
+		PublicKey:       publicKey,
+		WebsocketPort:   uint32(config.Parameters.HttpWsPort),
+		JsonRpcPort:     uint32(config.Parameters.HttpJsonPort),
+		ProtocolVersion: uint32(protocolVersion),
 	}
 
 	node, err := NewNode(nn.GetLocalNode().Node.Node, nodeData)
@@ -92,6 +101,7 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 		hashCache:           NewHashCache(),
 		messageHandlerStore: newMessageHandlerStore(),
 		nnet:                nn,
+		startTime:           time.Now(),
 	}
 
 	localNode.relayer = NewRelayService(wallet, localNode)
@@ -249,7 +259,7 @@ func (localNode *LocalNode) FindSuccessorAddrs(key []byte, numSucc int) ([]strin
 	return addrs, nil
 }
 
-func (localNode *LocalNode) findAddr(key []byte, portSupplier func(nodeData *pb.NodeData) uint32) (string, error) {
+func (localNode *LocalNode) findAddr(key []byte) (string, error) {
 	c, ok := localNode.nnet.Network.(*chord.Chord)
 	if !ok {
 		return "", errors.New("Overlay is not chord")
@@ -281,19 +291,11 @@ func (localNode *LocalNode) findAddr(key []byte, portSupplier func(nodeData *pb.
 		return "", errors.New("Hostname is empty")
 	}
 
-	wsAddr := fmt.Sprintf("%s:%d", host, portSupplier(nodeData))
+	wsAddr := fmt.Sprintf("%s:%d", host, nodeData.WebsocketPort)
 
 	return wsAddr, nil
 }
 
 func (localNode *LocalNode) FindWsAddr(key []byte) (string, error) {
-	return localNode.findAddr(key, func(nodeData *pb.NodeData) uint32 {
-		return nodeData.WebsocketPort
-	})
-}
-
-func (localNode *LocalNode) FindHttpProxyAddr(key []byte) (string, error) {
-	return localNode.findAddr(key, func(nodeData *pb.NodeData) uint32 {
-		return nodeData.HttpProxyPort
-	})
+	return localNode.findAddr(key)
 }

@@ -116,6 +116,9 @@ func (rs *RelayService) receiveClientSignedSigChain(v interface{}) error {
 	}
 
 	errCode := rs.localNode.AppendTxnPool(txn)
+	if errCode == nknErrors.ErrNonOptimalSigChain {
+		return nil
+	}
 	if errCode != nknErrors.ErrNoError {
 		return errCode
 	}
@@ -156,15 +159,15 @@ func (localNode *LocalNode) SendRelayMessage(srcAddr, destAddr string, payload, 
 		return err
 	}
 
-	height := ledger.DefaultLedger.Store.GetHeaderHeight() - por.SigChainBlockHeightOffset
+	height := ledger.DefaultLedger.Store.GetHeight() - por.SigChainBlockHeightOffset
 	if height < 0 {
 		height = 0
 	}
-	headerHash := ledger.DefaultLedger.Store.GetHeaderHashByHeight(height)
+	blockHash := ledger.DefaultLedger.Store.GetHeaderHashByHeight(height)
 	sigChain, err := por.GetPorServer().CreateSigChainForClient(
 		uint32(len(payload)),
 		&payloadHash256,
-		&headerHash,
+		&blockHash,
 		srcID,
 		srcPubkey,
 		destPubkey,

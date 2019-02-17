@@ -15,6 +15,10 @@ import (
 	"github.com/nknorg/nkn/vault"
 )
 
+const (
+	persistBlockDelay = 300 * time.Millisecond
+)
+
 // Consensus is the Majority vOte Cellular Automata (MOCA) consensus layer
 type Consensus struct {
 	account             *vault.Account
@@ -108,6 +112,9 @@ func (consensus *Consensus) startConsensus() {
 			continue
 		}
 
+		// FIXME: use sync save block api
+		time.Sleep(persistBlockDelay)
+
 		consensus.setAcceptedHeight(consensusHeight)
 	}
 }
@@ -164,7 +171,7 @@ func (consensus *Consensus) loadOrCreateElection(key []byte) (*election.Election
 	config := &election.Config{
 		Duration:                    electionDuration,
 		MinVotingInterval:           minVotingInterval,
-		ChangeVoteMinAbsoluteWeight: uint32(changeVoteMinRelativeWeight*float32(totalWeight) + 1),
+		ChangeVoteMinRelativeWeight: changeVoteMinRelativeWeight,
 		ConsensusMinAbsoluteWeight:  uint32(consensusMinRelativeWeight*float32(totalWeight) + 1),
 	}
 
@@ -252,16 +259,19 @@ func (consensus *Consensus) saveAcceptedBlock(electedBlockHash common.Uint256) e
 		return err
 	}
 
+	syncState := consensus.localNode.GetSyncState()
 	if block.Header.Height == ledger.DefaultLedger.Store.GetHeight()+1 {
-		if consensus.localNode.GetSyncState() == pb.WaitForSyncing {
+		if syncState == pb.WaitForSyncing {
 			consensus.localNode.SetSyncState(pb.PersistFinished)
 		}
 		return ledger.DefaultLedger.Blockchain.AddBlock(block)
 	}
 
-	if consensus.localNode.GetSyncState() == pb.PersistFinished {
-		log.Infof("Accepted block height: %d, local ledger block height: %d, sync needed.", block.Header.Height, ledger.DefaultLedger.Store.GetHeight())
+	if syncState == pb.SyncStarted || syncState == pb.SyncFinished {
+		return nil
 	}
+
+	log.Infof("Accepted block height: %d, local ledger block height: %d, sync needed.", block.Header.Height, ledger.DefaultLedger.Store.GetHeight())
 
 	elc, loaded, err := consensus.loadOrCreateElection(heightToKey(block.Header.Height))
 	if err != nil {
@@ -317,7 +327,7 @@ func (consensus *Consensus) saveBlocksAcceptedDuringSync(startHeight uint32) err
 	height := startHeight
 	for height <= consensus.GetAcceptedHeight() {
 		// FIXME: use sync save block api
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(persistBlockDelay)
 
 		value, ok := consensus.elections.Get(heightToKey(height))
 		if !ok || value == nil {

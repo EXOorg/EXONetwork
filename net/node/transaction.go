@@ -44,10 +44,6 @@ func NewTransactionsMessage(transactions []*transaction.Transaction) (*pb.Unsign
 
 // transactionsMessageHandler handles a TRANSACTIONS message
 func (localNode *LocalNode) transactionsMessageHandler(remoteMessage *RemoteMessage) ([]byte, bool, error) {
-	if localNode.GetSyncState() != pb.PersistFinished {
-		return nil, false, nil
-	}
-
 	msgBody := &pb.Transactions{}
 	err := proto.Unmarshal(remoteMessage.Message, msgBody)
 	if err != nil {
@@ -59,6 +55,7 @@ func (localNode *LocalNode) transactionsMessageHandler(remoteMessage *RemoteMess
 	}
 
 	hasValidTxn := false
+	shouldPropagate := false
 	for _, txnBytes := range msgBody.Transactions {
 		txn := &transaction.Transaction{}
 		err = txn.Deserialize(bytes.NewReader(txnBytes))
@@ -73,16 +70,25 @@ func (localNode *LocalNode) transactionsMessageHandler(remoteMessage *RemoteMess
 		}
 
 		errCode := localNode.AppendTxnPool(txn)
+		if errCode == nknErrors.ErrNonOptimalSigChain || errCode == nknErrors.ErrDuplicatedTx {
+			hasValidTxn = true
+			continue
+		}
 		if errCode != nknErrors.ErrNoError {
 			log.Warningf("Verify transaction failed with %v when append to txn pool", errCode)
 			continue
 		}
 
 		hasValidTxn = true
+		shouldPropagate = true
 	}
 
 	if !hasValidTxn {
 		return nil, false, fmt.Errorf("all transactions in msg are invalid")
+	}
+
+	if !shouldPropagate {
+		return nil, false, nknErrors.ErrDoNotPropagate
 	}
 
 	return nil, false, nil
