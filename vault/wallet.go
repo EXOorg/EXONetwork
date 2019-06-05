@@ -1,19 +1,17 @@
 package vault
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
-	"bytes"
 
 	. "github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/core/contract"
-	ct "github.com/nknorg/nkn/core/contract"
-	sig "github.com/nknorg/nkn/core/signature"
-	"github.com/nknorg/nkn/core/transaction"
+	"github.com/nknorg/nkn/contract"
 	"github.com/nknorg/nkn/crypto"
+	"github.com/nknorg/nkn/signature"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/util/password"
 )
@@ -24,17 +22,11 @@ const (
 	WalletFileName        = "wallet.dat"
 )
 
-type VaultStore interface {
-	GetUnspentsFromProgramHash(programHash Uint160) (map[Uint256][]*transaction.UTXOUnspent, error)
-}
-
-var Store VaultStore
-
 type Wallet interface {
-	Sign(context *ct.ContractContext) error
+	Sign(context *contract.ContractContext) error
 	GetAccount(pubKey *crypto.PubKey) (*Account, error)
 	GetDefaultAccount() (*Account, error)
-	GetUnspent() (map[Uint256][]*transaction.UTXOUnspent, error)
+	//GetUnspent() (map[Uint256][]*transaction.UTXOUnspent, error)
 }
 
 type WalletImpl struct {
@@ -42,7 +34,7 @@ type WalletImpl struct {
 	iv        []byte
 	masterKey []byte
 	account   *Account
-	contract  *ct.Contract
+	contract  *contract.Contract
 	*WalletStore
 }
 
@@ -138,7 +130,7 @@ func OpenWallet(path string, password []byte) (*WalletImpl, error) {
 
 	rawdata, _ := HexStringToBytes(store.Data.ContractData)
 	r := bytes.NewReader(rawdata)
-	ct := new(ct.Contract)
+	ct := new(contract.Contract)
 	ct.Deserialize(r)
 
 	return &WalletImpl{
@@ -216,7 +208,7 @@ func (w *WalletImpl) GetAccount(pubKey *crypto.PubKey) (*Account, error) {
 	return w.account, nil
 }
 
-func (w *WalletImpl) Sign(context *ct.ContractContext) error {
+func (w *WalletImpl) Sign(context *contract.ContractContext) error {
 	var err error
 	contract, err := w.GetContract()
 	if err != nil {
@@ -227,7 +219,7 @@ func (w *WalletImpl) Sign(context *ct.ContractContext) error {
 		return errors.New("no available account in wallet")
 	}
 
-	signature, err := sig.SignBySigner(context.Data, account)
+	signature, err := signature.SignBySigner(context.Data, account)
 	if err != nil {
 		return err
 	}
@@ -278,7 +270,7 @@ func (w *WalletImpl) ChangePassword(oldPassword []byte, newPassword []byte) bool
 	return true
 }
 
-func (w *WalletImpl) GetContract() (*ct.Contract, error) {
+func (w *WalletImpl) GetContract() (*contract.Contract, error) {
 	if w.contract == nil {
 		return nil, errors.New("contract error")
 	}
@@ -286,18 +278,10 @@ func (w *WalletImpl) GetContract() (*ct.Contract, error) {
 	return w.contract, nil
 }
 
-func (w *WalletImpl) GetUnspent() (map[Uint256][]*transaction.UTXOUnspent, error) {
-	account, err := w.GetDefaultAccount()
-	if err != nil {
-		return nil, err
-	}
-	ret, err := Store.GetUnspentsFromProgramHash(account.ProgramHash)
-	if err != nil {
-		return nil, err
-	}
-
-	return ret, nil
-}
+//func (w *WalletImpl) GetUnspent() (map[Uint256][]*transaction.UTXOUnspent, error) {
+//	//TODO fix it
+//	return nil, nil
+//}
 
 func GetWallet() Wallet {
 	if !FileExisted(WalletFileName) {

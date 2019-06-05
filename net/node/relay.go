@@ -7,11 +7,13 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/core/ledger"
+	"github.com/nknorg/nkn/contract"
+	"github.com/nknorg/nkn/core"
 	nknErrors "github.com/nknorg/nkn/errors"
 	"github.com/nknorg/nkn/events"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/por"
+	"github.com/nknorg/nkn/types"
 	"github.com/nknorg/nkn/util/address"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
@@ -110,7 +112,7 @@ func (rs *RelayService) receiveClientSignedSigChain(v interface{}) error {
 		return err
 	}
 
-	txn, err := vault.MakeCommitTransaction(rs.wallet, buf)
+	txn, err := MakeCommitTransaction(rs.wallet, buf)
 	if err != nil {
 		return err
 	}
@@ -159,11 +161,11 @@ func (localNode *LocalNode) SendRelayMessage(srcAddr, destAddr string, payload, 
 		return err
 	}
 
-	height := ledger.DefaultLedger.Store.GetHeight() - por.SigChainBlockHeightOffset
+	height := core.DefaultLedger.Store.GetHeight() - por.SigChainBlockHeightOffset
 	if height < 0 {
 		height = 0
 	}
-	blockHash := ledger.DefaultLedger.Store.GetHeaderHashByHeight(height)
+	blockHash := core.DefaultLedger.Store.GetHeaderHashByHeight(height)
 	sigChain, err := por.GetPorServer().CreateSigChainForClient(
 		uint32(len(payload)),
 		&payloadHash256,
@@ -194,4 +196,22 @@ func (localNode *LocalNode) SendRelayMessage(srcAddr, destAddr string, payload, 
 	}
 
 	return nil
+}
+
+func MakeCommitTransaction(wallet vault.Wallet, sigChain []byte) (*types.Transaction, error) {
+	account, err := wallet.GetDefaultAccount()
+	if err != nil {
+		return nil, err
+	}
+	txn, err := types.NewCommitTransaction(sigChain, account.ProgramHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// sign transaction contract
+	ctx := contract.NewContractContext(txn)
+	wallet.Sign(ctx)
+	txn.SetPrograms(ctx.GetPrograms())
+
+	return txn, nil
 }

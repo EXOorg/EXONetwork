@@ -5,9 +5,10 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/core/ledger"
+	"github.com/nknorg/nkn/core"
 	"github.com/nknorg/nkn/net/node"
 	"github.com/nknorg/nkn/pb"
+	"github.com/nknorg/nkn/types"
 )
 
 // NewVoteMessage creates a VOTE message
@@ -72,7 +73,7 @@ func NewRequestBlockProposalMessage(blockHash common.Uint256) (*pb.UnsignedMessa
 
 // NewRequestBlockProposalReply creates a REQUEST_BLOCK_PROPOSAL_REPLY message
 // in respond to REQUEST_BLOCK_PROPOSAL message to send a block
-func NewRequestBlockProposalReply(block *ledger.Block) (*pb.UnsignedMessage, error) {
+func NewRequestBlockProposalReply(block *types.Block) (*pb.UnsignedMessage, error) {
 	var buf []byte
 	if block != nil {
 		b := new(bytes.Buffer)
@@ -221,8 +222,8 @@ func (consensus *Consensus) requestBlockProposalMessageHandler(remoteMessage *no
 
 // getConsensusStateMessageHandler handles a GET_CONSENSUS_STATE message
 func (consensus *Consensus) getConsensusStateMessageHandler(remoteMessage *node.RemoteMessage) ([]byte, bool, error) {
-	ledgerHeight := ledger.DefaultLedger.Store.GetHeight()
-	ledgerBlockHash := ledger.DefaultLedger.Store.GetHeaderHashByHeight(ledgerHeight)
+	ledgerHeight := core.DefaultLedger.Store.GetHeight()
+	ledgerBlockHash := core.DefaultLedger.Store.GetHeaderHashByHeight(ledgerHeight)
 	consensusHeight := consensus.GetExpectedHeight()
 	syncState := consensus.localNode.GetSyncState()
 
