@@ -1,8 +1,7 @@
 package common
 
 import (
-	"github.com/nknorg/nkn/errors"
-	"github.com/nknorg/nkn/net/node"
+	"github.com/nknorg/nkn/node"
 	"github.com/nknorg/nkn/vault"
 )
 
@@ -19,7 +18,7 @@ func respPacking(result interface{}, errcode ErrCode) map[string]interface{} {
 	return resp
 }
 
-func respPackingDetails(result interface{}, errcode ErrCode, details errors.ErrCode) map[string]interface{} {
+func respPackingDetails(result interface{}, errcode ErrCode, details ErrCode) map[string]interface{} {
 	resp := map[string]interface{}{
 		"result":  result,
 		"error":   errcode,

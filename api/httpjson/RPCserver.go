@@ -11,8 +11,7 @@ import (
 	"time"
 
 	"github.com/nknorg/nkn/api/common"
-	"github.com/nknorg/nkn/errors"
-	"github.com/nknorg/nkn/net/node"
+	"github.com/nknorg/nkn/node"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
@@ -109,6 +108,19 @@ func (s *RPCServer) Handle(w http.ResponseWriter, r *http.Request) {
 			w.Write(data)
 			return
 		}
+		// if params["RemoteAddr"] set but empty, used request.RemoteAddr
+		if addr, ok := params["RemoteAddr"]; ok {
+			switch addr.(type) {
+			case []byte, string:
+				if len(addr.(string)) == 0 { // empty string
+					params["RemoteAddr"] = r.RemoteAddr
+				}
+			case bool: // save remoteAddr whatever true or false
+				params["RemoteAddr"] = r.RemoteAddr
+			default:
+				log.Warningf("RemoteAddr unsupport type for %v", addr)
+			}
+		}
 
 		//get the corresponding function
 		function, ok := s.mainMux.m[method]
@@ -126,10 +138,10 @@ func (s *RPCServer) Handle(w http.ResponseWriter, r *http.Request) {
 					},
 					"id": id,
 				}
-				if details, ok := response["details"].(errors.ErrCode); ok {
+				if details, ok := response["details"].(common.ErrCode); ok {
 					result["details"] = map[string]interface{}{
 						"code":    details,
-						"message": details.Error(),
+						"message": common.ErrMessage[details],
 					}
 				}
 				data, err = json.Marshal(result)

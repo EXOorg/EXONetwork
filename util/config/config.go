@@ -24,12 +24,14 @@ const (
 
 const (
 	MaxNumTxnPerBlock   = 4096
+	MaxBlockSize        = 1 * 1024 * 1024 // The Max of block size is 1 MB.
 	ConsensusDuration   = 20 * time.Second
 	ConsensusTimeout    = time.Minute
 	DefaultMiningReward = 15
 	MinNumSuccessors    = 8
 	NodeIDBytes         = 32
 	MaxRollbackBlocks   = 1
+	EncryptAlg          = "Ed25519"
 )
 
 var (
@@ -74,11 +76,10 @@ type Configuration struct {
 	KeyPath                   string        `json:"KeyPath"`
 	CAPath                    string        `json:"CAPath"`
 	GenBlockTime              uint          `json:"GenBlockTime"`
-	EncryptAlg                string        `json:"EncryptAlg"`
 	MaxLogSize                int64         `json:"MaxLogSize"`
-	MaxTxInBlock              int           `json:"MaxTransactionInBlock"`
 	MaxHdrSyncReqs            int           `json:"MaxConcurrentSyncHeaderReqs"`
 	GenesisBlockProposer      string        `json:"GenesisBlockProposer"`
+	MinTxnFee                 int64         `json:"MinTxnFee"`
 	Hostname                  string        `json:"Hostname"`
 	Transport                 string        `json:"Transport"`
 	NAT                       bool          `json:"NAT"`

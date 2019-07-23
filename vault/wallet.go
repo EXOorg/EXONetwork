@@ -9,11 +9,11 @@ import (
 	"os"
 
 	. "github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/contract"
 	"github.com/nknorg/nkn/crypto"
-	"github.com/nknorg/nkn/signature"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/util/password"
+	"github.com/nknorg/nkn/vm/contract"
+	"github.com/nknorg/nkn/vm/signature"
 )
 
 const (
@@ -295,6 +295,7 @@ func GetWallet() Wallet {
 	}
 	c, err := OpenWallet(WalletFileName, passwd)
 	if err != nil {
+		log.Error(err)
 		return nil
 	}
 	return c

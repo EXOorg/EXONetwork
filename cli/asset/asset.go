@@ -1,7 +1,6 @@
 package asset
 
 import (
-	"bytes"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -73,17 +72,28 @@ func assetAction(c *cli.Context) error {
 	case c.Bool("issue"):
 		resp, err = client.Call(Address(), "issueasset", 0, map[string]interface{}{"assetid": parseAssetID(c), "address": parseAddress(c), "value": value})
 	case c.Bool("transfer"):
-		myWallet, err := vault.OpenWallet(vault.WalletFileName, getPassword("tt"))
+		walletName := c.String("wallet")
+		passwd := c.String("password")
+		myWallet, err := vault.OpenWallet(walletName, getPassword(passwd))
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		receipt := parseAddress(c)
 		amount, _ := StringToFixed64(value)
-		txn, _ := MakeTransferTransaction(myWallet, receipt, amount, 0)
-		buff := bytes.NewBuffer(nil)
-		txn.Serialize(buff)
-		resp, err = client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": hex.EncodeToString(buff.Bytes())})
+
+		var txnFee Fixed64
+		fee := c.String("fee")
+		if fee == "" {
+			txnFee = Fixed64(0)
+		} else {
+			txnFee, _ = StringToFixed64(fee)
+		}
+
+		nonce := c.Uint64("nonce")
+		txn, _ := MakeTransferTransaction(myWallet, receipt, nonce, amount, txnFee)
+		buff, _ := txn.Marshal()
+		resp, err = client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": hex.EncodeToString(buff)})
 	case c.Bool("prepaid"):
 		rates := c.String("rates")
 		if rates == "" {
@@ -160,8 +170,17 @@ func NewCommand() *cli.Command {
 				Value: "",
 			},
 			cli.StringFlag{
+				Name:  "fee, f",
+				Usage: "transaction fee",
+				Value: "",
+			},
+			cli.StringFlag{
 				Name:  "rates",
 				Usage: "rates",
+			},
+			cli.Uint64Flag{
+				Name:  "nonce",
+				Usage: "nonce",
 			},
 		},
 		Action: assetAction,

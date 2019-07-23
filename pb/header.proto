@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package pb;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+import "pb/program.proto";
+
+option (gogoproto.gostring_all) = true;
+option (gogoproto.goproto_stringer_all) = false;
+option (gogoproto.stringer_all) =  true;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+option (gogoproto.testgen_all) = true;
+option (gogoproto.equal_all) = true;
+option (gogoproto.populate_all) = true;
+
+
+enum WinnerType {
+	GenesisSigner  = 0;
+	TxnSigner      = 1;
+	BlockSigner    = 2;
+}
+
+message UnsignedHeader {
+	uint32     Version            = 1; 
+	bytes      PrevBlockHash      = 2;
+	bytes      TransactionsRoot   = 3;
+	bytes      StateRoot          = 4;
+	int64      Timestamp          = 5;
+	uint32     Height             = 6;
+	uint64     ConsensusData      = 7;
+	bytes      NextBookKeeper     = 8;
+	bytes      WinnerHash         = 9;
+	WinnerType WinnerType         = 10;
+	bytes      Signer             = 11;
+	bytes      ChordID            = 12;
+}
+
+message BlockHeader {
+    UnsignedHeader UnsignedHeader     = 1;
+	bytes          Signature          = 2;
+    Program        Program            = 3;
+}
+

@@ -3,13 +3,11 @@ package por
 import (
 	"bytes"
 	"errors"
-	"fmt"
 
 	"github.com/golang/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
-	nknerrors "github.com/nknorg/nkn/errors"
-	"github.com/nknorg/nkn/types"
-	"github.com/nknorg/nkn/util/log"
+	. "github.com/nknorg/nkn/pb"
+	. "github.com/nknorg/nkn/transaction"
 )
 
 const (
@@ -44,22 +42,22 @@ func (c PorPackages) Swap(i, j int) {
 
 func (c PorPackages) Less(i, j int) bool {
 	if i >= 0 && i < len(c) && j >= 0 && j < len(c) { // Unit Test modify
-		return c[i].CompareTo(c[j]) < 0
+		return bytes.Compare(c[i].SigHash, c[j].SigHash) < 0
 	}
 
 	return false
 }
 
-func NewPorPackage(txn *types.Transaction) (*PorPackage, error) {
-	if txn.UnsignedTx.Payload.Type != types.CommitType {
+func NewPorPackage(txn *Transaction) (*PorPackage, error) {
+	if txn.UnsignedTx.Payload.Type != CommitType {
 		return nil, errors.New("Transaction type mismatch")
 	}
-	payload, err := types.Unpack(txn.UnsignedTx.Payload)
+	payload, err := Unpack(txn.UnsignedTx.Payload)
 	if err != nil {
 		return nil, err
 	}
 
-	rs := payload.(*types.Commit)
+	rs := payload.(*Commit)
 	sigChain := &SigChain{}
 	err = proto.Unmarshal(rs.SigChain, sigChain)
 	if err != nil {
@@ -85,8 +83,7 @@ func NewPorPackage(txn *types.Transaction) (*PorPackage, error) {
 		}
 	}
 	if !found {
-		err := errors.New("no miner node in signature chain")
-		return nil, nknerrors.NewDetailErr(err, nknerrors.ErrNoCode, err.Error())
+		return nil, errors.New("No miner node in signature chain")
 	}
 
 	blockHash, err := Uint256ParseFromBytes(sigChain.BlockHash)
@@ -95,7 +92,7 @@ func NewPorPackage(txn *types.Transaction) (*PorPackage, error) {
 	}
 
 	if blockHash == EmptyUint256 {
-		return nil, fmt.Errorf("block hash in sigchain is empty")
+		return nil, errors.New("block hash in sigchain is empty")
 	}
 
 	height, err := Store.GetHeightByBlockHash(blockHash)
@@ -122,16 +119,4 @@ func NewPorPackage(txn *types.Transaction) (*PorPackage, error) {
 		SigChain:      sigChain,
 	}
 	return pp, nil
-}
-
-func (pp *PorPackage) CompareTo(o *PorPackage) int {
-	return bytes.Compare(pp.SigHash, o.SigHash)
-}
-
-func (pp *PorPackage) DumpInfo() {
-	log.Info("owner: ", BytesToHexString(pp.Owner))
-	log.Info("txHash: ", pp.TxHash)
-	log.Info("sigHash: ", pp.SigHash)
-	sc := pp.SigChain
-	sc.DumpInfo()
 }
