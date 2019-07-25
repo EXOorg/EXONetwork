@@ -12,10 +12,17 @@ import (
 	"github.com/itchyny/base58-go"
 )
 
-const PREFIXCHAR = byte(53)
+// FOOLPROOFPREFIX used for fool-proof prefix
+// base58.BitcoinEncoding[21] = 'N', base58.BitcoinEncoding[18] = 'K'
+// 33 = len(base58.Encode( (2**192).Bytes() )),  192 = 8bit * (UINT160SIZE + SHA256CHKSUM)
+// ((21 * 58**35) + (18 * 58**34) + (21 * 58**33)) >> 192 = 0x02b824
+const FOOLPROOFPREFIX = 0x02b824 + 1 // +1 for avoid affected by lower 192bits shift-add
+
+// PREFIXLEN = len( 0x02b825.Bytes() )
+const PREFIXLEN = 3
 const UINT160SIZE = 20
 const SHA256CHKSUM = 4
-const HEXADDRLEN = 1 + UINT160SIZE + SHA256CHKSUM // 1 for prefix char 53
+const HEXADDRLEN = PREFIXLEN + UINT160SIZE + SHA256CHKSUM
 
 type Uint160 [UINT160SIZE]uint8
 
@@ -80,16 +87,16 @@ func (f *Uint160) Deserialize(r io.Reader) error {
 }
 
 func IsValidHexAddr(s []byte) bool {
-	if len(s) == HEXADDRLEN && s[0] == PREFIXCHAR {
-		sha := sha256.Sum256(s[:1+UINT160SIZE])
+	if len(s) == HEXADDRLEN && new(big.Int).SetBytes(s[:PREFIXLEN]).Uint64() == FOOLPROOFPREFIX {
+		sha := sha256.Sum256(s[:PREFIXLEN+UINT160SIZE])
 		chkSum := sha256.Sum256(sha[:])
-		return bytes.Compare(s[1+UINT160SIZE:], chkSum[:SHA256CHKSUM]) == 0
+		return bytes.Compare(s[PREFIXLEN+UINT160SIZE:], chkSum[:SHA256CHKSUM]) == 0
 	}
 	return false
 }
 
 func (f *Uint160) ToAddress() (string, error) {
-	data := append([]byte{PREFIXCHAR}, f.ToArray()...)
+	data := append(big.NewInt(FOOLPROOFPREFIX).Bytes(), f.ToArray()...)
 	temp := sha256.Sum256(data)
 	temps := sha256.Sum256(temp[:])
 	data = append(data, temps[0:SHA256CHKSUM]...)
@@ -132,7 +139,7 @@ func ToScriptHash(address string) (Uint160, error) {
 		return EmptyUint160, fmt.Errorf("address[%s] decode %x not a valid address", address, hex)
 	}
 
-	return Uint160ParseFromBytes(hex[1 : 1+UINT160SIZE])
+	return Uint160ParseFromBytes(hex[PREFIXLEN : PREFIXLEN+UINT160SIZE])
 }
 
 func (u *Uint160) SetBytes(b []byte) {

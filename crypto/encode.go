@@ -237,13 +237,13 @@ func deCompress(yTilde int, xValue []byte, curve *elliptic.CurveParams) (*PubKey
 }
 
 func DecodePoint(encodeData []byte) (*PubKey, error) {
+	if len(encodeData) == 0 {
+		return nil, errors.New("The encodeData cann't be nil")
+	}
+
 	if AlgChoice == Ed25519 {
 		return &PubKey{X: new(big.Int).SetBytes(encodeData[1:]), Y: big.NewInt(0)}, nil
 	} else {
-		if nil == encodeData {
-			return nil, errors.New("The encodeData cann't be nil")
-		}
-
 		switch encodeData[0] {
 		case 0x00:
 			return &PubKey{nil, nil}, nil
@@ -277,7 +277,8 @@ func DecodePoint(encodeData []byte) (*PubKey, error) {
 func (e *PubKey) EncodePoint(isCommpressed bool) ([]byte, error) {
 	if AlgChoice == Ed25519 {
 		encodedData := make([]byte, COMPRESSEDLEN)
-		copy(encodedData[1:], e.X.Bytes())
+		xBytes := e.X.Bytes()
+		copy(encodedData[COMPRESSEDLEN-len(xBytes):COMPRESSEDLEN], xBytes)
 		encodedData[0] = 0x04
 		return encodedData, nil
 	} else {
@@ -311,6 +312,35 @@ func (e *PubKey) EncodePoint(isCommpressed bool) ([]byte, error) {
 		}
 
 		return encodedData, nil
+	}
+}
+
+func NewPubKeyFromBytes(pubkey []byte) (*PubKey, error) {
+	if AlgChoice == Ed25519 {
+		ed25519PubkeySize := ed25519.GetPublicKeySize()
+		switch len(pubkey) {
+		case COMPRESSEDLEN:
+			return DecodePoint(pubkey)
+		case ed25519PubkeySize:
+			publicKeyX := new(big.Int).SetBytes(pubkey)
+			return &PubKey{X: publicKeyX, Y: big.NewInt(0)}, nil
+		default:
+			return nil, errors.New("the size of ed25519 pubkey is incorrect")
+		}
+	} else {
+		switch len(pubkey) {
+		case COMPRESSEDLEN:
+			fallthrough
+		case NOCOMPRESSEDLEN:
+			return DecodePoint(pubkey)
+		case XORYVALUELEN * 2:
+			publicKeyX := new(big.Int).SetBytes(pubkey[:XORYVALUELEN])
+			publicKeyY := new(big.Int).SetBytes(pubkey[XORYVALUELEN:])
+			return &PubKey{X: publicKeyX, Y: publicKeyY}, nil
+		default:
+			return nil, errors.New("the size of ecdsa pubkey is incorrect")
+		}
+
 	}
 }
 

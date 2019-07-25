@@ -79,7 +79,7 @@ func (b *Block) GetTxsSize() int {
 }
 
 func (b *Block) GetSigner() ([]byte, []byte, error) {
-	return b.Header.UnsignedHeader.Signer, b.Header.UnsignedHeader.ChordID, nil
+	return b.Header.UnsignedHeader.Signer, b.Header.UnsignedHeader.ChordId, nil
 }
 
 func (b *Block) Trim(w io.Writer) error {
@@ -186,20 +186,15 @@ func GenesisBlockInit() (*Block, error) {
 				PrevBlockHash: EmptyUint256.ToArray(),
 				Timestamp:     time.Date(2018, time.January, 0, 0, 0, 0, 0, time.UTC).Unix(),
 
-				Height:         uint32(0),
-				ConsensusData:  GenesisNonce,
-				NextBookKeeper: EmptyUint160.ToArray(),
-				Signer:         genesisBlockProposer,
-			},
-			Program: &Program{
-				Code:      []byte{0x00},
-				Parameter: []byte{0x00},
+				Height:        uint32(0),
+				ConsensusData: GenesisNonce,
+				Signer:        genesisBlockProposer,
 			},
 		},
 	}
 
-	rewardAddress, _ := ToScriptHash("NcX9BWx5uxsevCZ2MUEbBJGoYGSNCuJJpf")
-	payload := NewCoinbase(EmptyUint160, rewardAddress, Fixed64(config.DefaultMiningReward*StorageFactor))
+	rewardAddress, _ := ToScriptHash(config.InitialIssueAddress)
+	payload := NewCoinbase(EmptyUint160, rewardAddress, Fixed64(config.InitialIssueAmount))
 	pl, err := Pack(CoinbaseType, payload)
 	if err != nil {
 		return nil, err
@@ -246,16 +241,22 @@ func (b *Block) SerializeUnsigned(w io.Writer) error {
 
 func (b *Block) GetInfo() ([]byte, error) {
 	type blockInfo struct {
-		Header       interface{}
-		Transactions []interface{}
+		Header       interface{}   `json:"header"`
+		Transactions []interface{} `json:"transactions"`
+		Size         int           `json:"size"`
+		Hash         string        `json:"hash"`
 	}
 
 	var unmarshaledHeader interface{}
 	headerInfo, _ := b.Header.GetInfo()
 	json.Unmarshal(headerInfo, &unmarshaledHeader)
+
+	b.Hash()
 	info := &blockInfo{
 		Header:       unmarshaledHeader,
 		Transactions: make([]interface{}, 0),
+		Size:         b.ToMsgBlock().Size(),
+		Hash:         b.hash.ToHexString(),
 	}
 
 	for _, v := range b.Transactions {

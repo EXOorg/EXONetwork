@@ -14,6 +14,7 @@ import (
 
 	gonat "github.com/nknorg/go-nat"
 	"github.com/nknorg/go-portscanner"
+	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nnet/transport"
 	"github.com/rdegges/go-ipify"
 )
@@ -23,15 +24,26 @@ const (
 )
 
 const (
-	MaxNumTxnPerBlock   = 4096
-	MaxBlockSize        = 1 * 1024 * 1024 // The Max of block size is 1 MB.
-	ConsensusDuration   = 20 * time.Second
-	ConsensusTimeout    = time.Minute
-	DefaultMiningReward = 15
-	MinNumSuccessors    = 8
-	NodeIDBytes         = 32
-	MaxRollbackBlocks   = 1
-	EncryptAlg          = "Ed25519"
+	MaxNumTxnPerBlock            = 4096
+	MaxBlockSize                 = 1 * 1024 * 1024 // The Max of block size is 1 MB.
+	ConsensusDuration            = 20 * time.Second
+	ConsensusTimeout             = time.Minute
+	DefaultMiningReward          = 15
+	MinNumSuccessors             = 8
+	NodeIDBytes                  = 32
+	MaxRollbackBlocks            = 1
+	EncryptAlg                   = "Ed25519"
+	DBVersion                    = 0x04
+	InitialIssueAddress          = "NKNQ83xc8zQNEE6WBDKm7tZrLwoMwAq4c4jo"
+	InitialIssueAmount           = 700000000 * common.StorageFactor
+	TotalMiningRewards           = 300000000 * common.StorageFactor
+	TotalRewardDuration          = uint32(25)
+	InitialReward                = common.Fixed64(18000000 * common.StorageFactor)
+	RewardAdjustInterval         = 365 * 24 * 60 * 60 / int(ConsensusDuration/time.Second)
+	ReductionAmount              = common.Fixed64(500000 * common.StorageFactor)
+	DonationAddress              = "NKNaaaaaaaaaaaaaaaaaaaaaaaaaaaeJ6gxa"
+	DonationAdjustDividendFactor = 1
+	DonationAdjustDivisorFactor  = 2
 )
 
 var (
@@ -46,6 +58,7 @@ var (
 		HttpWsPort:   30002,
 		HttpJsonPort: 30003,
 		NAT:          true,
+		MiningDebug:  true,
 		LogLevel:     1,
 		SeedList: []string{
 			"http://127.0.0.1:30003",
@@ -83,6 +96,7 @@ type Configuration struct {
 	Hostname                  string        `json:"Hostname"`
 	Transport                 string        `json:"Transport"`
 	NAT                       bool          `json:"NAT"`
+	MiningDebug               bool          `json:"MiningDebug"`
 	BeneficiaryAddr           string        `json:"BeneficiaryAddr"`
 	SyncBatchWindowSize       uint32        `json:"SyncBatchWindowSize"`
 	SyncBlockHeadersBatchSize uint32        `json:"SyncBlockHeadersBatchSize"`

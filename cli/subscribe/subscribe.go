@@ -1,4 +1,4 @@
-package name
+package subscribe
 
 import (
 	"encoding/hex"
@@ -14,7 +14,7 @@ import (
 	"github.com/urfave/cli"
 )
 
-func nameAction(c *cli.Context) error {
+func subscribeAction(c *cli.Context) error {
 	if c.NumFlags() == 0 {
 		cli.ShowSubcommandHelp(c)
 		return nil
@@ -40,23 +40,29 @@ func nameAction(c *cli.Context) error {
 
 	var resp []byte
 	switch {
-	case c.Bool("reg"):
-		name := c.String("name")
-		if name == "" {
-			fmt.Println("name is required with [--name]")
-			return nil
-		}
-		txn, _ := MakeRegisterNameTransaction(myWallet, name, nonce, txnFee)
-		buff, _ := txn.Marshal()
-		resp, err = client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": hex.EncodeToString(buff)})
-	case c.Bool("del"):
-		name := c.String("name")
-		if name == "" {
-			fmt.Println("name is required with [--name]")
+	case c.Bool("sub"):
+		id := c.String("identifier")
+		if id == "" {
+			fmt.Println("identifier is required with [--id]")
 			return nil
 		}
 
-		txn, _ := MakeDeleteNameTransaction(myWallet, name, nonce, txnFee)
+		topic := c.String("topic")
+		if topic == "" {
+			fmt.Println("topic is required with [--topic]")
+			return nil
+		}
+
+		bucket := c.Uint64("bucket")
+		duration := c.Uint64("duration")
+
+		meta := c.String("meta")
+		if meta == "" {
+			fmt.Println("meta is required with [--meta]")
+			return nil
+		}
+
+		txn, _ := MakeSubscribeTransaction(myWallet, id, topic, uint32(bucket), uint32(duration), meta, nonce, txnFee)
 		buff, _ := txn.Marshal()
 		resp, err = client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": hex.EncodeToString(buff)})
 	default:
@@ -74,22 +80,34 @@ func nameAction(c *cli.Context) error {
 
 func NewCommand() *cli.Command {
 	return &cli.Command{
-		Name:        "name",
-		Usage:       "name registration",
-		Description: "With nknc name, you could register name for your address.",
+		Name:        "subscribe",
+		Usage:       "subscribe topic",
+		Description: "With nknc sub, you could subscribe your topic.",
 		ArgsUsage:   "[args]",
 		Flags: []cli.Flag{
 			cli.BoolFlag{
-				Name:  "reg, r",
-				Usage: "register name for your address",
-			},
-			cli.BoolFlag{
-				Name:  "del, d",
-				Usage: "delete name of your address",
+				Name:  "sub, s",
+				Usage: "subscribe your topic",
 			},
 			cli.StringFlag{
-				Name:  "name",
-				Usage: "name",
+				Name:  "identifier, id",
+				Usage: "identifier",
+			},
+			cli.StringFlag{
+				Name:  "topic",
+				Usage: "topic",
+			},
+			cli.Uint64Flag{
+				Name:  "bucket",
+				Usage: "bucket",
+			},
+			cli.Uint64Flag{
+				Name:  "duration",
+				Usage: "duration",
+			},
+			cli.StringFlag{
+				Name:  "meta",
+				Usage: "meta",
 			},
 			cli.StringFlag{
 				Name:  "wallet, w",
@@ -110,9 +128,9 @@ func NewCommand() *cli.Command {
 				Usage: "nonce",
 			},
 		},
-		Action: nameAction,
+		Action: subscribeAction,
 		OnUsageError: func(c *cli.Context, err error, isSubcommand bool) error {
-			PrintError(c, err, "name")
+			PrintError(c, err, "subscribe")
 			return cli.NewExitError("", 1)
 		},
 	}
