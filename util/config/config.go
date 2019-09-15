@@ -15,6 +15,7 @@ import (
 	gonat "github.com/nknorg/go-nat"
 	"github.com/nknorg/go-portscanner"
 	"github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/crypto/util"
 	"github.com/nknorg/nnet/transport"
 	"github.com/rdegges/go-ipify"
 )
@@ -25,25 +26,38 @@ const (
 
 const (
 	MaxNumTxnPerBlock            = 4096
-	MaxBlockSize                 = 1 * 1024 * 1024 // The Max of block size is 1 MB.
+	MaxBlockSize                 = 1 * 1024 * 1024 // in bytes
 	ConsensusDuration            = 20 * time.Second
 	ConsensusTimeout             = time.Minute
-	DefaultMiningReward          = 15
 	MinNumSuccessors             = 8
 	NodeIDBytes                  = 32
 	MaxRollbackBlocks            = 1
+	SigChainPropogationTime      = 1
 	EncryptAlg                   = "Ed25519"
-	DBVersion                    = 0x04
+	DBVersion                    = 0x0d
 	InitialIssueAddress          = "NKNQ83xc8zQNEE6WBDKm7tZrLwoMwAq4c4jo"
 	InitialIssueAmount           = 700000000 * common.StorageFactor
 	TotalMiningRewards           = 300000000 * common.StorageFactor
 	TotalRewardDuration          = uint32(25)
 	InitialReward                = common.Fixed64(18000000 * common.StorageFactor)
-	RewardAdjustInterval         = 365 * 24 * 60 * 60 / int(ConsensusDuration/time.Second)
+	RewardAdjustInterval         = 3 * 24 * 60 * 60 / int(ConsensusDuration/time.Second) //TODO reduce interval for testing
 	ReductionAmount              = common.Fixed64(500000 * common.StorageFactor)
 	DonationAddress              = "NKNaaaaaaaaaaaaaaaaaaaaaaaaaaaeJ6gxa"
 	DonationAdjustDividendFactor = 1
 	DonationAdjustDivisorFactor  = 2
+	MinGenIDRegistrationFee      = 0
+	GenerateIDBlockDelay         = 1
+	RandomBeaconLength           = 32
+	ProtocolVersion              = 61
+	MinCompatibleProtocolVersion = 61
+	MaxCompatibleProtocolVersion = 65
+	DefaultTxPoolCap             = 32
+	DefaultTxPoolOrphanCap       = 64
+)
+
+var (
+	ShortHashSize uint32 = 8
+	ShortHashSalt []byte = util.RandomBytes(32)
 )
 
 var (
@@ -58,6 +72,7 @@ var (
 		HttpWsPort:   30002,
 		HttpJsonPort: 30003,
 		NAT:          true,
+		Mining:       true,
 		MiningDebug:  true,
 		LogLevel:     1,
 		SeedList: []string{
@@ -70,6 +85,9 @@ var (
 		RPCWriteTimeout:           10,
 		KeepAliveTimeout:          15,
 		NATPortMappingTimeout:     365 * 86400,
+		NumTxnPerBlock:            MaxNumTxnPerBlock,
+		TxPoolCap:                 DefaultTxPoolCap,
+		TxPoolOrphanCap:           DefaultTxPoolOrphanCap,
 	}
 )
 
@@ -96,11 +114,15 @@ type Configuration struct {
 	Hostname                  string        `json:"Hostname"`
 	Transport                 string        `json:"Transport"`
 	NAT                       bool          `json:"NAT"`
+	Mining                    bool          `json:"Mining"`
 	MiningDebug               bool          `json:"MiningDebug"`
 	BeneficiaryAddr           string        `json:"BeneficiaryAddr"`
 	SyncBatchWindowSize       uint32        `json:"SyncBatchWindowSize"`
 	SyncBlockHeadersBatchSize uint32        `json:"SyncBlockHeadersBatchSize"`
 	SyncBlocksBatchSize       uint32        `json:"SyncBlocksBatchSize"`
+	NumTxnPerBlock            uint32        `json:"NumTxnPerBlock"`
+	TxPoolCap                 int           `json:"TxPoolCap"`
+	TxPoolOrphanCap           int           `json:"TxPoolOrphanCap"`
 	RPCReadTimeout            time.Duration `json:"RPCReadTimeout"`        // in seconds
 	RPCWriteTimeout           time.Duration `json:"RPCWriteTimeout"`       // in seconds
 	KeepAliveTimeout          time.Duration `json:"KeepAliveTimeout"`      // in seconds
@@ -242,6 +264,10 @@ func (config *Configuration) CleanPortMapping() error {
 func check(config *Configuration) error {
 	if len(config.SeedList) == 0 {
 		return errors.New("seed list in config file should not be blank")
+	}
+
+	if config.NumTxnPerBlock > MaxNumTxnPerBlock {
+		return fmt.Errorf("NumTxnPerBlock cannot be greater than %d", MaxNumTxnPerBlock)
 	}
 
 	return nil

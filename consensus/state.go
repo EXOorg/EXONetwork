@@ -8,6 +8,8 @@ import (
 	"github.com/nknorg/nkn/chain"
 	"github.com/nknorg/nkn/node"
 	"github.com/nknorg/nkn/pb"
+	"github.com/nknorg/nkn/por"
+	"github.com/nknorg/nkn/util"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/util/timer"
 )
@@ -15,6 +17,9 @@ import (
 // startGettingNeighborConsensusState peroidically checks neighbors' majority
 // consensus height and sets local height if fall behind
 func (consensus *Consensus) startGettingNeighborConsensusState() {
+	consensus.localNode.SetMinVerifiableHeight(chain.DefaultLedger.Store.GetHeight() + por.SigChainMiningHeightOffset)
+
+	initialized := false
 	getNeighborConsensusStateTimer := time.NewTimer(proposingStartDelay / 2)
 	for {
 		select {
@@ -23,6 +28,14 @@ func (consensus *Consensus) startGettingNeighborConsensusState() {
 			localConsensusHeight := consensus.GetExpectedHeight()
 			localLedgerHeight := chain.DefaultLedger.Store.GetHeight()
 
+			if !initialized {
+				if majorityConsensusHeight == 0 {
+					log.Infof("Cannot get neighbors' majority consensus height, assuming network bootstrap")
+					consensus.localNode.SetMinVerifiableHeight(0)
+				}
+				initialized = true
+			}
+
 			if localConsensusHeight > majorityConsensusHeight {
 				break
 			}
@@ -30,13 +43,14 @@ func (consensus *Consensus) startGettingNeighborConsensusState() {
 			if localConsensusHeight == 0 || localConsensusHeight+1 < majorityConsensusHeight {
 				if majorityConsensusHeight+1 > localLedgerHeight {
 					consensus.setNextConsensusHeight(majorityConsensusHeight + 1)
+					consensus.localNode.SetMinVerifiableHeight(majorityConsensusHeight + 1 + por.SigChainMiningHeightOffset)
 					if consensus.localNode.GetSyncState() == pb.PersistFinished {
 						consensus.localNode.SetSyncState(pb.WaitForSyncing)
 					}
 				}
 			}
 		}
-		timer.ResetTimer(getNeighborConsensusStateTimer, randDuration(getConsensusStateInterval, 1.0/6.0))
+		timer.ResetTimer(getNeighborConsensusStateTimer, util.RandDuration(getConsensusStateInterval, 1.0/6.0))
 	}
 }
 
@@ -48,7 +62,7 @@ func (consensus *Consensus) getNeighborConsensusState(neighbor *node.RemoteNode)
 		return nil, err
 	}
 
-	buf, err := consensus.localNode.SerializeMessage(msg, true)
+	buf, err := consensus.localNode.SerializeMessage(msg, false)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +79,7 @@ func (consensus *Consensus) getNeighborConsensusState(neighbor *node.RemoteNode)
 	}
 
 	neighbor.SetHeight(replyMsg.LedgerHeight)
+	neighbor.SetMinVerifiableHeight(replyMsg.MinVerifiableHeight)
 	neighbor.SetSyncState(replyMsg.SyncState)
 
 	return replyMsg, nil
@@ -81,7 +96,7 @@ func (consensus *Consensus) getAllNeighborsConsensusState() (*sync.Map, error) {
 			defer wg.Done()
 			consensusState, err := consensus.getNeighborConsensusState(neighbor)
 			if err != nil {
-				log.Warningf("Get latest block info from neighbor %v error: %v", neighbor.GetID(), err)
+				log.Warningf("Get consensus state from neighbor %v error: %v", neighbor.GetID(), err)
 				return
 			}
 			allInfo.Store(neighbor.GetID(), consensusState)

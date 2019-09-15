@@ -14,7 +14,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/chain"
 	"github.com/nknorg/nkn/chain/pool"
-	"github.com/nknorg/nkn/events"
+	"github.com/nknorg/nkn/event"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/util/address"
 	"github.com/nknorg/nkn/util/config"
@@ -24,24 +24,20 @@ import (
 	nnetnode "github.com/nknorg/nnet/node"
 	"github.com/nknorg/nnet/overlay/chord"
 	"github.com/nknorg/nnet/overlay/routing"
-)
-
-const (
-	protocolVersion              = 21
-	minCompatibleProtocolVersion = 21
-	maxCompatibleProtocolVersion = 25
+	nnetpb "github.com/nknorg/nnet/protobuf"
 )
 
 type LocalNode struct {
 	*Node
-	account       *vault.Account // local node wallet account
-	nnet          *nnet.NNet     // nnet instance
-	relayer       *RelayService  // relay service
-	quit          chan bool      // block syncing channel
-	nbrNodes                     // neighbor nodes
-	eventQueue                   // event queue
-	*pool.TxnPool                // transaction pool of local node
-	*hashCache                   // entity hash cache
+	account            *vault.Account // local node wallet account
+	nnet               *nnet.NNet     // nnet instance
+	relayer            *RelayService  // relay service
+	quit               chan bool      // block syncing channel
+	requestSigChainTxn *requestTxn
+	receiveTxnMsg      *receiveTxnMsg
+	nbrNodes           // neighbor nodes
+	*pool.TxnPool      // transaction pool of local node
+	*hashCache         // txn hash cache
 	*messageHandlerStore
 
 	sync.RWMutex
@@ -91,7 +87,7 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 		PublicKey:       publicKey,
 		WebsocketPort:   uint32(config.Parameters.HttpWsPort),
 		JsonRpcPort:     uint32(config.Parameters.HttpJsonPort),
-		ProtocolVersion: uint32(protocolVersion),
+		ProtocolVersion: uint32(config.ProtocolVersion),
 	}
 
 	node, err := NewNode(nn.GetLocalNode().Node.Node, nodeData)
@@ -104,7 +100,9 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 		account:             account,
 		TxnPool:             pool.NewTxPool(),
 		quit:                make(chan bool, 1),
-		hashCache:           NewHashCache(),
+		hashCache:           newHashCache(),
+		requestSigChainTxn:  newRequestTxn(requestSigChainTxnWorkerPoolSize, nil),
+		receiveTxnMsg:       newReceiveTxnMsg(receiveTxnMsgWorkerPoolSize, nil),
 		messageHandlerStore: newMessageHandlerStore(),
 		nnet:                nn,
 		startTime:           time.Now(),
@@ -119,38 +117,61 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 
 	log.Infof("Init node ID to %v", localNode.GetID())
 
-	localNode.eventQueue.init()
+	event.Queue.Subscribe(event.BlockPersistCompleted, localNode.cleanupTransactions)
 
-	chain.DefaultLedger.Blockchain.BCEvents.Subscribe(events.EventBlockPersistCompleted, localNode.cleanupTransactions)
+	nn.MustApplyMiddleware(nnetnode.WillConnectToNode{func(n *nnetpb.Node) (bool, bool) {
+		err := localNode.shouldConnectToNode(n)
+		if err != nil {
+			log.Infof("stop connect to node because: %v", err)
+			return false, false
+		}
+		return true, true
+	}, 0})
 
-	nn.MustApplyMiddleware(nnetnode.RemoteNodeReady(func(remoteNode *nnetnode.RemoteNode) bool {
+	nn.MustApplyMiddleware(nnetnode.RemoteNodeReady{func(remoteNode *nnetnode.RemoteNode) bool {
 		err := localNode.validateRemoteNode(remoteNode)
 		if err != nil {
 			remoteNode.Stop(err)
 			return false
 		}
 		return true
-	}))
+	}, 1000})
 
-	nn.MustApplyMiddleware(chord.NeighborAdded(func(remoteNode *nnetnode.RemoteNode, index int) bool {
+	nn.MustApplyMiddleware(chord.NeighborAdded{func(remoteNode *nnetnode.RemoteNode, index int) bool {
 		err := localNode.maybeAddRemoteNode(remoteNode)
 		if err != nil {
 			remoteNode.Stop(err)
 			return false
 		}
 		return true
-	}))
+	}, 0})
 
-	nn.MustApplyMiddleware(chord.NeighborRemoved(func(remoteNode *nnetnode.RemoteNode) bool {
+	nn.MustApplyMiddleware(chord.NeighborRemoved{func(remoteNode *nnetnode.RemoteNode) bool {
 		nbr := localNode.getNbrByNNetNode(remoteNode)
 		if nbr != nil {
 			localNode.DelNbrNode(nbr.GetID())
 		}
-
 		return true
-	}))
+	}, 0})
 
-	nn.MustApplyMiddleware(routing.RemoteMessageRouted(localNode.remoteMessageRouted))
+	nn.MustApplyMiddleware(nnetnode.MessageEncoded{func(rn *nnetnode.RemoteNode, msg []byte) ([]byte, bool) {
+		return localNode.encryptMessage(msg, rn), true
+	}, 0})
+
+	nn.MustApplyMiddleware(nnetnode.MessageWillDecode{func(rn *nnetnode.RemoteNode, msg []byte) ([]byte, bool) {
+		decrypted, err := localNode.decryptMessage(msg, rn)
+		if err != nil {
+			if localNode.getNbrByNNetNode(rn) != nil {
+				rn.Stop(err)
+			} else {
+				log.Warningf("Decrypt message from %v error: %v", rn, err)
+			}
+			return nil, false
+		}
+		return decrypted, true
+	}, 0})
+
+	nn.MustApplyMiddleware(routing.RemoteMessageRouted{localNode.remoteMessageRouted, 0})
 
 	return localNode, nil
 }
@@ -158,11 +179,53 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 func (localNode *LocalNode) Start() error {
 	localNode.startRelayer()
 	localNode.initSyncing()
-	localNode.AddMessageHandler(pb.TRANSACTIONS, localNode.transactionsMessageHandler)
+	localNode.initTxnHandlers()
+	return nil
+}
+
+func (localNode *LocalNode) shouldConnectToNode(n *nnetpb.Node) error {
+	if n.GetData() != nil {
+		nodeData := &pb.NodeData{}
+		err := proto.Unmarshal(n.Data, nodeData)
+		if err != nil {
+			return err
+		}
+
+		if nodeData.ProtocolVersion < config.MinCompatibleProtocolVersion || nodeData.ProtocolVersion > config.MaxCompatibleProtocolVersion {
+			return fmt.Errorf("remote node has protocol version %d, which is not compatible with local node protocol verison %d", nodeData.ProtocolVersion, config.ProtocolVersion)
+		}
+	}
+
+	addr, err := url.Parse(n.GetAddr())
+	if err != nil {
+		return err
+	}
+
+	if n.GetId() != nil && !bytes.Equal(address.GenChordID(addr.Host), n.GetId()) {
+		return fmt.Errorf("Remote node id should be %x instead of %x", address.GenChordID(addr.Host), n.GetId())
+	}
+
+	if address.ShouldRejectAddr(localNode.GetAddr(), n.GetAddr()) {
+		return errors.New("Remote port is different from local port")
+	}
+
 	return nil
 }
 
 func (localNode *LocalNode) validateRemoteNode(remoteNode *nnetnode.RemoteNode) error {
+	if remoteNode.GetId() == nil {
+		return errors.New("Remote node id is nil")
+	}
+
+	if remoteNode.GetData() == nil {
+		return errors.New("Remote node data is nil")
+	}
+
+	err := localNode.shouldConnectToNode(remoteNode.Node.Node)
+	if err != nil {
+		return err
+	}
+
 	addr, err := url.Parse(remoteNode.GetAddr())
 	if err != nil {
 		return err
@@ -179,14 +242,6 @@ func (localNode *LocalNode) validateRemoteNode(remoteNode *nnetnode.RemoteNode) 
 
 	if remoteNode.IsOutbound && addr.Port() != connPort {
 		return fmt.Errorf("Remote node port %v is different from its connection port %v", addr.Port(), connPort)
-	}
-
-	if !bytes.Equal(address.GenChordID(addr.Host), remoteNode.GetId()) {
-		return fmt.Errorf("Remote node id should be %x instead of %x", address.GenChordID(addr.Host), remoteNode.GetId())
-	}
-
-	if address.ShouldRejectAddr(localNode.GetAddr(), remoteNode.GetAddr()) {
-		return errors.New("Remote port is different from local port")
 	}
 
 	return nil
@@ -242,8 +297,13 @@ func (localNode *LocalNode) GetHeight() uint32 {
 }
 
 func (localNode *LocalNode) SetSyncState(s pb.SyncState) {
-	localNode.Node.SetSyncState(s)
 	log.Infof("Set sync state to %s", s.String())
+	localNode.Node.SetSyncState(s)
+}
+
+func (localNode *LocalNode) SetMinVerifiableHeight(height uint32) {
+	log.Infof("Set min verifiable height to %d", height)
+	localNode.Node.SetMinVerifiableHeight(height)
 }
 
 func (localNode *LocalNode) GetWsAddr() string {

@@ -1,71 +1,67 @@
 package block
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
 	"github.com/nknorg/nkn/crypto"
-	. "github.com/nknorg/nkn/pb"
-	. "github.com/nknorg/nkn/transaction"
+	"github.com/nknorg/nkn/pb"
+	"github.com/nknorg/nkn/transaction"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/vm/signature"
 )
 
-const BlockVersion uint32 = 0
-const GenesisNonce uint64 = 2083236893
+const (
+	BlockVersion  uint32 = 0
+	GenesisBeacon string = "6c9027722dc37f17739da69baffd6fc8281fe568701d8aa0092eb77549461469"
+)
 
 type Block struct {
 	Header       *Header
-	Transactions []*Transaction
-
-	hash *Uint256
+	Transactions []*transaction.Transaction
 }
 
-func (b *Block) ToMsgBlock() *MsgBlock {
-	msgBlock := &MsgBlock{
-		Header: &b.Header.BlockHeader,
+func (b *Block) FromMsgBlock(msgBlock *pb.Block) {
+	b.Header = &Header{Header: msgBlock.Header}
+	for _, txn := range msgBlock.Transactions {
+		b.Transactions = append(b.Transactions, &transaction.Transaction{Transaction: txn})
+	}
+}
+
+func (b *Block) ToMsgBlock() *pb.Block {
+	if b == nil {
+		return nil
+	}
+
+	msgBlock := &pb.Block{
+		Header: b.Header.Header,
 	}
 
 	for _, txn := range b.Transactions {
-		msgBlock.Transactions = append(msgBlock.Transactions, &txn.MsgTx)
+		msgBlock.Transactions = append(msgBlock.Transactions, txn.Transaction)
 	}
 
 	return msgBlock
 }
 
-func (b *Block) Marshal() (dAtA []byte, err error) {
-	msgBlock := &MsgBlock{
-		Header: &b.Header.BlockHeader,
-	}
-
-	for _, txn := range b.Transactions {
-		msgBlock.Transactions = append(msgBlock.Transactions, &txn.MsgTx)
-	}
-
-	return msgBlock.Marshal()
+func (b *Block) Marshal() (data []byte, err error) {
+	return proto.Marshal(b.ToMsgBlock())
 }
 
-func (b *Block) Unmarshal(dAtA []byte) error {
-	var msgBlock MsgBlock
-	msgBlock.Unmarshal(dAtA)
-	b.Header = &Header{BlockHeader: *msgBlock.Header}
-	for _, txn := range msgBlock.Transactions {
-		b.Transactions = append(b.Transactions, &Transaction{MsgTx: *txn})
+func (b *Block) Unmarshal(buf []byte) error {
+	msgBlock := &pb.Block{}
+	err := proto.Unmarshal(buf, msgBlock)
+	if err != nil {
+		return err
 	}
-
-	return nil
-}
-
-func (b *Block) Serialize(w io.Writer) error {
-	return nil
-}
-
-func (b *Block) Deserialize(r io.Reader) error {
+	b.FromMsgBlock(msgBlock)
 	return nil
 }
 
@@ -115,7 +111,7 @@ func (b *Block) FromTrimmedData(r io.Reader) error {
 	var tharray []Uint256
 	for i = 0; i < Len; i++ {
 		txhash.Deserialize(r)
-		transaction := new(Transaction)
+		transaction := new(transaction.Transaction)
 		transaction.SetHash(txhash)
 		b.Transactions = append(b.Transactions, transaction)
 		tharray = append(tharray, txhash)
@@ -144,29 +140,21 @@ func (b *Block) GetProgramHashes() ([]Uint160, error) {
 	return b.Header.GetProgramHashes()
 }
 
-func (b *Block) SetPrograms(prog []*Program) {
+func (b *Block) SetPrograms(prog []*pb.Program) {
 	b.Header.SetPrograms(prog)
 	return
 }
 
-func (b *Block) GetPrograms() []*Program {
+func (b *Block) GetPrograms() []*pb.Program {
 	return b.Header.GetPrograms()
 }
 
 func (b *Block) Hash() Uint256 {
-	if b.hash == nil {
-		b.hash = new(Uint256)
-		*b.hash = b.Header.Hash()
-	}
-	return *b.hash
+	return b.Header.Hash()
 }
 
 func (b *Block) Verify() error {
 	return nil
-}
-
-func (b *Block) Type() InventoryType {
-	return BLOCK
 }
 
 func GenesisBlockInit() (*Block, error) {
@@ -178,43 +166,49 @@ func GenesisBlockInit() (*Block, error) {
 		return nil, errors.New("invalid GenesisBlockProposer configured")
 	}
 	genesisBlockProposer, _ := HexStringToBytes(config.Parameters.GenesisBlockProposer)
+
+	genesisBeacon, err := hex.DecodeString(GenesisBeacon)
+	if err != nil {
+		return nil, err
+	}
+
 	// block header
 	genesisBlockHeader := &Header{
-		BlockHeader: BlockHeader{
-			UnsignedHeader: &UnsignedHeader{
+		Header: &pb.Header{
+			UnsignedHeader: &pb.UnsignedHeader{
 				Version:       BlockVersion,
 				PrevBlockHash: EmptyUint256.ToArray(),
 				Timestamp:     time.Date(2018, time.January, 0, 0, 0, 0, 0, time.UTC).Unix(),
-
 				Height:        uint32(0),
-				ConsensusData: GenesisNonce,
+				RandomBeacon:  genesisBeacon,
 				Signer:        genesisBlockProposer,
 			},
 		},
 	}
 
 	rewardAddress, _ := ToScriptHash(config.InitialIssueAddress)
-	payload := NewCoinbase(EmptyUint160, rewardAddress, Fixed64(config.InitialIssueAmount))
-	pl, err := Pack(CoinbaseType, payload)
+	donationProgramhash, _ := ToScriptHash(config.DonationAddress)
+	payload := transaction.NewCoinbase(donationProgramhash, rewardAddress, Fixed64(config.InitialIssueAmount))
+	pl, err := transaction.Pack(pb.CoinbaseType, payload)
 	if err != nil {
 		return nil, err
 	}
 
-	txn := NewMsgTx(pl, 0, 0, []byte{})
-	txn.Programs = []*Program{
+	txn := transaction.NewMsgTx(pl, 0, 0, []byte{})
+	txn.Programs = []*pb.Program{
 		{
 			Code:      []byte{0x00},
 			Parameter: []byte{0x00},
 		},
 	}
-	trans := &Transaction{
-		MsgTx: *txn,
+	trans := &transaction.Transaction{
+		Transaction: txn,
 	}
 
 	// genesis block
 	genesisBlock := &Block{
 		Header:       genesisBlockHeader,
-		Transactions: []*Transaction{trans},
+		Transactions: []*transaction.Transaction{trans},
 	}
 
 	return genesisBlock, nil
@@ -251,12 +245,12 @@ func (b *Block) GetInfo() ([]byte, error) {
 	headerInfo, _ := b.Header.GetInfo()
 	json.Unmarshal(headerInfo, &unmarshaledHeader)
 
-	b.Hash()
+	hash := b.Hash()
 	info := &blockInfo{
 		Header:       unmarshaledHeader,
 		Transactions: make([]interface{}, 0),
 		Size:         b.ToMsgBlock().Size(),
-		Hash:         b.hash.ToHexString(),
+		Hash:         hash.ToHexString(),
 	}
 
 	for _, v := range b.Transactions {

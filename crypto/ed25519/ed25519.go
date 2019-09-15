@@ -5,10 +5,16 @@ import (
 	"errors"
 	"math/big"
 
+	"github.com/nknorg/nkn/crypto/ed25519/vrf"
 	"github.com/nknorg/nkn/crypto/util"
+	"github.com/nknorg/vxeddsa/extra25519"
 
 	"golang.org/x/crypto/ed25519"
 )
+
+const PublicKeySize = ed25519.PublicKeySize
+const PrivateKeySize = ed25519.PrivateKeySize
+const SignatureSize = ed25519.SignatureSize
 
 func Init(algSet *util.CryptoAlgSet) {
 }
@@ -59,14 +65,55 @@ func NewKeyFromPrivkey(privKey []byte) *big.Int {
 	return pubKey
 }
 
+func GetSeedFromPrivateKey(priKey []byte) []byte {
+	privateKey := ed25519.PrivateKey(priKey)
+	return privateKey.Seed()
+}
+
+func GetPrivateKeyFromSeed(seed []byte) []byte {
+	return ed25519.NewKeyFromSeed(seed)
+}
+
 func GetPublicKeySize() int {
-	return ed25519.PublicKeySize
+	return PublicKeySize
 }
 
 func GetPrivateKeySize() int {
-	return ed25519.PrivateKeySize
+	return PrivateKeySize
 }
 
 func GetSignatureSize() int {
-	return ed25519.SignatureSize
+	return SignatureSize
+}
+
+func GenerateVrf(privKey []byte, data []byte) (dataVrf []byte, proof []byte, err error) {
+	if len(privKey) != ed25519.PrivateKeySize {
+		err = errors.New("bad length of privKey")
+		return
+	}
+	sk := vrf.PrivateKey(privKey)
+	dataVrf, proof = sk.Prove(data)
+	return
+}
+
+func VerifyVrf(X *big.Int, Y *big.Int, data, dataVrf, proof []byte) bool {
+	publicKey := X.Bytes()
+	pubKey := [ed25519.PublicKeySize]byte{}
+	copy(pubKey[ed25519.PublicKeySize-len(publicKey):], publicKey)
+
+	pk := vrf.PublicKey(pubKey[:])
+
+	return pk.Verify(data, dataVrf, proof)
+}
+
+func PrivateKeyToCurve25519PrivateKey(privateKey *[64]byte) *[32]byte {
+	var curve25519PrivateKey [32]byte
+	extra25519.PrivateKeyToCurve25519(&curve25519PrivateKey, privateKey)
+	return &curve25519PrivateKey
+}
+
+func PublicKeyToCurve25519PublicKey(publicKey *[32]byte) (*[32]byte, bool) {
+	var curve25519PublicKey [32]byte
+	ok := extra25519.PublicKeyToCurve25519(&curve25519PublicKey, publicKey)
+	return &curve25519PublicKey, ok
 }

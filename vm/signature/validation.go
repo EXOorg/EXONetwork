@@ -10,24 +10,23 @@ import (
 	"github.com/nknorg/nkn/vm/interfaces"
 )
 
-func VerifySignableData(signableData SignableData) (bool, error) {
+func VerifySignableData(signableData SignableData) error {
 
 	hashes, err := signableData.GetProgramHashes()
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	programs := signableData.GetPrograms()
-	Length := len(hashes)
-	if Length != len(programs) {
-		return false, errors.New("The number of data hashes is different with number of programs.")
+	if len(hashes) != len(programs) {
+		return fmt.Errorf("the number of data hashes %d is different with number of programs %d", len(hashes), len(programs))
 	}
 
 	programs = signableData.GetPrograms()
 	for i := 0; i < len(programs); i++ {
 		temp, _ := ToCodeHash(programs[i].Code)
 		if hashes[i] != temp {
-			return false, errors.New("The data hashes is different with corresponding program code.")
+			return fmt.Errorf("The data hashes %v is different with corresponding program code %v", hashes[i], temp)
 		}
 		//execute program on VM
 		var cryptos interfaces.ICrypto
@@ -38,24 +37,24 @@ func VerifySignableData(signableData SignableData) (bool, error) {
 		err := se.Execute()
 
 		if err != nil {
-			return false, err
+			return err
 		}
 
 		if se.GetState() != vm.HALT {
-			return false, errors.New("[VM] Finish State not equal to HALT.")
+			return errors.New("[VM] Finish State not equal to HALT.")
 		}
 
 		if se.GetEvaluationStack().Count() != 1 {
-			return false, errors.New("[VM] Execute Engine Stack Count Error.")
+			return errors.New("[VM] Execute Engine Stack Count Error.")
 		}
 
 		flag := se.GetExecuteResult()
 		if !flag {
-			return false, errors.New("[VM] Check Sig FALSE.")
+			return errors.New("[VM] Check Sig FALSE.")
 		}
 	}
 
-	return true, nil
+	return nil
 }
 
 func VerifySignature(signableData SignableData, pubkey *crypto.PubKey, signature []byte) (bool, error) {

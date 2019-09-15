@@ -5,19 +5,17 @@ import (
 	"sync"
 	"time"
 
-	. "github.com/nknorg/nkn/block"
+	"github.com/nknorg/nkn/block"
 	"github.com/nknorg/nkn/chain"
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/consensus/election"
+	"github.com/nknorg/nkn/event"
 	"github.com/nknorg/nkn/node"
 	"github.com/nknorg/nkn/pb"
+	"github.com/nknorg/nkn/por"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
-)
-
-const (
-	persistBlockDelay = 300 * time.Millisecond
 )
 
 // Consensus is the Majority vOte Cellular Automata (MOCA) consensus layer
@@ -25,14 +23,16 @@ type Consensus struct {
 	account             *vault.Account
 	localNode           *node.LocalNode
 	startOnce           sync.Once
-	elections           common.Cache
 	proposals           common.Cache
 	requestProposalChan chan *requestProposalInfo
 	mining              chain.Mining
 	txnCollector        *chain.TxnCollector
 
+	electionsLock sync.RWMutex
+	elections     common.Cache
+
 	proposalLock   sync.RWMutex
-	proposalChan   chan *Block
+	proposalChan   chan *block.Block
 	expectedHeight uint32
 
 	nextConsensusHeightLock sync.Mutex
@@ -44,13 +44,13 @@ type Consensus struct {
 
 // NewConsensus creates a MOCA consensus
 func NewConsensus(account *vault.Account, localNode *node.LocalNode) (*Consensus, error) {
-	txnCollector := chain.NewTxnCollector(localNode.GetTxnPool(), config.MaxNumTxnPerBlock)
+	txnCollector := chain.NewTxnCollector(localNode.GetTxnPool(), int(config.Parameters.NumTxnPerBlock))
 	consensus := &Consensus{
 		account:             account,
 		localNode:           localNode,
 		elections:           common.NewGoCache(cacheExpiration, cacheCleanupInterval),
 		proposals:           common.NewGoCache(cacheExpiration, cacheCleanupInterval),
-		proposalChan:        make(chan *Block, proposalChanLen),
+		proposalChan:        make(chan *block.Block, proposalChanLen),
 		requestProposalChan: make(chan *requestProposalInfo, requestProposalChanLen),
 		mining:              chain.NewBuiltinMining(account, txnCollector),
 		txnCollector:        txnCollector,
@@ -89,6 +89,13 @@ func (consensus *Consensus) startConsensus() {
 			continue
 		}
 
+		err = consensus.prefillNeighborVotes(elc, consensusHeight)
+		if err != nil {
+			log.Warningf("Prefill neighbor votes error: %v", err)
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
 		consensus.setExpectedHeight(consensusHeight + 1)
 
 		electedBlockHash, err := consensus.startElection(consensusHeight, elc)
@@ -113,11 +120,25 @@ func (consensus *Consensus) startConsensus() {
 			continue
 		}
 
-		// FIXME: use sync save block api
-		time.Sleep(persistBlockDelay)
-
 		consensus.setAcceptedHeight(consensusHeight)
 	}
+}
+
+func (consensus *Consensus) prefillNeighborVotes(elc *election.Election, height uint32) error {
+	neighbors := consensus.localNode.GetNeighbors(nil)
+	neighborIDs := make([]interface{}, 0, len(neighbors))
+	for _, rn := range neighbors {
+		if rn.GetSyncState() != pb.PersistFinished {
+			continue
+		}
+		// This is for nodes who just finished syncing but cannot verify block yet
+		if rn.GetHeight() < height && height < rn.GetMinVerifiableHeight() {
+			continue
+		}
+		neighborIDs = append(neighborIDs, rn.GetID())
+	}
+
+	return elc.PrefillNeighborVotes(neighborIDs, common.EmptyUint256)
 }
 
 // startElection starts an election, sends out self vote, and returns election
@@ -149,31 +170,30 @@ func (consensus *Consensus) startElection(height uint32, elc *election.Election)
 		return common.EmptyUint256, fmt.Errorf("Convert election result to block hash error")
 	}
 
+	log.Infof("Elected block hash %s got %d/%d votes", electedBlockHash.ToHexString(), len(elc.GetNeighborIDsByVote(electedBlockHash)), elc.NeighborVoteCount())
+
 	return electedBlockHash, nil
 }
 
 // loadOrCreateElection loads or create an election with the given key. Returns
 // the election, if the election is loaded, and error.
-func (consensus *Consensus) loadOrCreateElection(key []byte) (*election.Election, bool, error) {
+func (consensus *Consensus) loadOrCreateElection(height uint32) (*election.Election, bool, error) {
+	consensus.electionsLock.Lock()
+	defer consensus.electionsLock.Unlock()
+
+	key := heightToKey(height)
 	if value, ok := consensus.elections.Get(key); ok && value != nil {
 		if elc, ok := value.(*election.Election); ok && elc != nil {
 			return elc, true, nil
 		}
 	}
 
-	consensusNeighbors := consensus.localNode.GetNeighbors(func(rn *node.RemoteNode) bool {
-		return rn.GetSyncState() == pb.PersistFinished
-	})
-	totalWeight := len(consensusNeighbors)
-	if consensus.localNode.GetSyncState() == pb.PersistFinished {
-		totalWeight++
-	}
-
 	config := &election.Config{
 		Duration:                    electionDuration,
 		MinVotingInterval:           minVotingInterval,
+		MaxVotingInterval:           maxVotingInterval,
 		ChangeVoteMinRelativeWeight: changeVoteMinRelativeWeight,
-		ConsensusMinAbsoluteWeight:  uint32(consensusMinRelativeWeight*float32(totalWeight) + 1),
+		ConsensusMinRelativeWeight:  consensusMinRelativeWeight,
 	}
 
 	elc, err := election.NewElection(config)
@@ -183,11 +203,6 @@ func (consensus *Consensus) loadOrCreateElection(key []byte) (*election.Election
 
 	err = consensus.elections.Set(key, elc)
 	if err != nil {
-		if value, ok := consensus.elections.Get(key); ok && value != nil {
-			if elc, ok := value.(*election.Election); ok && elc != nil {
-				return elc, true, nil
-			}
-		}
 		return nil, false, err
 	}
 
@@ -209,12 +224,14 @@ func (consensus *Consensus) setExpectedHeight(expectedHeight uint32) {
 	if consensus.expectedHeight != expectedHeight {
 		if expectedHeight < consensus.expectedHeight {
 			for height := expectedHeight; height <= consensus.expectedHeight; height++ {
+				consensus.electionsLock.Lock()
 				consensus.elections.Set(heightToKey(height), nil)
+				consensus.electionsLock.Unlock()
 			}
 		}
 
 		consensus.expectedHeight = expectedHeight
-		consensus.proposalChan = make(chan *Block, proposalChanLen)
+		consensus.proposalChan = make(chan *block.Block, proposalChanLen)
 	}
 	consensus.proposalLock.Unlock()
 }
@@ -265,7 +282,12 @@ func (consensus *Consensus) saveAcceptedBlock(electedBlockHash common.Uint256) e
 		if syncState == pb.WaitForSyncing {
 			consensus.localNode.SetSyncState(pb.PersistFinished)
 		}
-		return chain.DefaultLedger.Blockchain.AddBlock(block, false)
+		err = chain.DefaultLedger.Blockchain.AddBlock(block, false)
+		if err != nil {
+			return err
+		}
+		event.Queue.Notify(event.NewBlockProduced, block)
+		return nil
 	}
 
 	if syncState == pb.SyncStarted || syncState == pb.SyncFinished {
@@ -274,7 +296,7 @@ func (consensus *Consensus) saveAcceptedBlock(electedBlockHash common.Uint256) e
 
 	log.Infof("Accepted block height: %d, local ledger block height: %d, sync needed.", block.Header.UnsignedHeader.Height, chain.DefaultLedger.Store.GetHeight())
 
-	elc, loaded, err := consensus.loadOrCreateElection(heightToKey(block.Header.UnsignedHeader.Height))
+	elc, loaded, err := consensus.loadOrCreateElection(block.Header.UnsignedHeader.Height)
 	if err != nil {
 		return fmt.Errorf("Error load election: %v", err)
 	}
@@ -317,6 +339,8 @@ func (consensus *Consensus) saveAcceptedBlock(electedBlockHash common.Uint256) e
 			return
 		}
 
+		consensus.localNode.SetMinVerifiableHeight(chain.DefaultLedger.Store.GetHeight() + por.SigChainMiningHeightOffset)
+
 		consensus.localNode.SetSyncState(pb.PersistFinished)
 	}()
 
@@ -328,10 +352,9 @@ func (consensus *Consensus) saveBlocksAcceptedDuringSync(startHeight uint32) err
 
 	height := startHeight
 	for height <= consensus.GetAcceptedHeight() {
-		// FIXME: use sync save block api
-		time.Sleep(persistBlockDelay)
-
+		consensus.electionsLock.RLock()
 		value, ok := consensus.elections.Get(heightToKey(height))
+		consensus.electionsLock.RUnlock()
 		if !ok || value == nil {
 			return fmt.Errorf("Election at height %d not found in local cache", height)
 		}

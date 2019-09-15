@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sync"
 
+	simplejson "github.com/bitly/go-simplejson"
 	. "github.com/nknorg/nkn/common"
 )
 
@@ -25,10 +26,10 @@ type HeaderData struct {
 }
 
 type AccountData struct {
-	Address             string
-	ProgramHash         string
-	PrivateKeyEncrypted string
-	ContractData        string
+	Address       string
+	ProgramHash   string
+	SeedEncrypted string
+	ContractData  string
 }
 
 type WalletData struct {
@@ -74,8 +75,18 @@ func LoadStore(fullPath string) (*WalletStore, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	js, err := simplejson.NewJson(fileData)
+	value, ok := js.CheckGet("PrivateKeyEncrypted")
+	if ok {
+		privateKey := value.MustString()
+		js.Set("SeedEncrypted", privateKey[:64])
+		js.Del("PrivateKeyEncrypted")
+	}
+	data, _ := js.Encode()
+
 	var walletData WalletData
-	err = json.Unmarshal(fileData, &walletData)
+	err = json.Unmarshal(data, &walletData)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +136,7 @@ func (s *WalletStore) write(data []byte) error {
 	return err
 }
 
-func (s *WalletStore) SaveAccountData(programHash []byte, encryptedPrivateKey []byte, contract []byte) error {
+func (s *WalletStore) SaveAccountData(programHash []byte, encryptedSeed []byte, contract []byte) error {
 	oldBlob, err := s.read()
 	if err != nil {
 		return err
@@ -142,10 +153,10 @@ func (s *WalletStore) SaveAccountData(programHash []byte, encryptedPrivateKey []
 		return err
 	}
 	s.Data.AccountData = AccountData{
-		Address:             addr,
-		ProgramHash:         BytesToHexString(programHash),
-		PrivateKeyEncrypted: BytesToHexString(encryptedPrivateKey),
-		ContractData:        BytesToHexString(contract),
+		Address:       addr,
+		ProgramHash:   BytesToHexString(programHash),
+		SeedEncrypted: BytesToHexString(encryptedSeed),
+		ContractData:  BytesToHexString(contract),
 	}
 	newBlob, err := json.Marshal(s.Data)
 	if err != nil {

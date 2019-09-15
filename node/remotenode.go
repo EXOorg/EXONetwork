@@ -2,7 +2,7 @@ package node
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"sync"
 	"time"
 
@@ -15,6 +15,7 @@ type RemoteNode struct {
 	*Node
 	localNode *LocalNode
 	nnetNode  *nnetnode.RemoteNode
+	sharedKey *[32]byte
 
 	sync.RWMutex
 	height uint32
@@ -47,11 +48,15 @@ func NewRemoteNode(localNode *LocalNode, nnetNode *nnetnode.RemoteNode) (*Remote
 		return nil, err
 	}
 
-	if nodeData.ProtocolVersion < minCompatibleProtocolVersion || nodeData.ProtocolVersion > maxCompatibleProtocolVersion {
-		return nil, fmt.Errorf("remote node has protocol version %d, which is not compatible with local node protocol verison %d", nodeData.ProtocolVersion, protocolVersion)
+	node, err := NewNode(nnetNode.Node.Node, nodeData)
+	if err != nil {
+		return nil, err
 	}
 
-	node, err := NewNode(nnetNode.Node.Node, nodeData)
+	if len(node.PublicKey) == 0 {
+		return nil, errors.New("nil public key")
+	}
+	sharedKey, err := localNode.computeSharedKey(node.PublicKey[1:])
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +65,7 @@ func NewRemoteNode(localNode *LocalNode, nnetNode *nnetnode.RemoteNode) (*Remote
 		Node:      node,
 		localNode: localNode,
 		nnetNode:  nnetNode,
+		sharedKey: sharedKey,
 	}
 
 	return remoteNode, nil
@@ -79,4 +85,8 @@ func (remoteNode *RemoteNode) SetHeight(height uint32) {
 
 func (remoteNode *RemoteNode) CloseConn() {
 	remoteNode.nnetNode.Stop(nil)
+}
+
+func (remoteNode *RemoteNode) String() string {
+	return remoteNode.nnetNode.String()
 }

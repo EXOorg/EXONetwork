@@ -179,7 +179,7 @@ func (localNode *LocalNode) remoteMessageRouted(remoteMessage *nnetnode.RemoteMe
 				}
 			}
 
-			err = localNode.relayer.signRelayMessage(relayMessage, nextHop)
+			err = localNode.relayer.signRelayMessage(relayMessage, nextHop, senderRemoteNode)
 			if err != nil {
 				log.Errorf("sign relay message error: %v", err)
 				return nil, nil, nil, false
@@ -206,12 +206,29 @@ func (localNode *LocalNode) remoteMessageRouted(remoteMessage *nnetnode.RemoteMe
 			localNode.IncrementRelayMessageCount()
 		}
 
+		if unsignedMsg.MessageType == pb.TRANSACTIONS && nnetLocalNode != nil {
+			txnMsg := &pb.Transactions{}
+			err = proto.Unmarshal(unsignedMsg.Message, txnMsg)
+			if err != nil {
+				log.Errorf("Unmarshal transactions message error: %v", err)
+				return nil, nil, nil, false
+			}
+
+			err = localNode.receiveTxnMsg.receiveTxnMsg(txnMsg, remoteMessage, remoteNodes)
+			if err != nil {
+				log.Warningf("Error receiving txn msg: %v", err)
+			}
+
+			return nil, nil, nil, false
+		}
+
 		// msg send to local node
 		if nnetLocalNode != nil {
 			if len(remoteMessage.Msg.ReplyToId) == 0 { // non-reply msg
 				var reply []byte
 				reply, err = localNode.receiveMessage(senderNode, unsignedMsg)
 				if err != nil {
+					log.Warningf("Error handling msg: %v", err)
 					return nil, nil, nil, false
 				}
 

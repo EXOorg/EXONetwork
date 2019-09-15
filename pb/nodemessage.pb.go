@@ -31,19 +31,25 @@ const _ = proto.GoGoProtoPackageIsVersion2 // please upgrade the proto package
 type MessageType int32
 
 const (
-	MESSAGE_TYPE_PLACEHOLDER_DO_NOT_USE MessageType = 0
-	VOTE                                MessageType = 1
-	I_HAVE_BLOCK_PROPOSAL               MessageType = 2
-	REQUEST_BLOCK_PROPOSAL              MessageType = 3
-	REQUEST_BLOCK_PROPOSAL_REPLY        MessageType = 4
-	GET_CONSENSUS_STATE                 MessageType = 5
-	GET_CONSENSUS_STATE_REPLY           MessageType = 6
-	GET_BLOCK_HEADERS                   MessageType = 7
-	GET_BLOCK_HEADERS_REPLY             MessageType = 8
-	GET_BLOCKS                          MessageType = 9
-	GET_BLOCKS_REPLY                    MessageType = 10
-	RELAY                               MessageType = 11
-	TRANSACTIONS                        MessageType = 12
+	MESSAGE_TYPE_PLACEHOLDER_DO_NOT_USE       MessageType = 0
+	VOTE                                      MessageType = 1
+	I_HAVE_BLOCK_PROPOSAL                     MessageType = 2
+	REQUEST_BLOCK_PROPOSAL                    MessageType = 3
+	REQUEST_BLOCK_PROPOSAL_REPLY              MessageType = 4
+	GET_CONSENSUS_STATE                       MessageType = 5
+	GET_CONSENSUS_STATE_REPLY                 MessageType = 6
+	GET_BLOCK_HEADERS                         MessageType = 7
+	GET_BLOCK_HEADERS_REPLY                   MessageType = 8
+	GET_BLOCKS                                MessageType = 9
+	GET_BLOCKS_REPLY                          MessageType = 10
+	RELAY                                     MessageType = 11
+	TRANSACTIONS                              MessageType = 12
+	BACKTRACK_SIGNATURE_CHAIN                 MessageType = 13
+	REQUEST_PROPOSAL_TRANSACTIONS             MessageType = 14
+	REQUEST_PROPOSAL_TRANSACTIONS_REPLY       MessageType = 15
+	I_HAVE_SIGNATURE_CHAIN_TRANSACTION        MessageType = 16
+	REQUEST_SIGNATURE_CHAIN_TRANSACTION       MessageType = 17
+	REQUEST_SIGNATURE_CHAIN_TRANSACTION_REPLY MessageType = 18
 )
 
 var MessageType_name = map[int32]string{
@@ -60,25 +66,37 @@ var MessageType_name = map[int32]string{
 	10: "GET_BLOCKS_REPLY",
 	11: "RELAY",
 	12: "TRANSACTIONS",
+	13: "BACKTRACK_SIGNATURE_CHAIN",
+	14: "REQUEST_PROPOSAL_TRANSACTIONS",
+	15: "REQUEST_PROPOSAL_TRANSACTIONS_REPLY",
+	16: "I_HAVE_SIGNATURE_CHAIN_TRANSACTION",
+	17: "REQUEST_SIGNATURE_CHAIN_TRANSACTION",
+	18: "REQUEST_SIGNATURE_CHAIN_TRANSACTION_REPLY",
 }
 var MessageType_value = map[string]int32{
 	"MESSAGE_TYPE_PLACEHOLDER_DO_NOT_USE": 0,
-	"VOTE":                                1,
-	"I_HAVE_BLOCK_PROPOSAL":               2,
-	"REQUEST_BLOCK_PROPOSAL":              3,
-	"REQUEST_BLOCK_PROPOSAL_REPLY":        4,
-	"GET_CONSENSUS_STATE":                 5,
-	"GET_CONSENSUS_STATE_REPLY":           6,
-	"GET_BLOCK_HEADERS":                   7,
-	"GET_BLOCK_HEADERS_REPLY":             8,
-	"GET_BLOCKS":                          9,
-	"GET_BLOCKS_REPLY":                    10,
-	"RELAY":                               11,
-	"TRANSACTIONS":                        12,
+	"VOTE":                                      1,
+	"I_HAVE_BLOCK_PROPOSAL":                     2,
+	"REQUEST_BLOCK_PROPOSAL":                    3,
+	"REQUEST_BLOCK_PROPOSAL_REPLY":              4,
+	"GET_CONSENSUS_STATE":                       5,
+	"GET_CONSENSUS_STATE_REPLY":                 6,
+	"GET_BLOCK_HEADERS":                         7,
+	"GET_BLOCK_HEADERS_REPLY":                   8,
+	"GET_BLOCKS":                                9,
+	"GET_BLOCKS_REPLY":                          10,
+	"RELAY":                                     11,
+	"TRANSACTIONS":                              12,
+	"BACKTRACK_SIGNATURE_CHAIN":                 13,
+	"REQUEST_PROPOSAL_TRANSACTIONS":             14,
+	"REQUEST_PROPOSAL_TRANSACTIONS_REPLY":       15,
+	"I_HAVE_SIGNATURE_CHAIN_TRANSACTION":        16,
+	"REQUEST_SIGNATURE_CHAIN_TRANSACTION":       17,
+	"REQUEST_SIGNATURE_CHAIN_TRANSACTION_REPLY": 18,
 }
 
 func (MessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{0}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{0}
 }
 
 // Message type that can be signed message
@@ -86,39 +104,18 @@ func (MessageType) EnumDescriptor() ([]byte, []int) {
 type AllowedSignedMessageType int32
 
 const (
-	ALLOW_SIGNED_PLACEHOLDER_DO_NOT_USE    AllowedSignedMessageType = 0
-	ALLOW_SIGNED_VOTE                      AllowedSignedMessageType = 1
-	ALLOW_SIGNED_I_HAVE_BLOCK_PROPOSAL     AllowedSignedMessageType = 2
-	ALLOW_SIGNED_REQUEST_BLOCK_PROPOSAL    AllowedSignedMessageType = 3
-	ALLOW_SIGNED_GET_CONSENSUS_STATE       AllowedSignedMessageType = 5
-	ALLOW_SIGNED_GET_CONSENSUS_STATE_REPLY AllowedSignedMessageType = 6
-	ALLOW_SIGNED_GET_BLOCK_HEADERS         AllowedSignedMessageType = 7
-	ALLOW_SIGNED_GET_BLOCKS                AllowedSignedMessageType = 9
+	ALLOW_SIGNED_PLACEHOLDER_DO_NOT_USE AllowedSignedMessageType = 0
 )
 
 var AllowedSignedMessageType_name = map[int32]string{
 	0: "ALLOW_SIGNED_PLACEHOLDER_DO_NOT_USE",
-	1: "ALLOW_SIGNED_VOTE",
-	2: "ALLOW_SIGNED_I_HAVE_BLOCK_PROPOSAL",
-	3: "ALLOW_SIGNED_REQUEST_BLOCK_PROPOSAL",
-	5: "ALLOW_SIGNED_GET_CONSENSUS_STATE",
-	6: "ALLOW_SIGNED_GET_CONSENSUS_STATE_REPLY",
-	7: "ALLOW_SIGNED_GET_BLOCK_HEADERS",
-	9: "ALLOW_SIGNED_GET_BLOCKS",
 }
 var AllowedSignedMessageType_value = map[string]int32{
-	"ALLOW_SIGNED_PLACEHOLDER_DO_NOT_USE":    0,
-	"ALLOW_SIGNED_VOTE":                      1,
-	"ALLOW_SIGNED_I_HAVE_BLOCK_PROPOSAL":     2,
-	"ALLOW_SIGNED_REQUEST_BLOCK_PROPOSAL":    3,
-	"ALLOW_SIGNED_GET_CONSENSUS_STATE":       5,
-	"ALLOW_SIGNED_GET_CONSENSUS_STATE_REPLY": 6,
-	"ALLOW_SIGNED_GET_BLOCK_HEADERS":         7,
-	"ALLOW_SIGNED_GET_BLOCKS":                9,
+	"ALLOW_SIGNED_PLACEHOLDER_DO_NOT_USE": 0,
 }
 
 func (AllowedSignedMessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{1}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{1}
 }
 
 // Message type that can be unsigned message
@@ -126,33 +123,72 @@ func (AllowedSignedMessageType) EnumDescriptor() ([]byte, []int) {
 type AllowedUnsignedMessageType int32
 
 const (
-	ALLOW_UNSIGNED_PLACEHOLDER_DO_NOT_USE  AllowedUnsignedMessageType = 0
-	ALLOW_UNSIGNED_REQUEST_BLOCK_REPLY     AllowedUnsignedMessageType = 4
-	ALLOW_UNSIGNED_GET_BLOCK_HEADERS_REPLY AllowedUnsignedMessageType = 8
-	ALLOW_UNSIGNED_GET_BLOCKS_REPLY        AllowedUnsignedMessageType = 10
-	ALLOW_UNSIGNED_RELAY                   AllowedUnsignedMessageType = 11
-	ALLOW_UNSIGNED_TRANSACTIONS            AllowedUnsignedMessageType = 12
+	ALLOW_UNSIGNED_PLACEHOLDER_DO_NOT_USE                    AllowedUnsignedMessageType = 0
+	ALLOW_UNSIGNED_VOTE                                      AllowedUnsignedMessageType = 1
+	ALLOW_UNSIGNED_I_HAVE_BLOCK_PROPOSAL                     AllowedUnsignedMessageType = 2
+	ALLOW_UNSIGNED_REQUEST_BLOCK_PROPOSAL                    AllowedUnsignedMessageType = 3
+	ALLOW_UNSIGNED_REQUEST_BLOCK_REPLY                       AllowedUnsignedMessageType = 4
+	ALLOW_UNSIGNED_GET_CONSENSUS_STATE                       AllowedUnsignedMessageType = 5
+	ALLOW_UNSIGNED_GET_CONSENSUS_STATE_REPLY                 AllowedUnsignedMessageType = 6
+	ALLOW_UNSIGNED_GET_BLOCK_HEADERS                         AllowedUnsignedMessageType = 7
+	ALLOW_UNSIGNED_GET_BLOCK_HEADERS_REPLY                   AllowedUnsignedMessageType = 8
+	ALLOW_UNSIGNED_GET_BLOCKS                                AllowedUnsignedMessageType = 9
+	ALLOW_UNSIGNED_GET_BLOCKS_REPLY                          AllowedUnsignedMessageType = 10
+	ALLOW_UNSIGNED_RELAY                                     AllowedUnsignedMessageType = 11
+	ALLOW_UNSIGNED_TRANSACTIONS                              AllowedUnsignedMessageType = 12
+	ALLOW_UNSIGNED_BACKTRACK_SIGNATURE_CHAIN                 AllowedUnsignedMessageType = 13
+	ALLOW_UNSIGNED_REQUEST_PROPOSAL_TRANSACTIONS             AllowedUnsignedMessageType = 14
+	ALLOW_UNSIGNED_REQUEST_PROPOSAL_TRANSACTIONS_REPLY       AllowedUnsignedMessageType = 15
+	ALLOW_UNSIGNED_I_HAVE_SIGNATURE_CHAIN_TRANSACTION        AllowedUnsignedMessageType = 16
+	ALLOW_UNSIGNED_REQUEST_SIGNATURE_CHAIN_TRANSACTION       AllowedUnsignedMessageType = 17
+	ALLOW_UNSIGNED_REQUEST_SIGNATURE_CHAIN_TRANSACTION_REPLY AllowedUnsignedMessageType = 18
 )
 
 var AllowedUnsignedMessageType_name = map[int32]string{
 	0:  "ALLOW_UNSIGNED_PLACEHOLDER_DO_NOT_USE",
+	1:  "ALLOW_UNSIGNED_VOTE",
+	2:  "ALLOW_UNSIGNED_I_HAVE_BLOCK_PROPOSAL",
+	3:  "ALLOW_UNSIGNED_REQUEST_BLOCK_PROPOSAL",
 	4:  "ALLOW_UNSIGNED_REQUEST_BLOCK_REPLY",
+	5:  "ALLOW_UNSIGNED_GET_CONSENSUS_STATE",
+	6:  "ALLOW_UNSIGNED_GET_CONSENSUS_STATE_REPLY",
+	7:  "ALLOW_UNSIGNED_GET_BLOCK_HEADERS",
 	8:  "ALLOW_UNSIGNED_GET_BLOCK_HEADERS_REPLY",
+	9:  "ALLOW_UNSIGNED_GET_BLOCKS",
 	10: "ALLOW_UNSIGNED_GET_BLOCKS_REPLY",
 	11: "ALLOW_UNSIGNED_RELAY",
 	12: "ALLOW_UNSIGNED_TRANSACTIONS",
+	13: "ALLOW_UNSIGNED_BACKTRACK_SIGNATURE_CHAIN",
+	14: "ALLOW_UNSIGNED_REQUEST_PROPOSAL_TRANSACTIONS",
+	15: "ALLOW_UNSIGNED_REQUEST_PROPOSAL_TRANSACTIONS_REPLY",
+	16: "ALLOW_UNSIGNED_I_HAVE_SIGNATURE_CHAIN_TRANSACTION",
+	17: "ALLOW_UNSIGNED_REQUEST_SIGNATURE_CHAIN_TRANSACTION",
+	18: "ALLOW_UNSIGNED_REQUEST_SIGNATURE_CHAIN_TRANSACTION_REPLY",
 }
 var AllowedUnsignedMessageType_value = map[string]int32{
-	"ALLOW_UNSIGNED_PLACEHOLDER_DO_NOT_USE":  0,
-	"ALLOW_UNSIGNED_REQUEST_BLOCK_REPLY":     4,
-	"ALLOW_UNSIGNED_GET_BLOCK_HEADERS_REPLY": 8,
-	"ALLOW_UNSIGNED_GET_BLOCKS_REPLY":        10,
-	"ALLOW_UNSIGNED_RELAY":                   11,
-	"ALLOW_UNSIGNED_TRANSACTIONS":            12,
+	"ALLOW_UNSIGNED_PLACEHOLDER_DO_NOT_USE":                    0,
+	"ALLOW_UNSIGNED_VOTE":                                      1,
+	"ALLOW_UNSIGNED_I_HAVE_BLOCK_PROPOSAL":                     2,
+	"ALLOW_UNSIGNED_REQUEST_BLOCK_PROPOSAL":                    3,
+	"ALLOW_UNSIGNED_REQUEST_BLOCK_REPLY":                       4,
+	"ALLOW_UNSIGNED_GET_CONSENSUS_STATE":                       5,
+	"ALLOW_UNSIGNED_GET_CONSENSUS_STATE_REPLY":                 6,
+	"ALLOW_UNSIGNED_GET_BLOCK_HEADERS":                         7,
+	"ALLOW_UNSIGNED_GET_BLOCK_HEADERS_REPLY":                   8,
+	"ALLOW_UNSIGNED_GET_BLOCKS":                                9,
+	"ALLOW_UNSIGNED_GET_BLOCKS_REPLY":                          10,
+	"ALLOW_UNSIGNED_RELAY":                                     11,
+	"ALLOW_UNSIGNED_TRANSACTIONS":                              12,
+	"ALLOW_UNSIGNED_BACKTRACK_SIGNATURE_CHAIN":                 13,
+	"ALLOW_UNSIGNED_REQUEST_PROPOSAL_TRANSACTIONS":             14,
+	"ALLOW_UNSIGNED_REQUEST_PROPOSAL_TRANSACTIONS_REPLY":       15,
+	"ALLOW_UNSIGNED_I_HAVE_SIGNATURE_CHAIN_TRANSACTION":        16,
+	"ALLOW_UNSIGNED_REQUEST_SIGNATURE_CHAIN_TRANSACTION":       17,
+	"ALLOW_UNSIGNED_REQUEST_SIGNATURE_CHAIN_TRANSACTION_REPLY": 18,
 }
 
 func (AllowedUnsignedMessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{2}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{2}
 }
 
 // Message type that can be sent as direct message
@@ -160,17 +196,23 @@ func (AllowedUnsignedMessageType) EnumDescriptor() ([]byte, []int) {
 type AllowedDirectMessageType int32
 
 const (
-	ALLOW_DIRECT_PLACEHOLDER_DO_NOT_USE    AllowedDirectMessageType = 0
-	ALLOW_DIRECT_VOTE                      AllowedDirectMessageType = 1
-	ALLOW_DIRECT_I_HAVE_BLOCK_PROPOSAL     AllowedDirectMessageType = 2
-	ALLOW_DIRECT_REQUEST_BLOCK_PROPOSAL    AllowedDirectMessageType = 3
-	ALLOW_DIRECT_REQUEST_BLOCK_REPLY       AllowedDirectMessageType = 4
-	ALLOW_DIRECT_GET_CONSENSUS_STATE       AllowedDirectMessageType = 5
-	ALLOW_DIRECT_GET_CONSENSUS_STATE_REPLY AllowedDirectMessageType = 6
-	ALLOW_DIRECT_GET_BLOCK_HEADERS         AllowedDirectMessageType = 7
-	ALLOW_DIRECT_GET_BLOCK_HEADERS_REPLY   AllowedDirectMessageType = 8
-	ALLOW_DIRECT_GET_BLOCKS                AllowedDirectMessageType = 9
-	ALLOW_DIRECT_GET_BLOCKS_REPLY          AllowedDirectMessageType = 10
+	ALLOW_DIRECT_PLACEHOLDER_DO_NOT_USE                    AllowedDirectMessageType = 0
+	ALLOW_DIRECT_VOTE                                      AllowedDirectMessageType = 1
+	ALLOW_DIRECT_I_HAVE_BLOCK_PROPOSAL                     AllowedDirectMessageType = 2
+	ALLOW_DIRECT_REQUEST_BLOCK_PROPOSAL                    AllowedDirectMessageType = 3
+	ALLOW_DIRECT_REQUEST_BLOCK_REPLY                       AllowedDirectMessageType = 4
+	ALLOW_DIRECT_GET_CONSENSUS_STATE                       AllowedDirectMessageType = 5
+	ALLOW_DIRECT_GET_CONSENSUS_STATE_REPLY                 AllowedDirectMessageType = 6
+	ALLOW_DIRECT_GET_BLOCK_HEADERS                         AllowedDirectMessageType = 7
+	ALLOW_DIRECT_GET_BLOCK_HEADERS_REPLY                   AllowedDirectMessageType = 8
+	ALLOW_DIRECT_GET_BLOCKS                                AllowedDirectMessageType = 9
+	ALLOW_DIRECT_GET_BLOCKS_REPLY                          AllowedDirectMessageType = 10
+	ALLOW_DIRECT_BACKTRACK_SIGNATURE_CHAIN                 AllowedDirectMessageType = 13
+	ALLOW_DIRECT_REQUEST_PROPOSAL_TRANSACTIONS             AllowedDirectMessageType = 14
+	ALLOW_DIRECT_REQUEST_PROPOSAL_TRANSACTIONS_REPLY       AllowedDirectMessageType = 15
+	ALLOW_DIRECT_I_HAVE_SIGNATURE_CHAIN_TRANSACTION        AllowedDirectMessageType = 16
+	ALLOW_DIRECT_REQUEST_SIGNATURE_CHAIN_TRANSACTION       AllowedDirectMessageType = 17
+	ALLOW_DIRECT_REQUEST_SIGNATURE_CHAIN_TRANSACTION_REPLY AllowedDirectMessageType = 18
 )
 
 var AllowedDirectMessageType_name = map[int32]string{
@@ -185,23 +227,35 @@ var AllowedDirectMessageType_name = map[int32]string{
 	8:  "ALLOW_DIRECT_GET_BLOCK_HEADERS_REPLY",
 	9:  "ALLOW_DIRECT_GET_BLOCKS",
 	10: "ALLOW_DIRECT_GET_BLOCKS_REPLY",
+	13: "ALLOW_DIRECT_BACKTRACK_SIGNATURE_CHAIN",
+	14: "ALLOW_DIRECT_REQUEST_PROPOSAL_TRANSACTIONS",
+	15: "ALLOW_DIRECT_REQUEST_PROPOSAL_TRANSACTIONS_REPLY",
+	16: "ALLOW_DIRECT_I_HAVE_SIGNATURE_CHAIN_TRANSACTION",
+	17: "ALLOW_DIRECT_REQUEST_SIGNATURE_CHAIN_TRANSACTION",
+	18: "ALLOW_DIRECT_REQUEST_SIGNATURE_CHAIN_TRANSACTION_REPLY",
 }
 var AllowedDirectMessageType_value = map[string]int32{
-	"ALLOW_DIRECT_PLACEHOLDER_DO_NOT_USE":    0,
-	"ALLOW_DIRECT_VOTE":                      1,
-	"ALLOW_DIRECT_I_HAVE_BLOCK_PROPOSAL":     2,
-	"ALLOW_DIRECT_REQUEST_BLOCK_PROPOSAL":    3,
-	"ALLOW_DIRECT_REQUEST_BLOCK_REPLY":       4,
-	"ALLOW_DIRECT_GET_CONSENSUS_STATE":       5,
-	"ALLOW_DIRECT_GET_CONSENSUS_STATE_REPLY": 6,
-	"ALLOW_DIRECT_GET_BLOCK_HEADERS":         7,
-	"ALLOW_DIRECT_GET_BLOCK_HEADERS_REPLY":   8,
-	"ALLOW_DIRECT_GET_BLOCKS":                9,
-	"ALLOW_DIRECT_GET_BLOCKS_REPLY":          10,
+	"ALLOW_DIRECT_PLACEHOLDER_DO_NOT_USE":                    0,
+	"ALLOW_DIRECT_VOTE":                                      1,
+	"ALLOW_DIRECT_I_HAVE_BLOCK_PROPOSAL":                     2,
+	"ALLOW_DIRECT_REQUEST_BLOCK_PROPOSAL":                    3,
+	"ALLOW_DIRECT_REQUEST_BLOCK_REPLY":                       4,
+	"ALLOW_DIRECT_GET_CONSENSUS_STATE":                       5,
+	"ALLOW_DIRECT_GET_CONSENSUS_STATE_REPLY":                 6,
+	"ALLOW_DIRECT_GET_BLOCK_HEADERS":                         7,
+	"ALLOW_DIRECT_GET_BLOCK_HEADERS_REPLY":                   8,
+	"ALLOW_DIRECT_GET_BLOCKS":                                9,
+	"ALLOW_DIRECT_GET_BLOCKS_REPLY":                          10,
+	"ALLOW_DIRECT_BACKTRACK_SIGNATURE_CHAIN":                 13,
+	"ALLOW_DIRECT_REQUEST_PROPOSAL_TRANSACTIONS":             14,
+	"ALLOW_DIRECT_REQUEST_PROPOSAL_TRANSACTIONS_REPLY":       15,
+	"ALLOW_DIRECT_I_HAVE_SIGNATURE_CHAIN_TRANSACTION":        16,
+	"ALLOW_DIRECT_REQUEST_SIGNATURE_CHAIN_TRANSACTION":       17,
+	"ALLOW_DIRECT_REQUEST_SIGNATURE_CHAIN_TRANSACTION_REPLY": 18,
 }
 
 func (AllowedDirectMessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{3}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{3}
 }
 
 // Message type that can be sent as relay message
@@ -223,7 +277,7 @@ var AllowedRelayMessageType_value = map[string]int32{
 }
 
 func (AllowedRelayMessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{4}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{4}
 }
 
 // Message type that can be sent as broadcast_push message
@@ -245,7 +299,7 @@ var AllowedBroadcastPushMessageType_value = map[string]int32{
 }
 
 func (AllowedBroadcastPushMessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{5}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{5}
 }
 
 // Message type that can be sent as broadcast_pull message
@@ -264,7 +318,7 @@ var AllowedBroadcastPullMessageType_value = map[string]int32{
 }
 
 func (AllowedBroadcastPullMessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{6}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{6}
 }
 
 // Message type that can be sent as broadcast_tree message
@@ -286,7 +340,30 @@ var AllowedBroadcastTreeMessageType_value = map[string]int32{
 }
 
 func (AllowedBroadcastTreeMessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{7}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{7}
+}
+
+type RequestTransactionType int32
+
+const (
+	REQUEST_FULL_TRANSACTION       RequestTransactionType = 0
+	REQUEST_TRANSACTION_HASH       RequestTransactionType = 1
+	REQUEST_TRANSACTION_SHORT_HASH RequestTransactionType = 2
+)
+
+var RequestTransactionType_name = map[int32]string{
+	0: "REQUEST_FULL_TRANSACTION",
+	1: "REQUEST_TRANSACTION_HASH",
+	2: "REQUEST_TRANSACTION_SHORT_HASH",
+}
+var RequestTransactionType_value = map[string]int32{
+	"REQUEST_FULL_TRANSACTION":       0,
+	"REQUEST_TRANSACTION_HASH":       1,
+	"REQUEST_TRANSACTION_SHORT_HASH": 2,
+}
+
+func (RequestTransactionType) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{8}
 }
 
 type UnsignedMessage struct {
@@ -297,7 +374,7 @@ type UnsignedMessage struct {
 func (m *UnsignedMessage) Reset()      { *m = UnsignedMessage{} }
 func (*UnsignedMessage) ProtoMessage() {}
 func (*UnsignedMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{0}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{0}
 }
 func (m *UnsignedMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -348,7 +425,7 @@ type SignedMessage struct {
 func (m *SignedMessage) Reset()      { *m = SignedMessage{} }
 func (*SignedMessage) ProtoMessage() {}
 func (*SignedMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{1}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{1}
 }
 func (m *SignedMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -399,7 +476,7 @@ type Vote struct {
 func (m *Vote) Reset()      { *m = Vote{} }
 func (*Vote) ProtoMessage() {}
 func (*Vote) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{2}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{2}
 }
 func (m *Vote) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -450,7 +527,7 @@ type IHaveBlockProposal struct {
 func (m *IHaveBlockProposal) Reset()      { *m = IHaveBlockProposal{} }
 func (*IHaveBlockProposal) ProtoMessage() {}
 func (*IHaveBlockProposal) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{3}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{3}
 }
 func (m *IHaveBlockProposal) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -494,13 +571,16 @@ func (m *IHaveBlockProposal) GetBlockHash() []byte {
 }
 
 type RequestBlockProposal struct {
-	BlockHash []byte `protobuf:"bytes,1,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
+	BlockHash     []byte                 `protobuf:"bytes,1,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
+	Type          RequestTransactionType `protobuf:"varint,2,opt,name=type,proto3,enum=pb.RequestTransactionType" json:"type,omitempty"`
+	ShortHashSalt []byte                 `protobuf:"bytes,3,opt,name=short_hash_salt,json=shortHashSalt,proto3" json:"short_hash_salt,omitempty"`
+	ShortHashSize uint32                 `protobuf:"varint,4,opt,name=short_hash_size,json=shortHashSize,proto3" json:"short_hash_size,omitempty"`
 }
 
 func (m *RequestBlockProposal) Reset()      { *m = RequestBlockProposal{} }
 func (*RequestBlockProposal) ProtoMessage() {}
 func (*RequestBlockProposal) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{4}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{4}
 }
 func (m *RequestBlockProposal) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -536,14 +616,36 @@ func (m *RequestBlockProposal) GetBlockHash() []byte {
 	return nil
 }
 
+func (m *RequestBlockProposal) GetType() RequestTransactionType {
+	if m != nil {
+		return m.Type
+	}
+	return REQUEST_FULL_TRANSACTION
+}
+
+func (m *RequestBlockProposal) GetShortHashSalt() []byte {
+	if m != nil {
+		return m.ShortHashSalt
+	}
+	return nil
+}
+
+func (m *RequestBlockProposal) GetShortHashSize() uint32 {
+	if m != nil {
+		return m.ShortHashSize
+	}
+	return 0
+}
+
 type RequestBlockProposalReply struct {
-	Block []byte `protobuf:"bytes,1,opt,name=block,proto3" json:"block,omitempty"`
+	Block            *Block   `protobuf:"bytes,1,opt,name=block" json:"block,omitempty"`
+	TransactionsHash [][]byte `protobuf:"bytes,2,rep,name=transactions_hash,json=transactionsHash" json:"transactions_hash,omitempty"`
 }
 
 func (m *RequestBlockProposalReply) Reset()      { *m = RequestBlockProposalReply{} }
 func (*RequestBlockProposalReply) ProtoMessage() {}
 func (*RequestBlockProposalReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{5}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{5}
 }
 func (m *RequestBlockProposalReply) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -572,9 +674,134 @@ func (m *RequestBlockProposalReply) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_RequestBlockProposalReply proto.InternalMessageInfo
 
-func (m *RequestBlockProposalReply) GetBlock() []byte {
+func (m *RequestBlockProposalReply) GetBlock() *Block {
 	if m != nil {
 		return m.Block
+	}
+	return nil
+}
+
+func (m *RequestBlockProposalReply) GetTransactionsHash() [][]byte {
+	if m != nil {
+		return m.TransactionsHash
+	}
+	return nil
+}
+
+type RequestProposalTransactions struct {
+	BlockHash        []byte                 `protobuf:"bytes,1,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
+	Type             RequestTransactionType `protobuf:"varint,2,opt,name=type,proto3,enum=pb.RequestTransactionType" json:"type,omitempty"`
+	ShortHashSalt    []byte                 `protobuf:"bytes,3,opt,name=short_hash_salt,json=shortHashSalt,proto3" json:"short_hash_salt,omitempty"`
+	ShortHashSize    uint32                 `protobuf:"varint,4,opt,name=short_hash_size,json=shortHashSize,proto3" json:"short_hash_size,omitempty"`
+	TransactionsHash [][]byte               `protobuf:"bytes,5,rep,name=transactions_hash,json=transactionsHash" json:"transactions_hash,omitempty"`
+}
+
+func (m *RequestProposalTransactions) Reset()      { *m = RequestProposalTransactions{} }
+func (*RequestProposalTransactions) ProtoMessage() {}
+func (*RequestProposalTransactions) Descriptor() ([]byte, []int) {
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{6}
+}
+func (m *RequestProposalTransactions) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *RequestProposalTransactions) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_RequestProposalTransactions.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (dst *RequestProposalTransactions) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RequestProposalTransactions.Merge(dst, src)
+}
+func (m *RequestProposalTransactions) XXX_Size() int {
+	return m.Size()
+}
+func (m *RequestProposalTransactions) XXX_DiscardUnknown() {
+	xxx_messageInfo_RequestProposalTransactions.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RequestProposalTransactions proto.InternalMessageInfo
+
+func (m *RequestProposalTransactions) GetBlockHash() []byte {
+	if m != nil {
+		return m.BlockHash
+	}
+	return nil
+}
+
+func (m *RequestProposalTransactions) GetType() RequestTransactionType {
+	if m != nil {
+		return m.Type
+	}
+	return REQUEST_FULL_TRANSACTION
+}
+
+func (m *RequestProposalTransactions) GetShortHashSalt() []byte {
+	if m != nil {
+		return m.ShortHashSalt
+	}
+	return nil
+}
+
+func (m *RequestProposalTransactions) GetShortHashSize() uint32 {
+	if m != nil {
+		return m.ShortHashSize
+	}
+	return 0
+}
+
+func (m *RequestProposalTransactions) GetTransactionsHash() [][]byte {
+	if m != nil {
+		return m.TransactionsHash
+	}
+	return nil
+}
+
+type RequestProposalTransactionsReply struct {
+	Transactions []*Transaction `protobuf:"bytes,1,rep,name=transactions" json:"transactions,omitempty"`
+}
+
+func (m *RequestProposalTransactionsReply) Reset()      { *m = RequestProposalTransactionsReply{} }
+func (*RequestProposalTransactionsReply) ProtoMessage() {}
+func (*RequestProposalTransactionsReply) Descriptor() ([]byte, []int) {
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{7}
+}
+func (m *RequestProposalTransactionsReply) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *RequestProposalTransactionsReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_RequestProposalTransactionsReply.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (dst *RequestProposalTransactionsReply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RequestProposalTransactionsReply.Merge(dst, src)
+}
+func (m *RequestProposalTransactionsReply) XXX_Size() int {
+	return m.Size()
+}
+func (m *RequestProposalTransactionsReply) XXX_DiscardUnknown() {
+	xxx_messageInfo_RequestProposalTransactionsReply.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RequestProposalTransactionsReply proto.InternalMessageInfo
+
+func (m *RequestProposalTransactionsReply) GetTransactions() []*Transaction {
+	if m != nil {
+		return m.Transactions
 	}
 	return nil
 }
@@ -585,7 +812,7 @@ type GetConsensusState struct {
 func (m *GetConsensusState) Reset()      { *m = GetConsensusState{} }
 func (*GetConsensusState) ProtoMessage() {}
 func (*GetConsensusState) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{6}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{8}
 }
 func (m *GetConsensusState) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -615,16 +842,17 @@ func (m *GetConsensusState) XXX_DiscardUnknown() {
 var xxx_messageInfo_GetConsensusState proto.InternalMessageInfo
 
 type GetConsensusStateReply struct {
-	LedgerHeight    uint32    `protobuf:"varint,1,opt,name=ledger_height,json=ledgerHeight,proto3" json:"ledger_height,omitempty"`
-	LedgerBlockHash []byte    `protobuf:"bytes,2,opt,name=ledger_block_hash,json=ledgerBlockHash,proto3" json:"ledger_block_hash,omitempty"`
-	ConsensusHeight uint32    `protobuf:"varint,3,opt,name=consensus_height,json=consensusHeight,proto3" json:"consensus_height,omitempty"`
-	SyncState       SyncState `protobuf:"varint,4,opt,name=sync_state,json=syncState,proto3,enum=pb.SyncState" json:"sync_state,omitempty"`
+	LedgerBlockHash     []byte    `protobuf:"bytes,2,opt,name=ledger_block_hash,json=ledgerBlockHash,proto3" json:"ledger_block_hash,omitempty"`
+	LedgerHeight        uint32    `protobuf:"varint,1,opt,name=ledger_height,json=ledgerHeight,proto3" json:"ledger_height,omitempty"`
+	ConsensusHeight     uint32    `protobuf:"varint,3,opt,name=consensus_height,json=consensusHeight,proto3" json:"consensus_height,omitempty"`
+	MinVerifiableHeight uint32    `protobuf:"varint,5,opt,name=min_verifiable_height,json=minVerifiableHeight,proto3" json:"min_verifiable_height,omitempty"`
+	SyncState           SyncState `protobuf:"varint,4,opt,name=sync_state,json=syncState,proto3,enum=pb.SyncState" json:"sync_state,omitempty"`
 }
 
 func (m *GetConsensusStateReply) Reset()      { *m = GetConsensusStateReply{} }
 func (*GetConsensusStateReply) ProtoMessage() {}
 func (*GetConsensusStateReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{7}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{9}
 }
 func (m *GetConsensusStateReply) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -653,13 +881,6 @@ func (m *GetConsensusStateReply) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_GetConsensusStateReply proto.InternalMessageInfo
 
-func (m *GetConsensusStateReply) GetLedgerHeight() uint32 {
-	if m != nil {
-		return m.LedgerHeight
-	}
-	return 0
-}
-
 func (m *GetConsensusStateReply) GetLedgerBlockHash() []byte {
 	if m != nil {
 		return m.LedgerBlockHash
@@ -667,9 +888,23 @@ func (m *GetConsensusStateReply) GetLedgerBlockHash() []byte {
 	return nil
 }
 
+func (m *GetConsensusStateReply) GetLedgerHeight() uint32 {
+	if m != nil {
+		return m.LedgerHeight
+	}
+	return 0
+}
+
 func (m *GetConsensusStateReply) GetConsensusHeight() uint32 {
 	if m != nil {
 		return m.ConsensusHeight
+	}
+	return 0
+}
+
+func (m *GetConsensusStateReply) GetMinVerifiableHeight() uint32 {
+	if m != nil {
+		return m.MinVerifiableHeight
 	}
 	return 0
 }
@@ -689,7 +924,7 @@ type GetBlockHeaders struct {
 func (m *GetBlockHeaders) Reset()      { *m = GetBlockHeaders{} }
 func (*GetBlockHeaders) ProtoMessage() {}
 func (*GetBlockHeaders) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{8}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{10}
 }
 func (m *GetBlockHeaders) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -733,13 +968,13 @@ func (m *GetBlockHeaders) GetEndHeight() uint32 {
 }
 
 type GetBlockHeadersReply struct {
-	BlockHeaders [][]byte `protobuf:"bytes,1,rep,name=block_headers,json=blockHeaders" json:"block_headers,omitempty"`
+	BlockHeaders []*Header `protobuf:"bytes,1,rep,name=block_headers,json=blockHeaders" json:"block_headers,omitempty"`
 }
 
 func (m *GetBlockHeadersReply) Reset()      { *m = GetBlockHeadersReply{} }
 func (*GetBlockHeadersReply) ProtoMessage() {}
 func (*GetBlockHeadersReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{9}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{11}
 }
 func (m *GetBlockHeadersReply) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -768,7 +1003,7 @@ func (m *GetBlockHeadersReply) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_GetBlockHeadersReply proto.InternalMessageInfo
 
-func (m *GetBlockHeadersReply) GetBlockHeaders() [][]byte {
+func (m *GetBlockHeadersReply) GetBlockHeaders() []*Header {
 	if m != nil {
 		return m.BlockHeaders
 	}
@@ -783,7 +1018,7 @@ type GetBlocks struct {
 func (m *GetBlocks) Reset()      { *m = GetBlocks{} }
 func (*GetBlocks) ProtoMessage() {}
 func (*GetBlocks) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{10}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{12}
 }
 func (m *GetBlocks) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -827,13 +1062,13 @@ func (m *GetBlocks) GetEndHeight() uint32 {
 }
 
 type GetBlocksReply struct {
-	Blocks [][]byte `protobuf:"bytes,1,rep,name=blocks" json:"blocks,omitempty"`
+	Blocks []*Block `protobuf:"bytes,1,rep,name=blocks" json:"blocks,omitempty"`
 }
 
 func (m *GetBlocksReply) Reset()      { *m = GetBlocksReply{} }
 func (*GetBlocksReply) ProtoMessage() {}
 func (*GetBlocksReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{11}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{13}
 }
 func (m *GetBlocksReply) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -862,7 +1097,7 @@ func (m *GetBlocksReply) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_GetBlocksReply proto.InternalMessageInfo
 
-func (m *GetBlocksReply) GetBlocks() [][]byte {
+func (m *GetBlocksReply) GetBlocks() []*Block {
 	if m != nil {
 		return m.Blocks
 	}
@@ -870,17 +1105,22 @@ func (m *GetBlocksReply) GetBlocks() [][]byte {
 }
 
 type Relay struct {
-	SrcAddr           string    `protobuf:"bytes,1,opt,name=src_addr,json=srcAddr,proto3" json:"src_addr,omitempty"`
-	DestId            []byte    `protobuf:"bytes,2,opt,name=dest_id,json=destId,proto3" json:"dest_id,omitempty"`
-	Payload           []byte    `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
-	SigChain          *SigChain `protobuf:"bytes,4,opt,name=sig_chain,json=sigChain" json:"sig_chain,omitempty"`
-	MaxHoldingSeconds uint32    `protobuf:"varint,5,opt,name=max_holding_seconds,json=maxHoldingSeconds,proto3" json:"max_holding_seconds,omitempty"`
+	SrcIdentifier     string `protobuf:"bytes,1,opt,name=src_identifier,json=srcIdentifier,proto3" json:"src_identifier,omitempty"`
+	SrcPubkey         []byte `protobuf:"bytes,6,opt,name=src_pubkey,json=srcPubkey,proto3" json:"src_pubkey,omitempty"`
+	DestId            []byte `protobuf:"bytes,2,opt,name=dest_id,json=destId,proto3" json:"dest_id,omitempty"`
+	Payload           []byte `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+	MaxHoldingSeconds uint32 `protobuf:"varint,5,opt,name=max_holding_seconds,json=maxHoldingSeconds,proto3" json:"max_holding_seconds,omitempty"`
+	// It is important to use block hash instead of block height here to allow
+	// node in syncing state to be able to sign the sigchain elem.
+	BlockHash     []byte `protobuf:"bytes,7,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
+	LastSignature []byte `protobuf:"bytes,8,opt,name=last_signature,json=lastSignature,proto3" json:"last_signature,omitempty"`
+	SigChainLen   uint32 `protobuf:"varint,9,opt,name=sig_chain_len,json=sigChainLen,proto3" json:"sig_chain_len,omitempty"`
 }
 
 func (m *Relay) Reset()      { *m = Relay{} }
 func (*Relay) ProtoMessage() {}
 func (*Relay) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{12}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{14}
 }
 func (m *Relay) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -909,11 +1149,18 @@ func (m *Relay) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Relay proto.InternalMessageInfo
 
-func (m *Relay) GetSrcAddr() string {
+func (m *Relay) GetSrcIdentifier() string {
 	if m != nil {
-		return m.SrcAddr
+		return m.SrcIdentifier
 	}
 	return ""
+}
+
+func (m *Relay) GetSrcPubkey() []byte {
+	if m != nil {
+		return m.SrcPubkey
+	}
+	return nil
 }
 
 func (m *Relay) GetDestId() []byte {
@@ -930,13 +1177,6 @@ func (m *Relay) GetPayload() []byte {
 	return nil
 }
 
-func (m *Relay) GetSigChain() *SigChain {
-	if m != nil {
-		return m.SigChain
-	}
-	return nil
-}
-
 func (m *Relay) GetMaxHoldingSeconds() uint32 {
 	if m != nil {
 		return m.MaxHoldingSeconds
@@ -944,14 +1184,35 @@ func (m *Relay) GetMaxHoldingSeconds() uint32 {
 	return 0
 }
 
+func (m *Relay) GetBlockHash() []byte {
+	if m != nil {
+		return m.BlockHash
+	}
+	return nil
+}
+
+func (m *Relay) GetLastSignature() []byte {
+	if m != nil {
+		return m.LastSignature
+	}
+	return nil
+}
+
+func (m *Relay) GetSigChainLen() uint32 {
+	if m != nil {
+		return m.SigChainLen
+	}
+	return 0
+}
+
 type Transactions struct {
-	Transactions [][]byte `protobuf:"bytes,1,rep,name=transactions" json:"transactions,omitempty"`
+	Transactions []*Transaction `protobuf:"bytes,1,rep,name=transactions" json:"transactions,omitempty"`
 }
 
 func (m *Transactions) Reset()      { *m = Transactions{} }
 func (*Transactions) ProtoMessage() {}
 func (*Transactions) Descriptor() ([]byte, []int) {
-	return fileDescriptor_nodemessage_3f88c9cc26de3053, []int{13}
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{15}
 }
 func (m *Transactions) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -980,9 +1241,197 @@ func (m *Transactions) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Transactions proto.InternalMessageInfo
 
-func (m *Transactions) GetTransactions() [][]byte {
+func (m *Transactions) GetTransactions() []*Transaction {
 	if m != nil {
 		return m.Transactions
+	}
+	return nil
+}
+
+type BacktrackSignatureChain struct {
+	SigChainElems []*SigChainElem `protobuf:"bytes,1,rep,name=sig_chain_elems,json=sigChainElems" json:"sig_chain_elems,omitempty"`
+	PrevSignature []byte          `protobuf:"bytes,2,opt,name=prev_signature,json=prevSignature,proto3" json:"prev_signature,omitempty"`
+}
+
+func (m *BacktrackSignatureChain) Reset()      { *m = BacktrackSignatureChain{} }
+func (*BacktrackSignatureChain) ProtoMessage() {}
+func (*BacktrackSignatureChain) Descriptor() ([]byte, []int) {
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{16}
+}
+func (m *BacktrackSignatureChain) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *BacktrackSignatureChain) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_BacktrackSignatureChain.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (dst *BacktrackSignatureChain) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_BacktrackSignatureChain.Merge(dst, src)
+}
+func (m *BacktrackSignatureChain) XXX_Size() int {
+	return m.Size()
+}
+func (m *BacktrackSignatureChain) XXX_DiscardUnknown() {
+	xxx_messageInfo_BacktrackSignatureChain.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_BacktrackSignatureChain proto.InternalMessageInfo
+
+func (m *BacktrackSignatureChain) GetSigChainElems() []*SigChainElem {
+	if m != nil {
+		return m.SigChainElems
+	}
+	return nil
+}
+
+func (m *BacktrackSignatureChain) GetPrevSignature() []byte {
+	if m != nil {
+		return m.PrevSignature
+	}
+	return nil
+}
+
+type IHaveSignatureChainTransaction struct {
+	Height        uint32 `protobuf:"varint,1,opt,name=height,proto3" json:"height,omitempty"`
+	SignatureHash []byte `protobuf:"bytes,2,opt,name=signature_hash,json=signatureHash,proto3" json:"signature_hash,omitempty"`
+}
+
+func (m *IHaveSignatureChainTransaction) Reset()      { *m = IHaveSignatureChainTransaction{} }
+func (*IHaveSignatureChainTransaction) ProtoMessage() {}
+func (*IHaveSignatureChainTransaction) Descriptor() ([]byte, []int) {
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{17}
+}
+func (m *IHaveSignatureChainTransaction) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *IHaveSignatureChainTransaction) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_IHaveSignatureChainTransaction.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (dst *IHaveSignatureChainTransaction) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_IHaveSignatureChainTransaction.Merge(dst, src)
+}
+func (m *IHaveSignatureChainTransaction) XXX_Size() int {
+	return m.Size()
+}
+func (m *IHaveSignatureChainTransaction) XXX_DiscardUnknown() {
+	xxx_messageInfo_IHaveSignatureChainTransaction.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_IHaveSignatureChainTransaction proto.InternalMessageInfo
+
+func (m *IHaveSignatureChainTransaction) GetHeight() uint32 {
+	if m != nil {
+		return m.Height
+	}
+	return 0
+}
+
+func (m *IHaveSignatureChainTransaction) GetSignatureHash() []byte {
+	if m != nil {
+		return m.SignatureHash
+	}
+	return nil
+}
+
+type RequestSignatureChainTransaction struct {
+	SignatureHash []byte `protobuf:"bytes,1,opt,name=signature_hash,json=signatureHash,proto3" json:"signature_hash,omitempty"`
+}
+
+func (m *RequestSignatureChainTransaction) Reset()      { *m = RequestSignatureChainTransaction{} }
+func (*RequestSignatureChainTransaction) ProtoMessage() {}
+func (*RequestSignatureChainTransaction) Descriptor() ([]byte, []int) {
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{18}
+}
+func (m *RequestSignatureChainTransaction) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *RequestSignatureChainTransaction) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_RequestSignatureChainTransaction.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (dst *RequestSignatureChainTransaction) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RequestSignatureChainTransaction.Merge(dst, src)
+}
+func (m *RequestSignatureChainTransaction) XXX_Size() int {
+	return m.Size()
+}
+func (m *RequestSignatureChainTransaction) XXX_DiscardUnknown() {
+	xxx_messageInfo_RequestSignatureChainTransaction.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RequestSignatureChainTransaction proto.InternalMessageInfo
+
+func (m *RequestSignatureChainTransaction) GetSignatureHash() []byte {
+	if m != nil {
+		return m.SignatureHash
+	}
+	return nil
+}
+
+type RequestSignatureChainTransactionReply struct {
+	Transaction *Transaction `protobuf:"bytes,1,opt,name=transaction" json:"transaction,omitempty"`
+}
+
+func (m *RequestSignatureChainTransactionReply) Reset()      { *m = RequestSignatureChainTransactionReply{} }
+func (*RequestSignatureChainTransactionReply) ProtoMessage() {}
+func (*RequestSignatureChainTransactionReply) Descriptor() ([]byte, []int) {
+	return fileDescriptor_nodemessage_9bf5f96b252d10f4, []int{19}
+}
+func (m *RequestSignatureChainTransactionReply) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *RequestSignatureChainTransactionReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_RequestSignatureChainTransactionReply.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (dst *RequestSignatureChainTransactionReply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RequestSignatureChainTransactionReply.Merge(dst, src)
+}
+func (m *RequestSignatureChainTransactionReply) XXX_Size() int {
+	return m.Size()
+}
+func (m *RequestSignatureChainTransactionReply) XXX_DiscardUnknown() {
+	xxx_messageInfo_RequestSignatureChainTransactionReply.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RequestSignatureChainTransactionReply proto.InternalMessageInfo
+
+func (m *RequestSignatureChainTransactionReply) GetTransaction() *Transaction {
+	if m != nil {
+		return m.Transaction
 	}
 	return nil
 }
@@ -994,6 +1443,8 @@ func init() {
 	proto.RegisterType((*IHaveBlockProposal)(nil), "pb.IHaveBlockProposal")
 	proto.RegisterType((*RequestBlockProposal)(nil), "pb.RequestBlockProposal")
 	proto.RegisterType((*RequestBlockProposalReply)(nil), "pb.RequestBlockProposalReply")
+	proto.RegisterType((*RequestProposalTransactions)(nil), "pb.RequestProposalTransactions")
+	proto.RegisterType((*RequestProposalTransactionsReply)(nil), "pb.RequestProposalTransactionsReply")
 	proto.RegisterType((*GetConsensusState)(nil), "pb.GetConsensusState")
 	proto.RegisterType((*GetConsensusStateReply)(nil), "pb.GetConsensusStateReply")
 	proto.RegisterType((*GetBlockHeaders)(nil), "pb.GetBlockHeaders")
@@ -1002,6 +1453,10 @@ func init() {
 	proto.RegisterType((*GetBlocksReply)(nil), "pb.GetBlocksReply")
 	proto.RegisterType((*Relay)(nil), "pb.Relay")
 	proto.RegisterType((*Transactions)(nil), "pb.Transactions")
+	proto.RegisterType((*BacktrackSignatureChain)(nil), "pb.BacktrackSignatureChain")
+	proto.RegisterType((*IHaveSignatureChainTransaction)(nil), "pb.IHaveSignatureChainTransaction")
+	proto.RegisterType((*RequestSignatureChainTransaction)(nil), "pb.RequestSignatureChainTransaction")
+	proto.RegisterType((*RequestSignatureChainTransactionReply)(nil), "pb.RequestSignatureChainTransactionReply")
 	proto.RegisterEnum("pb.MessageType", MessageType_name, MessageType_value)
 	proto.RegisterEnum("pb.AllowedSignedMessageType", AllowedSignedMessageType_name, AllowedSignedMessageType_value)
 	proto.RegisterEnum("pb.AllowedUnsignedMessageType", AllowedUnsignedMessageType_name, AllowedUnsignedMessageType_value)
@@ -1010,6 +1465,7 @@ func init() {
 	proto.RegisterEnum("pb.AllowedBroadcastPushMessageType", AllowedBroadcastPushMessageType_name, AllowedBroadcastPushMessageType_value)
 	proto.RegisterEnum("pb.AllowedBroadcastPullMessageType", AllowedBroadcastPullMessageType_name, AllowedBroadcastPullMessageType_value)
 	proto.RegisterEnum("pb.AllowedBroadcastTreeMessageType", AllowedBroadcastTreeMessageType_name, AllowedBroadcastTreeMessageType_value)
+	proto.RegisterEnum("pb.RequestTransactionType", RequestTransactionType_name, RequestTransactionType_value)
 }
 func (x MessageType) String() string {
 	s, ok := MessageType_name[int32(x)]
@@ -1062,6 +1518,13 @@ func (x AllowedBroadcastPullMessageType) String() string {
 }
 func (x AllowedBroadcastTreeMessageType) String() string {
 	s, ok := AllowedBroadcastTreeMessageType_name[int32(x)]
+	if ok {
+		return s
+	}
+	return strconv.Itoa(int(x))
+}
+func (x RequestTransactionType) String() string {
+	s, ok := RequestTransactionType_name[int32(x)]
 	if ok {
 		return s
 	}
@@ -1197,6 +1660,15 @@ func (this *RequestBlockProposal) Equal(that interface{}) bool {
 	if !bytes.Equal(this.BlockHash, that1.BlockHash) {
 		return false
 	}
+	if this.Type != that1.Type {
+		return false
+	}
+	if !bytes.Equal(this.ShortHashSalt, that1.ShortHashSalt) {
+		return false
+	}
+	if this.ShortHashSize != that1.ShortHashSize {
+		return false
+	}
 	return true
 }
 func (this *RequestBlockProposalReply) Equal(that interface{}) bool {
@@ -1218,8 +1690,86 @@ func (this *RequestBlockProposalReply) Equal(that interface{}) bool {
 	} else if this == nil {
 		return false
 	}
-	if !bytes.Equal(this.Block, that1.Block) {
+	if !this.Block.Equal(that1.Block) {
 		return false
+	}
+	if len(this.TransactionsHash) != len(that1.TransactionsHash) {
+		return false
+	}
+	for i := range this.TransactionsHash {
+		if !bytes.Equal(this.TransactionsHash[i], that1.TransactionsHash[i]) {
+			return false
+		}
+	}
+	return true
+}
+func (this *RequestProposalTransactions) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*RequestProposalTransactions)
+	if !ok {
+		that2, ok := that.(RequestProposalTransactions)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if !bytes.Equal(this.BlockHash, that1.BlockHash) {
+		return false
+	}
+	if this.Type != that1.Type {
+		return false
+	}
+	if !bytes.Equal(this.ShortHashSalt, that1.ShortHashSalt) {
+		return false
+	}
+	if this.ShortHashSize != that1.ShortHashSize {
+		return false
+	}
+	if len(this.TransactionsHash) != len(that1.TransactionsHash) {
+		return false
+	}
+	for i := range this.TransactionsHash {
+		if !bytes.Equal(this.TransactionsHash[i], that1.TransactionsHash[i]) {
+			return false
+		}
+	}
+	return true
+}
+func (this *RequestProposalTransactionsReply) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*RequestProposalTransactionsReply)
+	if !ok {
+		that2, ok := that.(RequestProposalTransactionsReply)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if len(this.Transactions) != len(that1.Transactions) {
+		return false
+	}
+	for i := range this.Transactions {
+		if !this.Transactions[i].Equal(that1.Transactions[i]) {
+			return false
+		}
 	}
 	return true
 }
@@ -1263,13 +1813,16 @@ func (this *GetConsensusStateReply) Equal(that interface{}) bool {
 	} else if this == nil {
 		return false
 	}
-	if this.LedgerHeight != that1.LedgerHeight {
-		return false
-	}
 	if !bytes.Equal(this.LedgerBlockHash, that1.LedgerBlockHash) {
 		return false
 	}
+	if this.LedgerHeight != that1.LedgerHeight {
+		return false
+	}
 	if this.ConsensusHeight != that1.ConsensusHeight {
+		return false
+	}
+	if this.MinVerifiableHeight != that1.MinVerifiableHeight {
 		return false
 	}
 	if this.SyncState != that1.SyncState {
@@ -1327,7 +1880,7 @@ func (this *GetBlockHeadersReply) Equal(that interface{}) bool {
 		return false
 	}
 	for i := range this.BlockHeaders {
-		if !bytes.Equal(this.BlockHeaders[i], that1.BlockHeaders[i]) {
+		if !this.BlockHeaders[i].Equal(that1.BlockHeaders[i]) {
 			return false
 		}
 	}
@@ -1383,7 +1936,7 @@ func (this *GetBlocksReply) Equal(that interface{}) bool {
 		return false
 	}
 	for i := range this.Blocks {
-		if !bytes.Equal(this.Blocks[i], that1.Blocks[i]) {
+		if !this.Blocks[i].Equal(that1.Blocks[i]) {
 			return false
 		}
 	}
@@ -1408,7 +1961,10 @@ func (this *Relay) Equal(that interface{}) bool {
 	} else if this == nil {
 		return false
 	}
-	if this.SrcAddr != that1.SrcAddr {
+	if this.SrcIdentifier != that1.SrcIdentifier {
+		return false
+	}
+	if !bytes.Equal(this.SrcPubkey, that1.SrcPubkey) {
 		return false
 	}
 	if !bytes.Equal(this.DestId, that1.DestId) {
@@ -1417,10 +1973,16 @@ func (this *Relay) Equal(that interface{}) bool {
 	if !bytes.Equal(this.Payload, that1.Payload) {
 		return false
 	}
-	if !this.SigChain.Equal(that1.SigChain) {
+	if this.MaxHoldingSeconds != that1.MaxHoldingSeconds {
 		return false
 	}
-	if this.MaxHoldingSeconds != that1.MaxHoldingSeconds {
+	if !bytes.Equal(this.BlockHash, that1.BlockHash) {
+		return false
+	}
+	if !bytes.Equal(this.LastSignature, that1.LastSignature) {
+		return false
+	}
+	if this.SigChainLen != that1.SigChainLen {
 		return false
 	}
 	return true
@@ -1448,9 +2010,116 @@ func (this *Transactions) Equal(that interface{}) bool {
 		return false
 	}
 	for i := range this.Transactions {
-		if !bytes.Equal(this.Transactions[i], that1.Transactions[i]) {
+		if !this.Transactions[i].Equal(that1.Transactions[i]) {
 			return false
 		}
+	}
+	return true
+}
+func (this *BacktrackSignatureChain) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*BacktrackSignatureChain)
+	if !ok {
+		that2, ok := that.(BacktrackSignatureChain)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if len(this.SigChainElems) != len(that1.SigChainElems) {
+		return false
+	}
+	for i := range this.SigChainElems {
+		if !this.SigChainElems[i].Equal(that1.SigChainElems[i]) {
+			return false
+		}
+	}
+	if !bytes.Equal(this.PrevSignature, that1.PrevSignature) {
+		return false
+	}
+	return true
+}
+func (this *IHaveSignatureChainTransaction) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*IHaveSignatureChainTransaction)
+	if !ok {
+		that2, ok := that.(IHaveSignatureChainTransaction)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if this.Height != that1.Height {
+		return false
+	}
+	if !bytes.Equal(this.SignatureHash, that1.SignatureHash) {
+		return false
+	}
+	return true
+}
+func (this *RequestSignatureChainTransaction) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*RequestSignatureChainTransaction)
+	if !ok {
+		that2, ok := that.(RequestSignatureChainTransaction)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if !bytes.Equal(this.SignatureHash, that1.SignatureHash) {
+		return false
+	}
+	return true
+}
+func (this *RequestSignatureChainTransactionReply) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*RequestSignatureChainTransactionReply)
+	if !ok {
+		that2, ok := that.(RequestSignatureChainTransactionReply)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if !this.Transaction.Equal(that1.Transaction) {
+		return false
 	}
 	return true
 }
@@ -1502,9 +2171,12 @@ func (this *RequestBlockProposal) GoString() string {
 	if this == nil {
 		return "nil"
 	}
-	s := make([]string, 0, 5)
+	s := make([]string, 0, 8)
 	s = append(s, "&pb.RequestBlockProposal{")
 	s = append(s, "BlockHash: "+fmt.Sprintf("%#v", this.BlockHash)+",\n")
+	s = append(s, "Type: "+fmt.Sprintf("%#v", this.Type)+",\n")
+	s = append(s, "ShortHashSalt: "+fmt.Sprintf("%#v", this.ShortHashSalt)+",\n")
+	s = append(s, "ShortHashSize: "+fmt.Sprintf("%#v", this.ShortHashSize)+",\n")
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -1512,9 +2184,38 @@ func (this *RequestBlockProposalReply) GoString() string {
 	if this == nil {
 		return "nil"
 	}
-	s := make([]string, 0, 5)
+	s := make([]string, 0, 6)
 	s = append(s, "&pb.RequestBlockProposalReply{")
-	s = append(s, "Block: "+fmt.Sprintf("%#v", this.Block)+",\n")
+	if this.Block != nil {
+		s = append(s, "Block: "+fmt.Sprintf("%#v", this.Block)+",\n")
+	}
+	s = append(s, "TransactionsHash: "+fmt.Sprintf("%#v", this.TransactionsHash)+",\n")
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *RequestProposalTransactions) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 9)
+	s = append(s, "&pb.RequestProposalTransactions{")
+	s = append(s, "BlockHash: "+fmt.Sprintf("%#v", this.BlockHash)+",\n")
+	s = append(s, "Type: "+fmt.Sprintf("%#v", this.Type)+",\n")
+	s = append(s, "ShortHashSalt: "+fmt.Sprintf("%#v", this.ShortHashSalt)+",\n")
+	s = append(s, "ShortHashSize: "+fmt.Sprintf("%#v", this.ShortHashSize)+",\n")
+	s = append(s, "TransactionsHash: "+fmt.Sprintf("%#v", this.TransactionsHash)+",\n")
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *RequestProposalTransactionsReply) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 5)
+	s = append(s, "&pb.RequestProposalTransactionsReply{")
+	if this.Transactions != nil {
+		s = append(s, "Transactions: "+fmt.Sprintf("%#v", this.Transactions)+",\n")
+	}
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -1531,11 +2232,12 @@ func (this *GetConsensusStateReply) GoString() string {
 	if this == nil {
 		return "nil"
 	}
-	s := make([]string, 0, 8)
+	s := make([]string, 0, 9)
 	s = append(s, "&pb.GetConsensusStateReply{")
-	s = append(s, "LedgerHeight: "+fmt.Sprintf("%#v", this.LedgerHeight)+",\n")
 	s = append(s, "LedgerBlockHash: "+fmt.Sprintf("%#v", this.LedgerBlockHash)+",\n")
+	s = append(s, "LedgerHeight: "+fmt.Sprintf("%#v", this.LedgerHeight)+",\n")
 	s = append(s, "ConsensusHeight: "+fmt.Sprintf("%#v", this.ConsensusHeight)+",\n")
+	s = append(s, "MinVerifiableHeight: "+fmt.Sprintf("%#v", this.MinVerifiableHeight)+",\n")
 	s = append(s, "SyncState: "+fmt.Sprintf("%#v", this.SyncState)+",\n")
 	s = append(s, "}")
 	return strings.Join(s, "")
@@ -1557,7 +2259,9 @@ func (this *GetBlockHeadersReply) GoString() string {
 	}
 	s := make([]string, 0, 5)
 	s = append(s, "&pb.GetBlockHeadersReply{")
-	s = append(s, "BlockHeaders: "+fmt.Sprintf("%#v", this.BlockHeaders)+",\n")
+	if this.BlockHeaders != nil {
+		s = append(s, "BlockHeaders: "+fmt.Sprintf("%#v", this.BlockHeaders)+",\n")
+	}
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -1578,7 +2282,9 @@ func (this *GetBlocksReply) GoString() string {
 	}
 	s := make([]string, 0, 5)
 	s = append(s, "&pb.GetBlocksReply{")
-	s = append(s, "Blocks: "+fmt.Sprintf("%#v", this.Blocks)+",\n")
+	if this.Blocks != nil {
+		s = append(s, "Blocks: "+fmt.Sprintf("%#v", this.Blocks)+",\n")
+	}
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -1586,15 +2292,16 @@ func (this *Relay) GoString() string {
 	if this == nil {
 		return "nil"
 	}
-	s := make([]string, 0, 9)
+	s := make([]string, 0, 12)
 	s = append(s, "&pb.Relay{")
-	s = append(s, "SrcAddr: "+fmt.Sprintf("%#v", this.SrcAddr)+",\n")
+	s = append(s, "SrcIdentifier: "+fmt.Sprintf("%#v", this.SrcIdentifier)+",\n")
+	s = append(s, "SrcPubkey: "+fmt.Sprintf("%#v", this.SrcPubkey)+",\n")
 	s = append(s, "DestId: "+fmt.Sprintf("%#v", this.DestId)+",\n")
 	s = append(s, "Payload: "+fmt.Sprintf("%#v", this.Payload)+",\n")
-	if this.SigChain != nil {
-		s = append(s, "SigChain: "+fmt.Sprintf("%#v", this.SigChain)+",\n")
-	}
 	s = append(s, "MaxHoldingSeconds: "+fmt.Sprintf("%#v", this.MaxHoldingSeconds)+",\n")
+	s = append(s, "BlockHash: "+fmt.Sprintf("%#v", this.BlockHash)+",\n")
+	s = append(s, "LastSignature: "+fmt.Sprintf("%#v", this.LastSignature)+",\n")
+	s = append(s, "SigChainLen: "+fmt.Sprintf("%#v", this.SigChainLen)+",\n")
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -1604,7 +2311,55 @@ func (this *Transactions) GoString() string {
 	}
 	s := make([]string, 0, 5)
 	s = append(s, "&pb.Transactions{")
-	s = append(s, "Transactions: "+fmt.Sprintf("%#v", this.Transactions)+",\n")
+	if this.Transactions != nil {
+		s = append(s, "Transactions: "+fmt.Sprintf("%#v", this.Transactions)+",\n")
+	}
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *BacktrackSignatureChain) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 6)
+	s = append(s, "&pb.BacktrackSignatureChain{")
+	if this.SigChainElems != nil {
+		s = append(s, "SigChainElems: "+fmt.Sprintf("%#v", this.SigChainElems)+",\n")
+	}
+	s = append(s, "PrevSignature: "+fmt.Sprintf("%#v", this.PrevSignature)+",\n")
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *IHaveSignatureChainTransaction) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 6)
+	s = append(s, "&pb.IHaveSignatureChainTransaction{")
+	s = append(s, "Height: "+fmt.Sprintf("%#v", this.Height)+",\n")
+	s = append(s, "SignatureHash: "+fmt.Sprintf("%#v", this.SignatureHash)+",\n")
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *RequestSignatureChainTransaction) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 5)
+	s = append(s, "&pb.RequestSignatureChainTransaction{")
+	s = append(s, "SignatureHash: "+fmt.Sprintf("%#v", this.SignatureHash)+",\n")
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *RequestSignatureChainTransactionReply) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 5)
+	s = append(s, "&pb.RequestSignatureChainTransactionReply{")
+	if this.Transaction != nil {
+		s = append(s, "Transaction: "+fmt.Sprintf("%#v", this.Transaction)+",\n")
+	}
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -1754,6 +2509,22 @@ func (m *RequestBlockProposal) MarshalTo(dAtA []byte) (int, error) {
 		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.BlockHash)))
 		i += copy(dAtA[i:], m.BlockHash)
 	}
+	if m.Type != 0 {
+		dAtA[i] = 0x10
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(m.Type))
+	}
+	if len(m.ShortHashSalt) > 0 {
+		dAtA[i] = 0x1a
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.ShortHashSalt)))
+		i += copy(dAtA[i:], m.ShortHashSalt)
+	}
+	if m.ShortHashSize != 0 {
+		dAtA[i] = 0x20
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(m.ShortHashSize))
+	}
 	return i, nil
 }
 
@@ -1772,11 +2543,101 @@ func (m *RequestBlockProposalReply) MarshalTo(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.Block) > 0 {
+	if m.Block != nil {
 		dAtA[i] = 0xa
 		i++
-		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.Block)))
-		i += copy(dAtA[i:], m.Block)
+		i = encodeVarintNodemessage(dAtA, i, uint64(m.Block.Size()))
+		n1, err := m.Block.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n1
+	}
+	if len(m.TransactionsHash) > 0 {
+		for _, b := range m.TransactionsHash {
+			dAtA[i] = 0x12
+			i++
+			i = encodeVarintNodemessage(dAtA, i, uint64(len(b)))
+			i += copy(dAtA[i:], b)
+		}
+	}
+	return i, nil
+}
+
+func (m *RequestProposalTransactions) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *RequestProposalTransactions) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.BlockHash) > 0 {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.BlockHash)))
+		i += copy(dAtA[i:], m.BlockHash)
+	}
+	if m.Type != 0 {
+		dAtA[i] = 0x10
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(m.Type))
+	}
+	if len(m.ShortHashSalt) > 0 {
+		dAtA[i] = 0x1a
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.ShortHashSalt)))
+		i += copy(dAtA[i:], m.ShortHashSalt)
+	}
+	if m.ShortHashSize != 0 {
+		dAtA[i] = 0x20
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(m.ShortHashSize))
+	}
+	if len(m.TransactionsHash) > 0 {
+		for _, b := range m.TransactionsHash {
+			dAtA[i] = 0x2a
+			i++
+			i = encodeVarintNodemessage(dAtA, i, uint64(len(b)))
+			i += copy(dAtA[i:], b)
+		}
+	}
+	return i, nil
+}
+
+func (m *RequestProposalTransactionsReply) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *RequestProposalTransactionsReply) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.Transactions) > 0 {
+		for _, msg := range m.Transactions {
+			dAtA[i] = 0xa
+			i++
+			i = encodeVarintNodemessage(dAtA, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(dAtA[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n
+		}
 	}
 	return i, nil
 }
@@ -1835,6 +2696,11 @@ func (m *GetConsensusStateReply) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintNodemessage(dAtA, i, uint64(m.SyncState))
 	}
+	if m.MinVerifiableHeight != 0 {
+		dAtA[i] = 0x28
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(m.MinVerifiableHeight))
+	}
 	return i, nil
 }
 
@@ -1882,11 +2748,15 @@ func (m *GetBlockHeadersReply) MarshalTo(dAtA []byte) (int, error) {
 	var l int
 	_ = l
 	if len(m.BlockHeaders) > 0 {
-		for _, b := range m.BlockHeaders {
+		for _, msg := range m.BlockHeaders {
 			dAtA[i] = 0xa
 			i++
-			i = encodeVarintNodemessage(dAtA, i, uint64(len(b)))
-			i += copy(dAtA[i:], b)
+			i = encodeVarintNodemessage(dAtA, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(dAtA[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n
 		}
 	}
 	return i, nil
@@ -1936,11 +2806,15 @@ func (m *GetBlocksReply) MarshalTo(dAtA []byte) (int, error) {
 	var l int
 	_ = l
 	if len(m.Blocks) > 0 {
-		for _, b := range m.Blocks {
+		for _, msg := range m.Blocks {
 			dAtA[i] = 0xa
 			i++
-			i = encodeVarintNodemessage(dAtA, i, uint64(len(b)))
-			i += copy(dAtA[i:], b)
+			i = encodeVarintNodemessage(dAtA, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(dAtA[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n
 		}
 	}
 	return i, nil
@@ -1961,11 +2835,11 @@ func (m *Relay) MarshalTo(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.SrcAddr) > 0 {
+	if len(m.SrcIdentifier) > 0 {
 		dAtA[i] = 0xa
 		i++
-		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.SrcAddr)))
-		i += copy(dAtA[i:], m.SrcAddr)
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.SrcIdentifier)))
+		i += copy(dAtA[i:], m.SrcIdentifier)
 	}
 	if len(m.DestId) > 0 {
 		dAtA[i] = 0x12
@@ -1979,20 +2853,33 @@ func (m *Relay) MarshalTo(dAtA []byte) (int, error) {
 		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.Payload)))
 		i += copy(dAtA[i:], m.Payload)
 	}
-	if m.SigChain != nil {
-		dAtA[i] = 0x22
-		i++
-		i = encodeVarintNodemessage(dAtA, i, uint64(m.SigChain.Size()))
-		n1, err := m.SigChain.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n1
-	}
 	if m.MaxHoldingSeconds != 0 {
 		dAtA[i] = 0x28
 		i++
 		i = encodeVarintNodemessage(dAtA, i, uint64(m.MaxHoldingSeconds))
+	}
+	if len(m.SrcPubkey) > 0 {
+		dAtA[i] = 0x32
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.SrcPubkey)))
+		i += copy(dAtA[i:], m.SrcPubkey)
+	}
+	if len(m.BlockHash) > 0 {
+		dAtA[i] = 0x3a
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.BlockHash)))
+		i += copy(dAtA[i:], m.BlockHash)
+	}
+	if len(m.LastSignature) > 0 {
+		dAtA[i] = 0x42
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.LastSignature)))
+		i += copy(dAtA[i:], m.LastSignature)
+	}
+	if m.SigChainLen != 0 {
+		dAtA[i] = 0x48
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(m.SigChainLen))
 	}
 	return i, nil
 }
@@ -2013,12 +2900,133 @@ func (m *Transactions) MarshalTo(dAtA []byte) (int, error) {
 	var l int
 	_ = l
 	if len(m.Transactions) > 0 {
-		for _, b := range m.Transactions {
+		for _, msg := range m.Transactions {
 			dAtA[i] = 0xa
 			i++
-			i = encodeVarintNodemessage(dAtA, i, uint64(len(b)))
-			i += copy(dAtA[i:], b)
+			i = encodeVarintNodemessage(dAtA, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(dAtA[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n
 		}
+	}
+	return i, nil
+}
+
+func (m *BacktrackSignatureChain) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *BacktrackSignatureChain) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.SigChainElems) > 0 {
+		for _, msg := range m.SigChainElems {
+			dAtA[i] = 0xa
+			i++
+			i = encodeVarintNodemessage(dAtA, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(dAtA[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n
+		}
+	}
+	if len(m.PrevSignature) > 0 {
+		dAtA[i] = 0x12
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.PrevSignature)))
+		i += copy(dAtA[i:], m.PrevSignature)
+	}
+	return i, nil
+}
+
+func (m *IHaveSignatureChainTransaction) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *IHaveSignatureChainTransaction) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Height != 0 {
+		dAtA[i] = 0x8
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(m.Height))
+	}
+	if len(m.SignatureHash) > 0 {
+		dAtA[i] = 0x12
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.SignatureHash)))
+		i += copy(dAtA[i:], m.SignatureHash)
+	}
+	return i, nil
+}
+
+func (m *RequestSignatureChainTransaction) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *RequestSignatureChainTransaction) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.SignatureHash) > 0 {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(len(m.SignatureHash)))
+		i += copy(dAtA[i:], m.SignatureHash)
+	}
+	return i, nil
+}
+
+func (m *RequestSignatureChainTransactionReply) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *RequestSignatureChainTransactionReply) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Transaction != nil {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintNodemessage(dAtA, i, uint64(m.Transaction.Size()))
+		n2, err := m.Transaction.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n2
 	}
 	return i, nil
 }
@@ -2031,268 +3039,6 @@ func encodeVarintNodemessage(dAtA []byte, offset int, v uint64) int {
 	}
 	dAtA[offset] = uint8(v)
 	return offset + 1
-}
-func NewPopulatedUnsignedMessage(r randyNodemessage, easy bool) *UnsignedMessage {
-	this := &UnsignedMessage{}
-	this.MessageType = MessageType([]int32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}[r.Intn(13)])
-	v1 := r.Intn(100)
-	this.Message = make([]byte, v1)
-	for i := 0; i < v1; i++ {
-		this.Message[i] = byte(r.Intn(256))
-	}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedSignedMessage(r randyNodemessage, easy bool) *SignedMessage {
-	this := &SignedMessage{}
-	v2 := r.Intn(100)
-	this.Message = make([]byte, v2)
-	for i := 0; i < v2; i++ {
-		this.Message[i] = byte(r.Intn(256))
-	}
-	v3 := r.Intn(100)
-	this.Signature = make([]byte, v3)
-	for i := 0; i < v3; i++ {
-		this.Signature[i] = byte(r.Intn(256))
-	}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedVote(r randyNodemessage, easy bool) *Vote {
-	this := &Vote{}
-	this.Height = uint32(r.Uint32())
-	v4 := r.Intn(100)
-	this.BlockHash = make([]byte, v4)
-	for i := 0; i < v4; i++ {
-		this.BlockHash[i] = byte(r.Intn(256))
-	}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedIHaveBlockProposal(r randyNodemessage, easy bool) *IHaveBlockProposal {
-	this := &IHaveBlockProposal{}
-	this.Height = uint32(r.Uint32())
-	v5 := r.Intn(100)
-	this.BlockHash = make([]byte, v5)
-	for i := 0; i < v5; i++ {
-		this.BlockHash[i] = byte(r.Intn(256))
-	}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedRequestBlockProposal(r randyNodemessage, easy bool) *RequestBlockProposal {
-	this := &RequestBlockProposal{}
-	v6 := r.Intn(100)
-	this.BlockHash = make([]byte, v6)
-	for i := 0; i < v6; i++ {
-		this.BlockHash[i] = byte(r.Intn(256))
-	}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedRequestBlockProposalReply(r randyNodemessage, easy bool) *RequestBlockProposalReply {
-	this := &RequestBlockProposalReply{}
-	v7 := r.Intn(100)
-	this.Block = make([]byte, v7)
-	for i := 0; i < v7; i++ {
-		this.Block[i] = byte(r.Intn(256))
-	}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedGetConsensusState(r randyNodemessage, easy bool) *GetConsensusState {
-	this := &GetConsensusState{}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedGetConsensusStateReply(r randyNodemessage, easy bool) *GetConsensusStateReply {
-	this := &GetConsensusStateReply{}
-	this.LedgerHeight = uint32(r.Uint32())
-	v8 := r.Intn(100)
-	this.LedgerBlockHash = make([]byte, v8)
-	for i := 0; i < v8; i++ {
-		this.LedgerBlockHash[i] = byte(r.Intn(256))
-	}
-	this.ConsensusHeight = uint32(r.Uint32())
-	this.SyncState = SyncState([]int32{0, 1, 2, 3}[r.Intn(4)])
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedGetBlockHeaders(r randyNodemessage, easy bool) *GetBlockHeaders {
-	this := &GetBlockHeaders{}
-	this.StartHeight = uint32(r.Uint32())
-	this.EndHeight = uint32(r.Uint32())
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedGetBlockHeadersReply(r randyNodemessage, easy bool) *GetBlockHeadersReply {
-	this := &GetBlockHeadersReply{}
-	v9 := r.Intn(10)
-	this.BlockHeaders = make([][]byte, v9)
-	for i := 0; i < v9; i++ {
-		v10 := r.Intn(100)
-		this.BlockHeaders[i] = make([]byte, v10)
-		for j := 0; j < v10; j++ {
-			this.BlockHeaders[i][j] = byte(r.Intn(256))
-		}
-	}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedGetBlocks(r randyNodemessage, easy bool) *GetBlocks {
-	this := &GetBlocks{}
-	this.StartHeight = uint32(r.Uint32())
-	this.EndHeight = uint32(r.Uint32())
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedGetBlocksReply(r randyNodemessage, easy bool) *GetBlocksReply {
-	this := &GetBlocksReply{}
-	v11 := r.Intn(10)
-	this.Blocks = make([][]byte, v11)
-	for i := 0; i < v11; i++ {
-		v12 := r.Intn(100)
-		this.Blocks[i] = make([]byte, v12)
-		for j := 0; j < v12; j++ {
-			this.Blocks[i][j] = byte(r.Intn(256))
-		}
-	}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedRelay(r randyNodemessage, easy bool) *Relay {
-	this := &Relay{}
-	this.SrcAddr = string(randStringNodemessage(r))
-	v13 := r.Intn(100)
-	this.DestId = make([]byte, v13)
-	for i := 0; i < v13; i++ {
-		this.DestId[i] = byte(r.Intn(256))
-	}
-	v14 := r.Intn(100)
-	this.Payload = make([]byte, v14)
-	for i := 0; i < v14; i++ {
-		this.Payload[i] = byte(r.Intn(256))
-	}
-	if r.Intn(10) != 0 {
-		this.SigChain = NewPopulatedSigChain(r, easy)
-	}
-	this.MaxHoldingSeconds = uint32(r.Uint32())
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-func NewPopulatedTransactions(r randyNodemessage, easy bool) *Transactions {
-	this := &Transactions{}
-	v15 := r.Intn(10)
-	this.Transactions = make([][]byte, v15)
-	for i := 0; i < v15; i++ {
-		v16 := r.Intn(100)
-		this.Transactions[i] = make([]byte, v16)
-		for j := 0; j < v16; j++ {
-			this.Transactions[i][j] = byte(r.Intn(256))
-		}
-	}
-	if !easy && r.Intn(10) != 0 {
-	}
-	return this
-}
-
-type randyNodemessage interface {
-	Float32() float32
-	Float64() float64
-	Int63() int64
-	Int31() int32
-	Uint32() uint32
-	Intn(n int) int
-}
-
-func randUTF8RuneNodemessage(r randyNodemessage) rune {
-	ru := r.Intn(62)
-	if ru < 10 {
-		return rune(ru + 48)
-	} else if ru < 36 {
-		return rune(ru + 55)
-	}
-	return rune(ru + 61)
-}
-func randStringNodemessage(r randyNodemessage) string {
-	v17 := r.Intn(100)
-	tmps := make([]rune, v17)
-	for i := 0; i < v17; i++ {
-		tmps[i] = randUTF8RuneNodemessage(r)
-	}
-	return string(tmps)
-}
-func randUnrecognizedNodemessage(r randyNodemessage, maxFieldNumber int) (dAtA []byte) {
-	l := r.Intn(5)
-	for i := 0; i < l; i++ {
-		wire := r.Intn(4)
-		if wire == 3 {
-			wire = 5
-		}
-		fieldNumber := maxFieldNumber + r.Intn(100)
-		dAtA = randFieldNodemessage(dAtA, r, fieldNumber, wire)
-	}
-	return dAtA
-}
-func randFieldNodemessage(dAtA []byte, r randyNodemessage, fieldNumber int, wire int) []byte {
-	key := uint32(fieldNumber)<<3 | uint32(wire)
-	switch wire {
-	case 0:
-		dAtA = encodeVarintPopulateNodemessage(dAtA, uint64(key))
-		v18 := r.Int63()
-		if r.Intn(2) == 0 {
-			v18 *= -1
-		}
-		dAtA = encodeVarintPopulateNodemessage(dAtA, uint64(v18))
-	case 1:
-		dAtA = encodeVarintPopulateNodemessage(dAtA, uint64(key))
-		dAtA = append(dAtA, byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)))
-	case 2:
-		dAtA = encodeVarintPopulateNodemessage(dAtA, uint64(key))
-		ll := r.Intn(100)
-		dAtA = encodeVarintPopulateNodemessage(dAtA, uint64(ll))
-		for j := 0; j < ll; j++ {
-			dAtA = append(dAtA, byte(r.Intn(256)))
-		}
-	default:
-		dAtA = encodeVarintPopulateNodemessage(dAtA, uint64(key))
-		dAtA = append(dAtA, byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)))
-	}
-	return dAtA
-}
-func encodeVarintPopulateNodemessage(dAtA []byte, v uint64) []byte {
-	for v >= 1<<7 {
-		dAtA = append(dAtA, uint8(uint64(v)&0x7f|0x80))
-		v >>= 7
-	}
-	dAtA = append(dAtA, uint8(v))
-	return dAtA
 }
 func (m *UnsignedMessage) Size() (n int) {
 	if m == nil {
@@ -2369,6 +3115,16 @@ func (m *RequestBlockProposal) Size() (n int) {
 	if l > 0 {
 		n += 1 + l + sovNodemessage(uint64(l))
 	}
+	if m.Type != 0 {
+		n += 1 + sovNodemessage(uint64(m.Type))
+	}
+	l = len(m.ShortHashSalt)
+	if l > 0 {
+		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	if m.ShortHashSize != 0 {
+		n += 1 + sovNodemessage(uint64(m.ShortHashSize))
+	}
 	return n
 }
 
@@ -2378,9 +3134,59 @@ func (m *RequestBlockProposalReply) Size() (n int) {
 	}
 	var l int
 	_ = l
-	l = len(m.Block)
+	if m.Block != nil {
+		l = m.Block.Size()
+		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	if len(m.TransactionsHash) > 0 {
+		for _, b := range m.TransactionsHash {
+			l = len(b)
+			n += 1 + l + sovNodemessage(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *RequestProposalTransactions) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.BlockHash)
 	if l > 0 {
 		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	if m.Type != 0 {
+		n += 1 + sovNodemessage(uint64(m.Type))
+	}
+	l = len(m.ShortHashSalt)
+	if l > 0 {
+		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	if m.ShortHashSize != 0 {
+		n += 1 + sovNodemessage(uint64(m.ShortHashSize))
+	}
+	if len(m.TransactionsHash) > 0 {
+		for _, b := range m.TransactionsHash {
+			l = len(b)
+			n += 1 + l + sovNodemessage(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *RequestProposalTransactionsReply) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Transactions) > 0 {
+		for _, e := range m.Transactions {
+			l = e.Size()
+			n += 1 + l + sovNodemessage(uint64(l))
+		}
 	}
 	return n
 }
@@ -2413,6 +3219,9 @@ func (m *GetConsensusStateReply) Size() (n int) {
 	if m.SyncState != 0 {
 		n += 1 + sovNodemessage(uint64(m.SyncState))
 	}
+	if m.MinVerifiableHeight != 0 {
+		n += 1 + sovNodemessage(uint64(m.MinVerifiableHeight))
+	}
 	return n
 }
 
@@ -2438,8 +3247,8 @@ func (m *GetBlockHeadersReply) Size() (n int) {
 	var l int
 	_ = l
 	if len(m.BlockHeaders) > 0 {
-		for _, b := range m.BlockHeaders {
-			l = len(b)
+		for _, e := range m.BlockHeaders {
+			l = e.Size()
 			n += 1 + l + sovNodemessage(uint64(l))
 		}
 	}
@@ -2468,8 +3277,8 @@ func (m *GetBlocksReply) Size() (n int) {
 	var l int
 	_ = l
 	if len(m.Blocks) > 0 {
-		for _, b := range m.Blocks {
-			l = len(b)
+		for _, e := range m.Blocks {
+			l = e.Size()
 			n += 1 + l + sovNodemessage(uint64(l))
 		}
 	}
@@ -2482,7 +3291,7 @@ func (m *Relay) Size() (n int) {
 	}
 	var l int
 	_ = l
-	l = len(m.SrcAddr)
+	l = len(m.SrcIdentifier)
 	if l > 0 {
 		n += 1 + l + sovNodemessage(uint64(l))
 	}
@@ -2494,12 +3303,23 @@ func (m *Relay) Size() (n int) {
 	if l > 0 {
 		n += 1 + l + sovNodemessage(uint64(l))
 	}
-	if m.SigChain != nil {
-		l = m.SigChain.Size()
-		n += 1 + l + sovNodemessage(uint64(l))
-	}
 	if m.MaxHoldingSeconds != 0 {
 		n += 1 + sovNodemessage(uint64(m.MaxHoldingSeconds))
+	}
+	l = len(m.SrcPubkey)
+	if l > 0 {
+		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	l = len(m.BlockHash)
+	if l > 0 {
+		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	l = len(m.LastSignature)
+	if l > 0 {
+		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	if m.SigChainLen != 0 {
+		n += 1 + sovNodemessage(uint64(m.SigChainLen))
 	}
 	return n
 }
@@ -2511,10 +3331,71 @@ func (m *Transactions) Size() (n int) {
 	var l int
 	_ = l
 	if len(m.Transactions) > 0 {
-		for _, b := range m.Transactions {
-			l = len(b)
+		for _, e := range m.Transactions {
+			l = e.Size()
 			n += 1 + l + sovNodemessage(uint64(l))
 		}
+	}
+	return n
+}
+
+func (m *BacktrackSignatureChain) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.SigChainElems) > 0 {
+		for _, e := range m.SigChainElems {
+			l = e.Size()
+			n += 1 + l + sovNodemessage(uint64(l))
+		}
+	}
+	l = len(m.PrevSignature)
+	if l > 0 {
+		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	return n
+}
+
+func (m *IHaveSignatureChainTransaction) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Height != 0 {
+		n += 1 + sovNodemessage(uint64(m.Height))
+	}
+	l = len(m.SignatureHash)
+	if l > 0 {
+		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	return n
+}
+
+func (m *RequestSignatureChainTransaction) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.SignatureHash)
+	if l > 0 {
+		n += 1 + l + sovNodemessage(uint64(l))
+	}
+	return n
+}
+
+func (m *RequestSignatureChainTransactionReply) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Transaction != nil {
+		l = m.Transaction.Size()
+		n += 1 + l + sovNodemessage(uint64(l))
 	}
 	return n
 }
@@ -2582,6 +3463,9 @@ func (this *RequestBlockProposal) String() string {
 	}
 	s := strings.Join([]string{`&RequestBlockProposal{`,
 		`BlockHash:` + fmt.Sprintf("%v", this.BlockHash) + `,`,
+		`Type:` + fmt.Sprintf("%v", this.Type) + `,`,
+		`ShortHashSalt:` + fmt.Sprintf("%v", this.ShortHashSalt) + `,`,
+		`ShortHashSize:` + fmt.Sprintf("%v", this.ShortHashSize) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -2591,7 +3475,32 @@ func (this *RequestBlockProposalReply) String() string {
 		return "nil"
 	}
 	s := strings.Join([]string{`&RequestBlockProposalReply{`,
-		`Block:` + fmt.Sprintf("%v", this.Block) + `,`,
+		`Block:` + strings.Replace(fmt.Sprintf("%v", this.Block), "Block", "Block", 1) + `,`,
+		`TransactionsHash:` + fmt.Sprintf("%v", this.TransactionsHash) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *RequestProposalTransactions) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&RequestProposalTransactions{`,
+		`BlockHash:` + fmt.Sprintf("%v", this.BlockHash) + `,`,
+		`Type:` + fmt.Sprintf("%v", this.Type) + `,`,
+		`ShortHashSalt:` + fmt.Sprintf("%v", this.ShortHashSalt) + `,`,
+		`ShortHashSize:` + fmt.Sprintf("%v", this.ShortHashSize) + `,`,
+		`TransactionsHash:` + fmt.Sprintf("%v", this.TransactionsHash) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *RequestProposalTransactionsReply) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&RequestProposalTransactionsReply{`,
+		`Transactions:` + strings.Replace(fmt.Sprintf("%v", this.Transactions), "Transaction", "Transaction", 1) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -2614,6 +3523,7 @@ func (this *GetConsensusStateReply) String() string {
 		`LedgerBlockHash:` + fmt.Sprintf("%v", this.LedgerBlockHash) + `,`,
 		`ConsensusHeight:` + fmt.Sprintf("%v", this.ConsensusHeight) + `,`,
 		`SyncState:` + fmt.Sprintf("%v", this.SyncState) + `,`,
+		`MinVerifiableHeight:` + fmt.Sprintf("%v", this.MinVerifiableHeight) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -2634,7 +3544,7 @@ func (this *GetBlockHeadersReply) String() string {
 		return "nil"
 	}
 	s := strings.Join([]string{`&GetBlockHeadersReply{`,
-		`BlockHeaders:` + fmt.Sprintf("%v", this.BlockHeaders) + `,`,
+		`BlockHeaders:` + strings.Replace(fmt.Sprintf("%v", this.BlockHeaders), "Header", "Header", 1) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -2655,7 +3565,7 @@ func (this *GetBlocksReply) String() string {
 		return "nil"
 	}
 	s := strings.Join([]string{`&GetBlocksReply{`,
-		`Blocks:` + fmt.Sprintf("%v", this.Blocks) + `,`,
+		`Blocks:` + strings.Replace(fmt.Sprintf("%v", this.Blocks), "Block", "Block", 1) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -2665,11 +3575,14 @@ func (this *Relay) String() string {
 		return "nil"
 	}
 	s := strings.Join([]string{`&Relay{`,
-		`SrcAddr:` + fmt.Sprintf("%v", this.SrcAddr) + `,`,
+		`SrcIdentifier:` + fmt.Sprintf("%v", this.SrcIdentifier) + `,`,
 		`DestId:` + fmt.Sprintf("%v", this.DestId) + `,`,
 		`Payload:` + fmt.Sprintf("%v", this.Payload) + `,`,
-		`SigChain:` + strings.Replace(fmt.Sprintf("%v", this.SigChain), "SigChain", "SigChain", 1) + `,`,
 		`MaxHoldingSeconds:` + fmt.Sprintf("%v", this.MaxHoldingSeconds) + `,`,
+		`SrcPubkey:` + fmt.Sprintf("%v", this.SrcPubkey) + `,`,
+		`BlockHash:` + fmt.Sprintf("%v", this.BlockHash) + `,`,
+		`LastSignature:` + fmt.Sprintf("%v", this.LastSignature) + `,`,
+		`SigChainLen:` + fmt.Sprintf("%v", this.SigChainLen) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -2679,7 +3592,49 @@ func (this *Transactions) String() string {
 		return "nil"
 	}
 	s := strings.Join([]string{`&Transactions{`,
-		`Transactions:` + fmt.Sprintf("%v", this.Transactions) + `,`,
+		`Transactions:` + strings.Replace(fmt.Sprintf("%v", this.Transactions), "Transaction", "Transaction", 1) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *BacktrackSignatureChain) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&BacktrackSignatureChain{`,
+		`SigChainElems:` + strings.Replace(fmt.Sprintf("%v", this.SigChainElems), "SigChainElem", "SigChainElem", 1) + `,`,
+		`PrevSignature:` + fmt.Sprintf("%v", this.PrevSignature) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *IHaveSignatureChainTransaction) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&IHaveSignatureChainTransaction{`,
+		`Height:` + fmt.Sprintf("%v", this.Height) + `,`,
+		`SignatureHash:` + fmt.Sprintf("%v", this.SignatureHash) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *RequestSignatureChainTransaction) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&RequestSignatureChainTransaction{`,
+		`SignatureHash:` + fmt.Sprintf("%v", this.SignatureHash) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *RequestSignatureChainTransactionReply) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&RequestSignatureChainTransactionReply{`,
+		`Transaction:` + strings.Replace(fmt.Sprintf("%v", this.Transaction), "Transaction", "Transaction", 1) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -3164,6 +4119,75 @@ func (m *RequestBlockProposal) Unmarshal(dAtA []byte) error {
 				m.BlockHash = []byte{}
 			}
 			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Type", wireType)
+			}
+			m.Type = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Type |= (RequestTransactionType(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ShortHashSalt", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ShortHashSalt = append(m.ShortHashSalt[:0], dAtA[iNdEx:postIndex]...)
+			if m.ShortHashSalt == nil {
+				m.ShortHashSalt = []byte{}
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ShortHashSize", wireType)
+			}
+			m.ShortHashSize = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ShortHashSize |= (uint32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipNodemessage(dAtA[iNdEx:])
@@ -3218,6 +4242,39 @@ func (m *RequestBlockProposalReply) Unmarshal(dAtA []byte) error {
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Block", wireType)
 			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Block == nil {
+				m.Block = &Block{}
+			}
+			if err := m.Block.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TransactionsHash", wireType)
+			}
 			var byteLen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
@@ -3240,9 +4297,267 @@ func (m *RequestBlockProposalReply) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Block = append(m.Block[:0], dAtA[iNdEx:postIndex]...)
-			if m.Block == nil {
-				m.Block = []byte{}
+			m.TransactionsHash = append(m.TransactionsHash, make([]byte, postIndex-iNdEx))
+			copy(m.TransactionsHash[len(m.TransactionsHash)-1], dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipNodemessage(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *RequestProposalTransactions) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowNodemessage
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: RequestProposalTransactions: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: RequestProposalTransactions: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BlockHash", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.BlockHash = append(m.BlockHash[:0], dAtA[iNdEx:postIndex]...)
+			if m.BlockHash == nil {
+				m.BlockHash = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Type", wireType)
+			}
+			m.Type = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Type |= (RequestTransactionType(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ShortHashSalt", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ShortHashSalt = append(m.ShortHashSalt[:0], dAtA[iNdEx:postIndex]...)
+			if m.ShortHashSalt == nil {
+				m.ShortHashSalt = []byte{}
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ShortHashSize", wireType)
+			}
+			m.ShortHashSize = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ShortHashSize |= (uint32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TransactionsHash", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.TransactionsHash = append(m.TransactionsHash, make([]byte, postIndex-iNdEx))
+			copy(m.TransactionsHash[len(m.TransactionsHash)-1], dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipNodemessage(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *RequestProposalTransactionsReply) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowNodemessage
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: RequestProposalTransactionsReply: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: RequestProposalTransactionsReply: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Transactions", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Transactions = append(m.Transactions, &Transaction{})
+			if err := m.Transactions[len(m.Transactions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
 			}
 			iNdEx = postIndex
 		default:
@@ -3433,6 +4748,25 @@ func (m *GetConsensusStateReply) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MinVerifiableHeight", wireType)
+			}
+			m.MinVerifiableHeight = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MinVerifiableHeight |= (uint32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipNodemessage(dAtA[iNdEx:])
@@ -3575,7 +4909,7 @@ func (m *GetBlockHeadersReply) Unmarshal(dAtA []byte) error {
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field BlockHeaders", wireType)
 			}
-			var byteLen int
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowNodemessage
@@ -3585,20 +4919,22 @@ func (m *GetBlockHeadersReply) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= (int(b) & 0x7F) << shift
+				msglen |= (int(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthNodemessage
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + msglen
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.BlockHeaders = append(m.BlockHeaders, make([]byte, postIndex-iNdEx))
-			copy(m.BlockHeaders[len(m.BlockHeaders)-1], dAtA[iNdEx:postIndex])
+			m.BlockHeaders = append(m.BlockHeaders, &Header{})
+			if err := m.BlockHeaders[len(m.BlockHeaders)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -3742,7 +5078,7 @@ func (m *GetBlocksReply) Unmarshal(dAtA []byte) error {
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Blocks", wireType)
 			}
-			var byteLen int
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowNodemessage
@@ -3752,20 +5088,22 @@ func (m *GetBlocksReply) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= (int(b) & 0x7F) << shift
+				msglen |= (int(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthNodemessage
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + msglen
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Blocks = append(m.Blocks, make([]byte, postIndex-iNdEx))
-			copy(m.Blocks[len(m.Blocks)-1], dAtA[iNdEx:postIndex])
+			m.Blocks = append(m.Blocks, &Block{})
+			if err := m.Blocks[len(m.Blocks)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -3819,7 +5157,7 @@ func (m *Relay) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field SrcAddr", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field SrcIdentifier", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -3844,7 +5182,7 @@ func (m *Relay) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.SrcAddr = string(dAtA[iNdEx:postIndex])
+			m.SrcIdentifier = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
@@ -3908,39 +5246,6 @@ func (m *Relay) Unmarshal(dAtA []byte) error {
 				m.Payload = []byte{}
 			}
 			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field SigChain", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowNodemessage
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= (int(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthNodemessage
-			}
-			postIndex := iNdEx + msglen
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.SigChain == nil {
-				m.SigChain = &SigChain{}
-			}
-			if err := m.SigChain.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
 		case 5:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxHoldingSeconds", wireType)
@@ -3956,6 +5261,118 @@ func (m *Relay) Unmarshal(dAtA []byte) error {
 				b := dAtA[iNdEx]
 				iNdEx++
 				m.MaxHoldingSeconds |= (uint32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SrcPubkey", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.SrcPubkey = append(m.SrcPubkey[:0], dAtA[iNdEx:postIndex]...)
+			if m.SrcPubkey == nil {
+				m.SrcPubkey = []byte{}
+			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BlockHash", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.BlockHash = append(m.BlockHash[:0], dAtA[iNdEx:postIndex]...)
+			if m.BlockHash == nil {
+				m.BlockHash = []byte{}
+			}
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastSignature", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.LastSignature = append(m.LastSignature[:0], dAtA[iNdEx:postIndex]...)
+			if m.LastSignature == nil {
+				m.LastSignature = []byte{}
+			}
+			iNdEx = postIndex
+		case 9:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SigChainLen", wireType)
+			}
+			m.SigChainLen = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.SigChainLen |= (uint32(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -4014,6 +5431,118 @@ func (m *Transactions) Unmarshal(dAtA []byte) error {
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Transactions", wireType)
 			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Transactions = append(m.Transactions, &Transaction{})
+			if err := m.Transactions[len(m.Transactions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipNodemessage(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *BacktrackSignatureChain) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowNodemessage
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: BacktrackSignatureChain: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: BacktrackSignatureChain: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SigChainElems", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.SigChainElems = append(m.SigChainElems, &SigChainElem{})
+			if err := m.SigChainElems[len(m.SigChainElems)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PrevSignature", wireType)
+			}
 			var byteLen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
@@ -4036,8 +5565,274 @@ func (m *Transactions) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Transactions = append(m.Transactions, make([]byte, postIndex-iNdEx))
-			copy(m.Transactions[len(m.Transactions)-1], dAtA[iNdEx:postIndex])
+			m.PrevSignature = append(m.PrevSignature[:0], dAtA[iNdEx:postIndex]...)
+			if m.PrevSignature == nil {
+				m.PrevSignature = []byte{}
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipNodemessage(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *IHaveSignatureChainTransaction) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowNodemessage
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: IHaveSignatureChainTransaction: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: IHaveSignatureChainTransaction: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Height", wireType)
+			}
+			m.Height = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Height |= (uint32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SignatureHash", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.SignatureHash = append(m.SignatureHash[:0], dAtA[iNdEx:postIndex]...)
+			if m.SignatureHash == nil {
+				m.SignatureHash = []byte{}
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipNodemessage(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *RequestSignatureChainTransaction) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowNodemessage
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: RequestSignatureChainTransaction: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: RequestSignatureChainTransaction: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SignatureHash", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.SignatureHash = append(m.SignatureHash[:0], dAtA[iNdEx:postIndex]...)
+			if m.SignatureHash == nil {
+				m.SignatureHash = []byte{}
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipNodemessage(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *RequestSignatureChainTransactionReply) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowNodemessage
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: RequestSignatureChainTransactionReply: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: RequestSignatureChainTransactionReply: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Transaction", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNodemessage
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthNodemessage
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Transaction == nil {
+				m.Transaction = &Transaction{}
+			}
+			if err := m.Transaction.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -4165,81 +5960,113 @@ var (
 	ErrIntOverflowNodemessage   = fmt.Errorf("proto: integer overflow")
 )
 
-func init() { proto.RegisterFile("pb/nodemessage.proto", fileDescriptor_nodemessage_3f88c9cc26de3053) }
+func init() { proto.RegisterFile("pb/nodemessage.proto", fileDescriptor_nodemessage_9bf5f96b252d10f4) }
 
-var fileDescriptor_nodemessage_3f88c9cc26de3053 = []byte{
-	// 1163 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x56, 0x3d, 0x93, 0xda, 0x56,
-	0x17, 0x46, 0xec, 0x27, 0x67, 0xb5, 0x5e, 0x71, 0x8d, 0x77, 0xd9, 0xb5, 0x2d, 0xaf, 0xe5, 0x8f,
-	0x77, 0xcd, 0x9b, 0xec, 0x4e, 0x36, 0x93, 0x2a, 0x49, 0x21, 0x40, 0x03, 0x8c, 0x31, 0x10, 0x49,
-	0x38, 0x71, 0xa5, 0x11, 0xd2, 0x0d, 0x30, 0x61, 0x25, 0xa2, 0x2b, 0x12, 0xd3, 0xe5, 0x27, 0xe4,
-	0x67, 0xa4, 0x4c, 0xba, 0x54, 0x29, 0x52, 0xb9, 0x74, 0xe9, 0x32, 0xcb, 0x36, 0x29, 0x5d, 0x66,
-	0x26, 0x4d, 0x86, 0xab, 0x2b, 0x2d, 0x12, 0x10, 0x9c, 0x4c, 0x3a, 0x9d, 0x73, 0x9e, 0xf3, 0xf5,
-	0x9c, 0x47, 0x02, 0xc8, 0x0d, 0x3b, 0x67, 0x8e, 0x6b, 0xe3, 0x0b, 0x4c, 0x88, 0xd9, 0xc5, 0xa7,
-	0x43, 0xcf, 0xf5, 0x5d, 0x94, 0x1e, 0x76, 0x8e, 0xde, 0xef, 0xf6, 0xfd, 0xde, 0xa8, 0x73, 0x6a,
-	0xb9, 0x17, 0x67, 0x5d, 0xb7, 0xeb, 0x9e, 0xd1, 0x50, 0x67, 0xf4, 0x25, 0xb5, 0xa8, 0x41, 0x9f,
-	0x82, 0x94, 0xa3, 0xec, 0xb0, 0x73, 0x46, 0xfa, 0x5d, 0xab, 0x67, 0xf6, 0x1d, 0xe6, 0xda, 0x65,
-	0xb5, 0x03, 0x53, 0x32, 0x60, 0xaf, 0xed, 0x90, 0x7e, 0xd7, 0xc1, 0xf6, 0xb3, 0xa0, 0x1b, 0x3a,
-	0x07, 0x9e, 0x35, 0x36, 0xfc, 0xf1, 0x10, 0xe7, 0xb9, 0x63, 0xee, 0xe4, 0xc6, 0xf9, 0xde, 0xe9,
-	0xb0, 0x73, 0xca, 0x20, 0xfa, 0x78, 0x88, 0xd5, 0x9d, 0x8b, 0x6b, 0x03, 0xe5, 0x61, 0x8b, 0x99,
-	0xf9, 0xf4, 0x31, 0x77, 0xc2, 0xab, 0xa1, 0x29, 0x55, 0x60, 0x57, 0x8b, 0x95, 0x9f, 0x81, 0x72,
-	0x31, 0x28, 0xba, 0x03, 0x99, 0xe9, 0x24, 0xa6, 0x3f, 0xf2, 0xc2, 0x32, 0xd7, 0x0e, 0xe9, 0x53,
-	0x58, 0x7f, 0xee, 0xfa, 0x18, 0xed, 0xc3, 0x66, 0x0f, 0xf7, 0xbb, 0x3d, 0x9f, 0xa6, 0xef, 0xaa,
-	0xcc, 0x42, 0x77, 0x01, 0x3a, 0x03, 0xd7, 0xfa, 0xca, 0xe8, 0x99, 0xa4, 0x17, 0xa6, 0x53, 0x4f,
-	0xd5, 0x24, 0x3d, 0xe9, 0x29, 0xa0, 0x5a, 0xd5, 0xfc, 0x06, 0x17, 0xa7, 0x9e, 0x96, 0xe7, 0x0e,
-	0x5d, 0x62, 0x0e, 0xfe, 0x6d, 0xb1, 0x8f, 0x20, 0xa7, 0xe2, 0xaf, 0x47, 0x98, 0xf8, 0xf1, 0x72,
-	0xf1, 0x34, 0x2e, 0x99, 0xf6, 0x01, 0x1c, 0x2e, 0x4a, 0x53, 0xf1, 0x70, 0x30, 0x46, 0x39, 0xd8,
-	0xa0, 0x48, 0x96, 0x16, 0x18, 0xd2, 0x4d, 0xc8, 0x56, 0xb0, 0x5f, 0x72, 0x1d, 0x82, 0x1d, 0x32,
-	0x22, 0x9a, 0x6f, 0xfa, 0x58, 0xfa, 0x95, 0x83, 0xfd, 0x39, 0x6f, 0x50, 0xe5, 0x01, 0xec, 0x0e,
-	0xb0, 0xdd, 0xc5, 0x9e, 0x11, 0xdb, 0x8b, 0x0f, 0x9c, 0xd5, 0x60, 0xbb, 0x02, 0x64, 0x19, 0x68,
-	0x6e, 0xc9, 0xbd, 0x20, 0x50, 0x0c, 0x67, 0x46, 0x4f, 0x40, 0xb0, 0xc2, 0x3e, 0x61, 0xcd, 0x35,
-	0x5a, 0x73, 0x2f, 0xf2, 0xb3, 0xb2, 0xef, 0x01, 0x90, 0xb1, 0x63, 0x19, 0x64, 0x3a, 0x4e, 0x7e,
-	0x9d, 0xca, 0x66, 0x77, 0x2a, 0x1b, 0x6d, 0xec, 0x58, 0xc1, 0x8c, 0x19, 0x12, 0x3e, 0x4a, 0x1a,
-	0xec, 0x55, 0x70, 0x40, 0x44, 0x15, 0x9b, 0x36, 0xf6, 0x08, 0xba, 0x0f, 0x3c, 0xf1, 0x4d, 0xcf,
-	0x8f, 0xcf, 0xbe, 0x43, 0x7d, 0xd5, 0xe8, 0x30, 0xd8, 0xb1, 0x43, 0x40, 0x9a, 0x02, 0x32, 0xd8,
-	0xb1, 0x83, 0xb0, 0xf4, 0x31, 0xe4, 0x12, 0x45, 0x23, 0x5a, 0xd8, 0xaa, 0x81, 0x37, 0xcf, 0x1d,
-	0xaf, 0x9d, 0xf0, 0x2a, 0xdf, 0x99, 0x41, 0x4a, 0xcf, 0x20, 0x13, 0x26, 0xff, 0x17, 0xb3, 0x9c,
-	0xc0, 0x8d, 0xa8, 0x5c, 0x30, 0xc5, 0x3e, 0x6c, 0xd2, 0x86, 0x61, 0x7b, 0x66, 0x49, 0x3f, 0x72,
-	0xb0, 0xa1, 0xe2, 0x81, 0x39, 0x46, 0x87, 0xb0, 0x4d, 0x3c, 0xcb, 0x30, 0x6d, 0xdb, 0xa3, 0x1d,
-	0x33, 0xea, 0x16, 0xf1, 0x2c, 0xd9, 0xb6, 0x3d, 0x74, 0x00, 0x5b, 0x36, 0x26, 0xbe, 0xd1, 0xb7,
-	0xd9, 0xa9, 0x36, 0xa7, 0x66, 0xcd, 0x9e, 0xbe, 0x50, 0x43, 0x73, 0x3c, 0x70, 0x4d, 0x9b, 0x1e,
-	0x86, 0x57, 0x43, 0x13, 0x3d, 0xa1, 0x2f, 0x94, 0x41, 0x5f, 0x7f, 0x7a, 0x8f, 0x9d, 0x73, 0x9e,
-	0xde, 0xa3, 0xdf, 0x2d, 0x4d, 0x7d, 0xea, 0x36, 0x61, 0x4f, 0xe8, 0x14, 0x6e, 0x5e, 0x98, 0x2f,
-	0x8d, 0x9e, 0x3b, 0xb0, 0xfb, 0x4e, 0xd7, 0x20, 0xd8, 0x72, 0x1d, 0x9b, 0xe4, 0x37, 0xe8, 0x52,
-	0xd9, 0x0b, 0xf3, 0x65, 0x35, 0x88, 0x68, 0x41, 0x40, 0x3a, 0x07, 0x5e, 0xf7, 0x4c, 0x87, 0x98,
-	0x96, 0xdf, 0x77, 0x1d, 0x82, 0x24, 0xe0, 0xfd, 0x19, 0x3b, 0xe4, 0x77, 0xd6, 0x57, 0x78, 0x95,
-	0x86, 0x9d, 0x99, 0x2f, 0x08, 0xfa, 0x1f, 0x3c, 0x78, 0xa6, 0x68, 0x9a, 0x5c, 0x51, 0x0c, 0xfd,
-	0x45, 0x4b, 0x31, 0x5a, 0x75, 0xb9, 0xa4, 0x54, 0x9b, 0xf5, 0xb2, 0xa2, 0x1a, 0xe5, 0xa6, 0xd1,
-	0x68, 0xea, 0x46, 0x5b, 0x53, 0x84, 0x14, 0xda, 0x86, 0xf5, 0xe7, 0x4d, 0x5d, 0x11, 0x38, 0x74,
-	0x08, 0xb7, 0x6a, 0x46, 0x55, 0x7e, 0xae, 0x18, 0xc5, 0x7a, 0xb3, 0xf4, 0xd4, 0x68, 0xa9, 0xcd,
-	0x56, 0x53, 0x93, 0xeb, 0x42, 0x1a, 0x1d, 0xc1, 0xbe, 0xaa, 0x7c, 0xd6, 0x56, 0x34, 0x3d, 0x19,
-	0x5b, 0x43, 0xc7, 0x70, 0x67, 0x71, 0xcc, 0x50, 0x95, 0x56, 0xfd, 0x85, 0xb0, 0x8e, 0x0e, 0xe0,
-	0x66, 0x45, 0xd1, 0x8d, 0x52, 0xb3, 0xa1, 0x29, 0x0d, 0xad, 0xad, 0x19, 0x9a, 0x2e, 0xeb, 0x8a,
-	0xb0, 0x81, 0xee, 0xc2, 0xe1, 0x82, 0x00, 0xcb, 0xdb, 0x44, 0xb7, 0x20, 0x3b, 0x0d, 0x07, 0x55,
-	0xab, 0x8a, 0x5c, 0x56, 0x54, 0x4d, 0xd8, 0x42, 0xb7, 0xe1, 0x60, 0xce, 0xcd, 0x72, 0xb6, 0xd1,
-	0x0d, 0x80, 0x28, 0xa8, 0x09, 0x19, 0x94, 0x03, 0xe1, 0xda, 0x66, 0x28, 0x40, 0x19, 0xd8, 0x50,
-	0x95, 0xba, 0xfc, 0x42, 0xd8, 0x41, 0x02, 0xf0, 0xba, 0x2a, 0x37, 0x34, 0xb9, 0xa4, 0xd7, 0x9a,
-	0x0d, 0x4d, 0xe0, 0x0b, 0xbf, 0xa4, 0x21, 0x2f, 0x0f, 0x06, 0xee, 0xb7, 0xd8, 0x8e, 0x7d, 0x5d,
-	0x43, 0x5e, 0xe5, 0x7a, 0xbd, 0xf9, 0xb9, 0xa1, 0xd5, 0x2a, 0x0d, 0xa5, 0xbc, 0x9c, 0xd7, 0x5b,
-	0x90, 0x8d, 0x01, 0x19, 0xc9, 0x8f, 0x41, 0x8a, 0xb9, 0x97, 0x31, 0x9e, 0xec, 0xb3, 0x94, 0xfe,
-	0x87, 0x70, 0x1c, 0x03, 0x2e, 0x66, 0xba, 0x00, 0x8f, 0x57, 0xa1, 0x22, 0xda, 0x25, 0x10, 0xe7,
-	0xb0, 0x0b, 0x6e, 0xb0, 0x18, 0xa3, 0x09, 0x99, 0xc2, 0x9f, 0x1c, 0x1c, 0x31, 0x02, 0x13, 0xbf,
-	0x7f, 0x94, 0xc2, 0x27, 0xf0, 0x28, 0xc8, 0x6d, 0x37, 0x56, 0x91, 0x18, 0xb1, 0x15, 0x41, 0xe3,
-	0x3c, 0x84, 0x0a, 0x8b, 0xd6, 0x8b, 0x70, 0xcb, 0x15, 0xf2, 0x00, 0xee, 0x2d, 0xc3, 0x5e, 0x0b,
-	0x24, 0x0f, 0xb9, 0xb9, 0xc6, 0x81, 0x5e, 0xee, 0xc1, 0xed, 0x44, 0x24, 0x21, 0x9f, 0x9f, 0xd6,
-	0x22, 0xf9, 0x94, 0xfb, 0x1e, 0xb6, 0xfc, 0x85, 0xf2, 0x29, 0xd7, 0x54, 0xa5, 0xa4, 0xbf, 0x83,
-	0x7c, 0x18, 0x30, 0x29, 0x1f, 0xe6, 0x5e, 0x29, 0x1f, 0x86, 0x5b, 0x2d, 0x9f, 0x85, 0xc0, 0x90,
-	0xdf, 0x24, 0x6a, 0x85, 0xc8, 0x96, 0xa3, 0xe6, 0x45, 0x36, 0x83, 0x4d, 0x8a, 0xec, 0x04, 0x1e,
-	0xfe, 0x3d, 0x26, 0xba, 0x69, 0x24, 0xc7, 0x24, 0x72, 0xfa, 0x09, 0xb8, 0x0f, 0x77, 0x97, 0x04,
-	0xc3, 0x73, 0x17, 0xbe, 0x80, 0x03, 0x76, 0x32, 0xfa, 0x53, 0x31, 0x7b, 0xb1, 0x88, 0x71, 0x2a,
-	0x80, 0x77, 0x38, 0x58, 0x80, 0x63, 0x72, 0x29, 0x8c, 0xe1, 0x1e, 0xab, 0x5c, 0xf4, 0x5c, 0xd3,
-	0xb6, 0x4c, 0xe2, 0xb7, 0x46, 0xa4, 0x37, 0xdb, 0xe1, 0x0c, 0xfe, 0x1f, 0x64, 0x16, 0xd5, 0xa6,
-	0x5c, 0x2e, 0xc9, 0x9a, 0x6e, 0xb4, 0xda, 0x5a, 0x75, 0x79, 0xab, 0x47, 0x70, 0x7f, 0x61, 0x42,
-	0x42, 0x88, 0xea, 0xa2, 0xd6, 0x83, 0xc1, 0xca, 0xd6, 0xf5, 0xfa, 0xd2, 0xd6, 0x8b, 0xd6, 0xd1,
-	0x3d, 0x8c, 0x57, 0xd4, 0xd4, 0x55, 0x45, 0xf9, 0x47, 0xeb, 0xd0, 0x84, 0xf8, 0x3a, 0xc5, 0x4f,
-	0x5e, 0x5f, 0x8a, 0xa9, 0x37, 0x97, 0x62, 0xea, 0xed, 0xa5, 0xc8, 0xfd, 0x71, 0x29, 0x72, 0xdf,
-	0x4d, 0x44, 0xee, 0x87, 0x89, 0xc8, 0xfd, 0x3c, 0x11, 0xb9, 0x57, 0x13, 0x91, 0x7b, 0x3d, 0x11,
-	0xb9, 0xdf, 0x26, 0x22, 0xf7, 0xfb, 0x44, 0x4c, 0xbd, 0x9d, 0x88, 0xdc, 0xf7, 0x57, 0x62, 0xea,
-	0xf5, 0x95, 0x98, 0x7a, 0x73, 0x25, 0xa6, 0x3a, 0x9b, 0xf4, 0x2f, 0xf9, 0x87, 0x7f, 0x05, 0x00,
-	0x00, 0xff, 0xff, 0x24, 0x08, 0x47, 0xc5, 0xff, 0x0b, 0x00, 0x00,
+var fileDescriptor_nodemessage_9bf5f96b252d10f4 = []byte{
+	// 1666 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x58, 0x3d, 0x73, 0xdb, 0xc8,
+	0x19, 0x26, 0xf4, 0x65, 0xf3, 0x15, 0x3f, 0xc0, 0xb5, 0x6c, 0xd1, 0xb2, 0x45, 0x4b, 0xf0, 0xc9,
+	0x91, 0x79, 0x3e, 0xf1, 0x4e, 0xbe, 0xdc, 0xdc, 0x64, 0x92, 0x02, 0xa4, 0x10, 0x91, 0x63, 0x9a,
+	0x64, 0x00, 0xc8, 0x17, 0xa7, 0xc1, 0x80, 0xe4, 0x9a, 0xc4, 0x18, 0x04, 0x18, 0x2c, 0xe4, 0x98,
+	0xae, 0xf2, 0x13, 0x52, 0xe7, 0x17, 0xa4, 0xcf, 0xe4, 0x3f, 0x24, 0x9d, 0xcb, 0x2b, 0x63, 0xb9,
+	0x49, 0x52, 0x5d, 0x95, 0x3a, 0x83, 0xc5, 0x02, 0x02, 0x41, 0x80, 0xb2, 0x6e, 0x52, 0x5c, 0xa7,
+	0x7d, 0xdf, 0xe7, 0xfd, 0xdc, 0xe7, 0x59, 0x70, 0x04, 0x5b, 0xd3, 0x7e, 0xcd, 0xb2, 0x87, 0x78,
+	0x82, 0x09, 0xd1, 0x47, 0xf8, 0x68, 0xea, 0xd8, 0xae, 0x8d, 0x56, 0xa6, 0xfd, 0x9d, 0x2f, 0x46,
+	0x86, 0x3b, 0x3e, 0xef, 0x1f, 0x0d, 0xec, 0x49, 0x6d, 0x64, 0x8f, 0xec, 0x1a, 0x75, 0xf5, 0xcf,
+	0x5f, 0xd1, 0x13, 0x3d, 0xd0, 0xbf, 0xfc, 0x90, 0x9d, 0x3c, 0x4b, 0xc4, 0x8e, 0xa5, 0x69, 0xbf,
+	0x46, 0x8c, 0xd1, 0x60, 0xac, 0x1b, 0x16, 0x33, 0x15, 0xa6, 0xfd, 0x5a, 0xdf, 0xb4, 0x07, 0xaf,
+	0xd9, 0xd9, 0x2b, 0xed, 0x3a, 0xba, 0x45, 0xf4, 0x81, 0x6b, 0xd8, 0x0c, 0x25, 0x68, 0x50, 0x3c,
+	0xb3, 0x88, 0x31, 0xb2, 0xf0, 0xf0, 0xb9, 0xdf, 0x13, 0x3a, 0x86, 0x1c, 0x6b, 0x4f, 0x73, 0x67,
+	0x53, 0x5c, 0xe6, 0xf6, 0xb8, 0xc3, 0xc2, 0x71, 0xf1, 0x68, 0xda, 0x3f, 0x62, 0x10, 0x75, 0x36,
+	0xc5, 0xf2, 0xe6, 0xe4, 0xf2, 0x80, 0xca, 0x70, 0x83, 0x1d, 0xcb, 0x2b, 0x7b, 0xdc, 0x61, 0x4e,
+	0x0e, 0x8e, 0xc2, 0x29, 0xe4, 0x95, 0xb9, 0xf4, 0x11, 0x28, 0x37, 0x07, 0x45, 0xf7, 0x21, 0xeb,
+	0x75, 0xa2, 0xbb, 0xe7, 0x4e, 0x90, 0xe6, 0xd2, 0x20, 0xfc, 0x0a, 0xd6, 0x5e, 0xd8, 0x2e, 0x46,
+	0x77, 0x60, 0x63, 0x8c, 0x8d, 0xd1, 0xd8, 0xa5, 0xe1, 0x79, 0x99, 0x9d, 0xd0, 0x2e, 0x00, 0x1d,
+	0x57, 0x1b, 0xeb, 0x64, 0x1c, 0x84, 0x53, 0x4b, 0x53, 0x27, 0x63, 0xe1, 0x19, 0xa0, 0x56, 0x53,
+	0x7f, 0x83, 0xeb, 0x9e, 0xa5, 0xe7, 0xd8, 0x53, 0x9b, 0xe8, 0xe6, 0x8f, 0x4d, 0xf6, 0x37, 0x0e,
+	0xb6, 0x64, 0xfc, 0xfb, 0x73, 0x4c, 0xdc, 0xf9, 0x7c, 0xf3, 0x71, 0x5c, 0x2c, 0x0e, 0x1d, 0xc1,
+	0x1a, 0x5d, 0xe9, 0x0a, 0x5d, 0xe9, 0x8e, 0xb7, 0x52, 0x96, 0x46, 0xbd, 0xbc, 0x19, 0xba, 0x5d,
+	0x8a, 0x43, 0x8f, 0xa0, 0x48, 0xc6, 0xb6, 0xe3, 0xd2, 0x74, 0x1a, 0xd1, 0x4d, 0xb7, 0xbc, 0x4a,
+	0x73, 0xe6, 0xa9, 0xd9, 0xcb, 0xa9, 0xe8, 0xa6, 0x1b, 0xc7, 0x19, 0xef, 0x70, 0x79, 0x8d, 0xce,
+	0x13, 0xc1, 0x19, 0xef, 0xb0, 0x60, 0xc0, 0xdd, 0xa4, 0xb6, 0x65, 0x3c, 0x35, 0x67, 0xe8, 0x01,
+	0xac, 0xd3, 0x4e, 0x69, 0xdb, 0x9b, 0xc7, 0x59, 0xaf, 0x3b, 0x0a, 0x93, 0x7d, 0x3b, 0xfa, 0x1c,
+	0x4a, 0x11, 0x02, 0x91, 0x60, 0x37, 0xab, 0x87, 0x39, 0x99, 0x8f, 0x3a, 0xe8, 0x8a, 0xfe, 0xcd,
+	0xc1, 0x3d, 0x56, 0x2b, 0x28, 0x13, 0x99, 0x91, 0xfc, 0xc4, 0x37, 0x95, 0x3c, 0xeb, 0x7a, 0xca,
+	0xac, 0xdf, 0xc1, 0xde, 0x92, 0x51, 0xfd, 0xed, 0x3e, 0x85, 0x5c, 0x34, 0xae, 0xcc, 0xed, 0xad,
+	0x1e, 0x6e, 0xfa, 0xaa, 0x8a, 0x80, 0xe5, 0x39, 0x90, 0x70, 0x0b, 0x4a, 0xa7, 0xd8, 0x6d, 0xd8,
+	0x16, 0xc1, 0x16, 0x39, 0x27, 0x8a, 0xab, 0xbb, 0x58, 0xf8, 0x2f, 0x07, 0x77, 0x16, 0xac, 0x7e,
+	0x91, 0x87, 0x90, 0x37, 0xf1, 0x70, 0x84, 0x1d, 0x6d, 0x8e, 0xd5, 0x39, 0xdf, 0xd8, 0xf4, 0xb9,
+	0x5d, 0x85, 0x12, 0x03, 0x2d, 0x50, 0xbc, 0xe8, 0x3b, 0xea, 0xe1, 0x35, 0x3c, 0x06, 0x7e, 0x10,
+	0xd4, 0x09, 0x72, 0xae, 0xd2, 0x9c, 0xc5, 0xd0, 0xce, 0xd2, 0x3e, 0x01, 0x20, 0x33, 0x6b, 0xa0,
+	0x11, 0xaf, 0x1d, 0xba, 0xd4, 0xc2, 0x71, 0xde, 0x1b, 0x4f, 0x99, 0x59, 0x03, 0xbf, 0xc7, 0x2c,
+	0x09, 0xfe, 0x44, 0xc7, 0x70, 0x7b, 0x62, 0x58, 0xda, 0x1b, 0xec, 0x18, 0xaf, 0x0c, 0xbd, 0x6f,
+	0xe2, 0x20, 0xfb, 0x3a, 0xcd, 0x7e, 0x6b, 0x62, 0x58, 0x2f, 0x42, 0x9f, 0x5f, 0x41, 0x50, 0xa0,
+	0x78, 0x8a, 0x7d, 0xe6, 0x36, 0xb1, 0x3e, 0xc4, 0x0e, 0x41, 0xfb, 0x90, 0x23, 0xae, 0xee, 0x5d,
+	0x67, 0x74, 0xde, 0x4d, 0x6a, 0x6b, 0x86, 0x52, 0xc6, 0xd6, 0x30, 0x00, 0xac, 0x50, 0x40, 0x16,
+	0x5b, 0x43, 0x96, 0xf4, 0x14, 0xb6, 0x62, 0x49, 0xfd, 0x55, 0xd6, 0x20, 0xcf, 0xd6, 0xe3, 0x5b,
+	0xd9, 0x85, 0x81, 0x37, 0x91, 0x0f, 0x94, 0x73, 0xfd, 0x48, 0x94, 0xf0, 0x1c, 0xb2, 0x41, 0xa2,
+	0xff, 0x47, 0x5f, 0x4f, 0xa1, 0x10, 0xa6, 0xf3, 0x3b, 0xda, 0x87, 0x0d, 0x5a, 0x30, 0x68, 0x25,
+	0x22, 0x50, 0xe6, 0x10, 0xfe, 0xbc, 0x02, 0xeb, 0x32, 0x36, 0xf5, 0x19, 0x3a, 0x80, 0x02, 0x71,
+	0x06, 0x9a, 0x31, 0xc4, 0x96, 0x6b, 0xbc, 0x32, 0xb0, 0x43, 0x5b, 0xc8, 0xca, 0x79, 0xe2, 0x0c,
+	0x5a, 0xa1, 0x11, 0x6d, 0xc3, 0x8d, 0x21, 0x26, 0xae, 0x66, 0x0c, 0x19, 0x03, 0x36, 0xbc, 0x63,
+	0x6b, 0xe8, 0xbd, 0xd2, 0x53, 0x7d, 0x66, 0xda, 0xfa, 0x90, 0xe9, 0x28, 0x38, 0xa2, 0x23, 0xb8,
+	0x35, 0xd1, 0xdf, 0x6a, 0x63, 0xdb, 0x1c, 0x1a, 0xd6, 0x48, 0x23, 0x78, 0x60, 0x5b, 0x43, 0xc2,
+	0xee, 0xad, 0x34, 0xd1, 0xdf, 0x36, 0x7d, 0x8f, 0xe2, 0x3b, 0xbc, 0x39, 0xbd, 0x4e, 0xa6, 0xe7,
+	0xfd, 0xd7, 0x78, 0x56, 0xde, 0x60, 0xcf, 0xba, 0x33, 0xe8, 0x51, 0x43, 0xec, 0x1d, 0xb8, 0x11,
+	0x7f, 0x07, 0x0e, 0xa0, 0x60, 0xea, 0xc4, 0xd5, 0x2e, 0x3f, 0x0c, 0x37, 0x7d, 0x59, 0x7b, 0x56,
+	0x25, 0x30, 0x22, 0x01, 0xf2, 0xc4, 0x18, 0x69, 0xf4, 0xfb, 0xa7, 0x99, 0xd8, 0x2a, 0x67, 0xd9,
+	0xc2, 0x8d, 0x51, 0xc3, 0xb3, 0xb5, 0xb1, 0x25, 0x34, 0x20, 0x37, 0xf7, 0x02, 0xfd, 0x28, 0x45,
+	0xbe, 0x83, 0xed, 0xba, 0x3e, 0x78, 0xed, 0x3a, 0xfa, 0xe0, 0x75, 0x58, 0x9e, 0x96, 0x40, 0xdf,
+	0x42, 0xf1, 0xb2, 0x07, 0x6c, 0xe2, 0x49, 0x90, 0x92, 0xa7, 0x2a, 0x60, 0x9d, 0x48, 0x26, 0x9e,
+	0xc8, 0x79, 0x12, 0x39, 0x11, 0x6f, 0xc8, 0xa9, 0x83, 0xdf, 0x68, 0xf1, 0xaf, 0x5f, 0xde, 0xb3,
+	0x86, 0x55, 0x04, 0x0d, 0x2a, 0xf4, 0x13, 0x36, 0x5f, 0x37, 0xd2, 0x6b, 0xea, 0xe7, 0xcc, 0x63,
+	0x43, 0x10, 0x14, 0xd5, 0x7b, 0x3e, 0xb4, 0xd2, 0x77, 0xac, 0x15, 0xbe, 0x63, 0xe9, 0x25, 0x16,
+	0x53, 0x71, 0x49, 0xa9, 0x7e, 0x07, 0x07, 0x57, 0xa5, 0xf2, 0x59, 0xfd, 0x15, 0x6c, 0x46, 0x16,
+	0xcc, 0xbe, 0x3d, 0x0b, 0x97, 0x10, 0xc5, 0x54, 0xff, 0xba, 0x06, 0x9b, 0x91, 0x5f, 0x22, 0xe8,
+	0x67, 0xf0, 0xf0, 0xb9, 0xa4, 0x28, 0xe2, 0xa9, 0xa4, 0xa9, 0x2f, 0x7b, 0x92, 0xd6, 0x6b, 0x8b,
+	0x0d, 0xa9, 0xd9, 0x6d, 0x9f, 0x48, 0xb2, 0x76, 0xd2, 0xd5, 0x3a, 0x5d, 0x55, 0x3b, 0x53, 0x24,
+	0x3e, 0x83, 0x6e, 0xc2, 0xda, 0x8b, 0xae, 0x2a, 0xf1, 0x1c, 0xba, 0x0b, 0xb7, 0x5b, 0x5a, 0x53,
+	0x7c, 0x21, 0x69, 0xf5, 0x76, 0xb7, 0xf1, 0x4c, 0xeb, 0xc9, 0xdd, 0x5e, 0x57, 0x11, 0xdb, 0xfc,
+	0x0a, 0xda, 0x81, 0x3b, 0xb2, 0xf4, 0x9b, 0x33, 0x49, 0x51, 0xe3, 0xbe, 0x55, 0xb4, 0x07, 0xf7,
+	0x93, 0x7d, 0x9a, 0x2c, 0xf5, 0xda, 0x2f, 0xf9, 0x35, 0xb4, 0x0d, 0xb7, 0x4e, 0x25, 0x55, 0x6b,
+	0x74, 0x3b, 0x8a, 0xd4, 0x51, 0xce, 0x14, 0x4d, 0x51, 0x45, 0x55, 0xe2, 0xd7, 0xd1, 0x2e, 0xdc,
+	0x4d, 0x70, 0xb0, 0xb8, 0x0d, 0x74, 0x1b, 0x4a, 0x9e, 0xdb, 0xcf, 0xda, 0x94, 0xc4, 0x13, 0x49,
+	0x56, 0xf8, 0x1b, 0xe8, 0x1e, 0x6c, 0x2f, 0x98, 0x59, 0xcc, 0x4d, 0x54, 0x00, 0x08, 0x9d, 0x0a,
+	0x9f, 0x45, 0x5b, 0xc0, 0x5f, 0x9e, 0x19, 0x0a, 0x50, 0x16, 0xd6, 0x65, 0xa9, 0x2d, 0xbe, 0xe4,
+	0x37, 0x11, 0x0f, 0x39, 0x55, 0x16, 0x3b, 0x8a, 0xd8, 0x50, 0x5b, 0xdd, 0x8e, 0xc2, 0xe7, 0xbc,
+	0xae, 0xea, 0x62, 0xe3, 0x99, 0x2a, 0x8b, 0x8d, 0x67, 0x9a, 0xd2, 0x3a, 0xed, 0x88, 0xea, 0x99,
+	0x2c, 0x69, 0x8d, 0xa6, 0xd8, 0xea, 0xf0, 0x79, 0xb4, 0x0f, 0xbb, 0xc1, 0xbc, 0xe1, 0xa4, 0x73,
+	0x19, 0x0a, 0xde, 0xf2, 0x97, 0x42, 0x58, 0x1f, 0x45, 0xf4, 0x08, 0x04, 0xb6, 0xf2, 0x58, 0x9d,
+	0x28, 0x9c, 0xe7, 0xa3, 0x09, 0x97, 0x01, 0x4b, 0xe8, 0x0b, 0x78, 0xfc, 0x09, 0x40, 0x56, 0x1f,
+	0x55, 0x1b, 0x50, 0x16, 0x4d, 0xd3, 0xfe, 0x03, 0x1e, 0xce, 0xfd, 0x1e, 0x0d, 0x18, 0x24, 0xb6,
+	0xdb, 0xdd, 0xef, 0x68, 0x22, 0xe9, 0x24, 0x95, 0x41, 0xd5, 0x7f, 0x6c, 0xc0, 0x0e, 0xcb, 0x12,
+	0xfb, 0xd9, 0x4c, 0xf3, 0x3c, 0x86, 0x03, 0x3f, 0xcf, 0x59, 0xe7, 0x8a, 0x4c, 0x1e, 0x51, 0x62,
+	0x50, 0x46, 0xcd, 0x43, 0xf8, 0x2c, 0xe6, 0x48, 0x63, 0xea, 0x62, 0xb5, 0x54, 0xe2, 0x3e, 0x02,
+	0x61, 0x29, 0x34, 0xa0, 0xef, 0x22, 0x2e, 0x99, 0xcd, 0x4f, 0xe0, 0xf0, 0x6a, 0x5c, 0x48, 0xee,
+	0xcf, 0x60, 0x2f, 0x01, 0x1d, 0xe7, 0x7a, 0x15, 0x1e, 0x5d, 0x85, 0x0a, 0xa9, 0xbf, 0x0b, 0x77,
+	0xd3, 0xb0, 0x9e, 0x12, 0x1e, 0xc2, 0x83, 0x54, 0x77, 0x28, 0x8c, 0x32, 0x6c, 0x2d, 0xec, 0xc4,
+	0xd7, 0xc9, 0x03, 0xb8, 0x17, 0xf3, 0xc4, 0x64, 0xb3, 0x38, 0xfe, 0x32, 0x15, 0x7d, 0x09, 0x4f,
+	0x52, 0x96, 0x9f, 0x26, 0xaa, 0x6f, 0xe0, 0xf8, 0x3a, 0x11, 0xa1, 0xc6, 0x7e, 0x0e, 0x5f, 0x25,
+	0x73, 0x67, 0xb9, 0xe4, 0xd2, 0xcb, 0x2d, 0x57, 0xe0, 0x2f, 0xe1, 0xdb, 0xeb, 0xc7, 0x85, 0x82,
+	0xfc, 0xcf, 0x7a, 0xa8, 0xc8, 0x13, 0xc3, 0xc1, 0x03, 0x37, 0x51, 0x91, 0x27, 0x2d, 0x59, 0x6a,
+	0xa8, 0xe9, 0x3a, 0xba, 0x0d, 0xa5, 0x39, 0x20, 0x53, 0x51, 0x48, 0x64, 0x66, 0x4e, 0xd3, 0x50,
+	0xbc, 0x4e, 0xaa, 0x82, 0x42, 0x0e, 0x27, 0x02, 0x03, 0xfd, 0xc4, 0x51, 0xc9, 0xea, 0x09, 0x99,
+	0x9e, 0x8e, 0x0a, 0xb5, 0x23, 0x40, 0x65, 0x01, 0x1b, 0x57, 0x4e, 0xf8, 0x64, 0xa4, 0x61, 0x42,
+	0xdd, 0xdc, 0x83, 0xed, 0x64, 0xa4, 0xa7, 0x9a, 0x7d, 0xd8, 0x4d, 0x71, 0x86, 0x9a, 0x89, 0x77,
+	0xbe, 0x8c, 0xf6, 0x47, 0x50, 0x4d, 0xdc, 0x58, 0x1a, 0xe9, 0xbf, 0x86, 0x2f, 0x3f, 0x1d, 0x1f,
+	0x52, 0xfe, 0x29, 0xd4, 0x92, 0x2e, 0x7a, 0x39, 0xe1, 0xd3, 0x4a, 0x2d, 0xa7, 0xfb, 0x2f, 0xe0,
+	0x9b, 0xeb, 0x46, 0x85, 0x64, 0xff, 0x2d, 0x6c, 0x33, 0xae, 0xd3, 0xdf, 0xe7, 0x51, 0xaa, 0x87,
+	0x54, 0xa5, 0xcf, 0xcf, 0x27, 0x30, 0xdd, 0xc7, 0xb1, 0xc7, 0xaa, 0x3a, 0x83, 0x07, 0x2c, 0x73,
+	0xdd, 0xb1, 0xf5, 0xe1, 0x40, 0x27, 0x6e, 0xef, 0x9c, 0x8c, 0xa3, 0x15, 0x6a, 0xf0, 0xb9, 0x1f,
+	0x59, 0x97, 0xbb, 0xe2, 0x49, 0x43, 0xf4, 0x96, 0x7a, 0xa6, 0x34, 0xd3, 0x4b, 0x1d, 0xc0, 0x7e,
+	0x62, 0xc0, 0xfc, 0x33, 0x58, 0x95, 0x93, 0x4a, 0x9b, 0xe6, 0x95, 0xa5, 0xdb, 0xed, 0xf4, 0x2f,
+	0x6c, 0xc2, 0x38, 0xaa, 0x83, 0xf1, 0x15, 0x39, 0x55, 0x59, 0x92, 0xae, 0x35, 0x0e, 0x0d, 0x88,
+	0x8d, 0xf3, 0x16, 0xee, 0x24, 0xff, 0x8f, 0x01, 0xdd, 0x87, 0x72, 0x70, 0xd9, 0xbf, 0xf6, 0xba,
+	0x8f, 0xf2, 0x22, 0x13, 0xf5, 0x46, 0xaf, 0xbe, 0x29, 0x2a, 0x4d, 0x9e, 0xf3, 0x04, 0x9c, 0xe4,
+	0x55, 0x9a, 0x5d, 0x59, 0xf5, 0x31, 0x2b, 0xf5, 0xaf, 0xdf, 0x7f, 0xa8, 0x64, 0xbe, 0xff, 0x50,
+	0xc9, 0xfc, 0xf0, 0xa1, 0xc2, 0xfd, 0xf1, 0xa2, 0xc2, 0xfd, 0xe5, 0xa2, 0xc2, 0xfd, 0xfd, 0xa2,
+	0xc2, 0xbd, 0xbf, 0xa8, 0x70, 0xff, 0xbc, 0xa8, 0x70, 0xff, 0xba, 0xa8, 0x64, 0x7e, 0xb8, 0xa8,
+	0x70, 0x7f, 0xfa, 0x58, 0xc9, 0xbc, 0xff, 0x58, 0xc9, 0x7c, 0xff, 0xb1, 0x92, 0xe9, 0x6f, 0xd0,
+	0x7f, 0xe1, 0x3d, 0xfd, 0x5f, 0x00, 0x00, 0x00, 0xff, 0xff, 0xde, 0xcd, 0x81, 0xaf, 0x55, 0x14,
+	0x00, 0x00,
 }

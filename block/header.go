@@ -6,24 +6,28 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/gogo/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
-	. "github.com/nknorg/nkn/pb"
+	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/vm/contract"
 	"github.com/nknorg/nkn/vm/signature"
 )
 
 type Header struct {
-	BlockHeader
-	hash Uint256
+	*pb.Header
+	hash *Uint256
 }
 
-func (h *Header) Marshal() (dAtA []byte, err error) {
-	return h.BlockHeader.Marshal()
+func (h *Header) Marshal() (buf []byte, err error) {
+	return proto.Marshal(h.Header)
 }
 
-func (h *Header) Unmarshal(dAtA []byte) error {
-	return h.BlockHeader.Unmarshal(dAtA)
+func (h *Header) Unmarshal(buf []byte) error {
+	if h.Header == nil {
+		h.Header = &pb.Header{}
+	}
+	return proto.Unmarshal(buf, h.Header)
 }
 
 //Serialize the blockheader data without program
@@ -50,7 +54,7 @@ func (h *Header) DeserializeUnsigned(r io.Reader) error {
 	h.UnsignedHeader.Timestamp = int64(timestamp)
 	h.UnsignedHeader.Height, _ = serialization.ReadUint32(r)
 	winnerType, _ := serialization.ReadUint32(r)
-	h.UnsignedHeader.WinnerType = WinnerType(winnerType)
+	h.UnsignedHeader.WinnerType = pb.WinnerType(winnerType)
 	h.UnsignedHeader.Signer, _ = serialization.ReadVarBytes(r)
 	h.UnsignedHeader.ChordId, _ = serialization.ReadVarBytes(r)
 
@@ -69,19 +73,23 @@ func (h *Header) GetProgramHashes() ([]Uint160, error) {
 	return programHashes, nil
 }
 
-func (h *Header) SetPrograms(programs []*Program) {
+func (h *Header) SetPrograms(programs []*pb.Program) {
 	return
 }
 
-func (h *Header) GetPrograms() []*Program {
+func (h *Header) GetPrograms() []*pb.Program {
 	return nil
 }
 
 func (h *Header) Hash() Uint256 {
+	if h.hash != nil {
+		return *h.hash
+	}
 	d := signature.GetHashData(h)
 	temp := sha256.Sum256([]byte(d))
 	f := sha256.Sum256(temp[:])
 	hash := Uint256(f)
+	h.hash = &hash
 	return hash
 }
 
@@ -102,7 +110,7 @@ func (h *Header) GetInfo() ([]byte, error) {
 		StateRoot        string `json:"stateRoot"`
 		Timestamp        int64  `json:"timestamp"`
 		Height           uint32 `json:"height"`
-		ConsensusData    uint64 `json:"consensusData"`
+		RandomBeacon     string `json:"randomBeacon"`
 		WinnerHash       string `json:"winnerHash"`
 		WinnerType       string `json:"winnerType"`
 		Signer           string `json:"signer"`
@@ -119,7 +127,7 @@ func (h *Header) GetInfo() ([]byte, error) {
 		StateRoot:        BytesToHexString(h.UnsignedHeader.StateRoot),
 		Timestamp:        h.UnsignedHeader.Timestamp,
 		Height:           h.UnsignedHeader.Height,
-		ConsensusData:    h.UnsignedHeader.ConsensusData,
+		RandomBeacon:     BytesToHexString(h.UnsignedHeader.RandomBeacon),
 		WinnerHash:       BytesToHexString(h.UnsignedHeader.WinnerHash),
 		WinnerType:       h.UnsignedHeader.WinnerType.String(),
 		Signer:           BytesToHexString(h.UnsignedHeader.Signer),

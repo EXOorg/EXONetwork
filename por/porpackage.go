@@ -6,21 +6,32 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
-	. "github.com/nknorg/nkn/pb"
-	. "github.com/nknorg/nkn/transaction"
+	"github.com/nknorg/nkn/pb"
+	"github.com/nknorg/nkn/transaction"
+	"github.com/nknorg/nkn/util/config"
 )
 
 const (
-	// The height of signature chain which run for block proposer should be (local block height -1 + 5)
-	// -1 means that:
-	//  local block height may heigher than neighbor node at most 1
-	// +5 means that:
-	// if local block height is n, then n + 3 signature chain is in consensus) +
-	//  1 (since local node height may lower than neighbors at most 1) +
-	//  1 (for fully propagate)
-	SigChainBlockHeightOffset  = 1
-	SigChainMiningHeightOffset = 4
+	// Block proposer of block height X needs to be specified in block X-1, so its
+	// candidate sigchains have to be fully propogated before block X-1 is
+	// proposed, i.e. before block X-2 is accepted. In other words, sigchain can
+	// only propogate when block height <= X-3.
+	SigChainPropagationHeightOffset = 3
+	// Block proposer of block height X is chosen from sigchain produced during
+	// block X-SigChainPropagationHeightOffset-SigChainPropogationTime because
+	// sigchain can only propogate when block height <=
+	// X-SigChainPropagationHeightOffset, so it has to start propogating when
+	// block height <= X-SigChainPropagationHeightOffset-SigChainPropogationTime.
+	SigChainMiningHeightOffset = config.SigChainPropogationTime + SigChainPropagationHeightOffset
 )
+
+type PorPackage struct {
+	VoteForHeight uint32       `protobuf:"varint,1,opt,name=VoteForHeight,proto3" json:"VoteForHeight,omitempty"`
+	BlockHash     []byte       `protobuf:"bytes,3,opt,name=BlockHash,proto3" json:"BlockHash,omitempty"`
+	TxHash        []byte       `protobuf:"bytes,4,opt,name=TxHash,proto3" json:"TxHash,omitempty"`
+	SigHash       []byte       `protobuf:"bytes,5,opt,name=SigHash,proto3" json:"SigHash,omitempty"`
+	SigChain      *pb.SigChain `protobuf:"bytes,6,opt,name=SigChain" json:"SigChain,omitempty"`
+}
 
 type PorStore interface {
 	GetHeightByBlockHash(hash Uint256) (uint32, error)
@@ -48,33 +59,22 @@ func (c PorPackages) Less(i, j int) bool {
 	return false
 }
 
-func NewPorPackage(txn *Transaction) (*PorPackage, error) {
-	if txn.UnsignedTx.Payload.Type != CommitType {
+func NewPorPackage(txn *transaction.Transaction, shouldVerify bool) (*PorPackage, error) {
+	if txn.UnsignedTx.Payload.Type != pb.CommitType {
 		return nil, errors.New("Transaction type mismatch")
 	}
-	payload, err := Unpack(txn.UnsignedTx.Payload)
+	payload, err := transaction.Unpack(txn.UnsignedTx.Payload)
 	if err != nil {
 		return nil, err
 	}
 
-	rs := payload.(*Commit)
-	sigChain := &SigChain{}
+	rs := payload.(*pb.Commit)
+	sigChain := &pb.SigChain{}
 	err = proto.Unmarshal(rs.SigChain, sigChain)
 	if err != nil {
 		return nil, err
 	}
 
-	err = sigChain.Verify()
-	if err != nil {
-		return nil, err
-	}
-
-	err = sigChain.VerifyPath()
-	if err != nil {
-		return nil, err
-	}
-
-	//TODO threshold
 	found := false
 	for _, elem := range sigChain.Elems {
 		if elem.Mining == true {
@@ -100,21 +100,23 @@ func NewPorPackage(txn *Transaction) (*PorPackage, error) {
 		return nil, err
 	}
 
-	owner, err := sigChain.GetOwner()
-	if err != nil {
-		return nil, err
-	}
-
 	txHash := txn.Hash()
 	sigHash, err := sigChain.SignatureHash()
 	if err != nil {
 		return nil, err
 	}
+
+	if shouldVerify {
+		err = sigChain.Verify()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	pp := &PorPackage{
-		VoteForHeight: height + SigChainMiningHeightOffset + SigChainBlockHeightOffset,
-		Owner:         owner,
+		VoteForHeight: height + SigChainMiningHeightOffset + config.MaxRollbackBlocks,
 		BlockHash:     sigChain.BlockHash,
-		TxHash:        txHash[:],
+		TxHash:        txHash.ToArray(),
 		SigHash:       sigHash,
 		SigChain:      sigChain,
 	}

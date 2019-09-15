@@ -38,7 +38,6 @@ const (
 	ErrStateUpdaterVaild     ErrCode = 45011
 	ErrSummaryAsset          ErrCode = 45012
 	ErrXmitFail              ErrCode = 45013
-	ErrNonOptimalSigChain    ErrCode = 45014
 	ErrDuplicateName         ErrCode = 45015
 	ErrMineReward            ErrCode = 45016
 	ErrDuplicateSubscription ErrCode = 45017
@@ -46,6 +45,7 @@ const (
 	ErrDoNotPropagate        ErrCode = 45019
 	ErrAlreadySubscribed     ErrCode = 45020
 	ErrAppendTxnPool         ErrCode = 45021
+	ErrNullID                ErrCode = 45022
 )
 
 var ErrMessage = map[ErrCode]string{
@@ -79,4 +79,6 @@ var ErrMessage = map[ErrCode]string{
 	ErrStateUpdaterVaild:    "INTERNAL ERROR, ErrStateUpdaterVaild",
 	ErrSummaryAsset:         "INTERNAL ERROR, ErrSummaryAsset",
 	ErrXmitFail:             "INTERNAL ERROR, ErrXmitFail",
+	ErrAppendTxnPool:        "INTERNAL ERROR, can not append tx to txpool",
+	ErrNullID:               "INTERNAL ERROR, there is no ID in account",
 }

@@ -19,6 +19,7 @@ const (
 type Config struct {
 	Duration                    time.Duration
 	MinVotingInterval           time.Duration
+	MaxVotingInterval           time.Duration
 	ChangeVoteMinRelativeWeight float32
 	ChangeVoteMinAbsoluteWeight uint32
 	ConsensusMinRelativeWeight  float32
@@ -43,6 +44,10 @@ type Election struct {
 func NewElection(config *Config) (*Election, error) {
 	if config.Duration == 0 {
 		return nil, errors.New("Election duration cannot be empty")
+	}
+
+	if config.MinVotingInterval > config.MaxVotingInterval {
+		return nil, fmt.Errorf("Min voting interval %v is greater than max voting interval %v", config.MinVotingInterval, config.MaxVotingInterval)
 	}
 
 	if config.GetWeight == nil {
@@ -177,8 +182,8 @@ func (election *Election) GetNeighborIDsByVote(vote interface{}) []interface{} {
 }
 
 // NeighborVoteCount counts the number of neighbor votes received.
-func (election *Election) NeighborVoteCount() int {
-	count := 0
+func (election *Election) NeighborVoteCount() uint32 {
+	count := uint32(0)
 	election.neighborVotes.Range(func(key, value interface{}) bool {
 		count++
 		return true
@@ -186,13 +191,36 @@ func (election *Election) NeighborVoteCount() int {
 	return count
 }
 
+// PrefillNeighborVotes prefills vote for neighborIDs that don't have a vote yet
+func (election *Election) PrefillNeighborVotes(neighborIDs []interface{}, vote interface{}) error {
+	if election.IsStopped() {
+		return errors.New("Election has already stopped")
+	}
+
+	for _, neighborID := range neighborIDs {
+		election.neighborVotes.LoadOrStore(neighborID, vote)
+	}
+
+	select {
+	case election.voteReceived <- struct{}{}:
+	default:
+	}
+
+	return nil
+}
+
 // updateVote updates self vote and write vote into txVoteChan if self vote
 // changes with throttle.
 func (election *Election) updateVote() {
+	votingTimer := time.NewTimer(election.MaxVotingInterval)
+
 	time.Sleep(election.MinVotingInterval)
 
 	for {
-		<-election.voteReceived
+		select {
+		case <-election.voteReceived:
+		case <-votingTimer.C:
+		}
 
 		if election.IsStopped() {
 			close(election.txVoteChan)
@@ -212,6 +240,13 @@ func (election *Election) updateVote() {
 
 				election.txVoteChan <- leadingVote
 
+				if !votingTimer.Stop() {
+					select {
+					case <-votingTimer.C:
+					default:
+					}
+				}
+				votingTimer = time.NewTimer(election.MaxVotingInterval)
 				time.Sleep(election.MinVotingInterval)
 			}
 		}

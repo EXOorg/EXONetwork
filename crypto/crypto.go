@@ -18,6 +18,8 @@ const (
 	Ed25519 = 1
 )
 
+var Sha256ZeroHash = make([]byte, 32)
+
 //It can be P256R1
 var AlgChoice int
 
@@ -75,6 +77,22 @@ func GenKeyPair() ([]byte, PubKey, error) {
 
 }
 
+func GetPrivateKeyFromSeed(seed []byte) []byte {
+	if Ed25519 == AlgChoice {
+		return ed25519.GetPrivateKeyFromSeed(seed)
+	} else {
+		panic("unsupported function")
+	}
+}
+
+func GetSeedFromPrivateKey(priKey []byte) []byte {
+	if Ed25519 == AlgChoice {
+		return ed25519.GetSeedFromPrivateKey(priKey)
+	} else {
+		panic("unsupported function")
+	}
+}
+
 func Sign(privateKey []byte, data []byte) ([]byte, error) {
 	var r *big.Int
 	var s *big.Int
@@ -114,6 +132,24 @@ func Verify(publicKey PubKey, data []byte, signature []byte) error {
 	}
 
 	return p256r1.Verify(&algSet, publicKey.X, publicKey.Y, data, r, s)
+}
+
+func GenerateVrf(privateKey []byte, data []byte) (vrf []byte, proof []byte, err error) {
+	if Ed25519 == AlgChoice {
+		vrf, proof, err = ed25519.GenerateVrf(privateKey, data)
+	} else {
+		panic("unsupported algorithm type")
+	}
+
+	return
+}
+
+func VerifyVrf(publicKey PubKey, data, vrf, proof []byte) bool {
+	if Ed25519 == AlgChoice {
+		return ed25519.VerifyVrf(publicKey.X, publicKey.Y, data, vrf, proof)
+	} else {
+		panic("unsupported algorithm type")
+	}
 }
 
 func (e *PubKey) Serialize(w io.Writer) error {
