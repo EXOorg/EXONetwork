@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/crypto/ed25519"
+	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/event"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/transaction"
@@ -28,11 +28,11 @@ const (
 	destSigChainElemCacheCleanupInterval = config.ConsensusDuration
 	finalizedBlockCacheExpiration        = 10 * config.ConsensusTimeout
 	finalizedBlockCacheCleanupInterval   = config.ConsensusDuration
-	sigChainTxnCacheExpiration           = 50 * config.ConsensusTimeout
+	sigChainTxnCacheExpiration           = 10 * config.ConsensusTimeout
 	sigChainTxnCacheCleanupInterval      = config.ConsensusDuration
-	miningPorPackageCacheExpiration      = 50 * config.ConsensusTimeout
+	miningPorPackageCacheExpiration      = 10 * config.ConsensusTimeout
 	miningPorPackageCacheCleanupInterval = config.ConsensusDuration
-	vrfCacheExpiration                   = (SigChainMiningHeightOffset + config.MaxRollbackBlocks + 5) * config.ConsensusTimeout
+	vrfCacheExpiration                   = (SigChainMiningHeightOffset + config.SigChainBlockDelay + 5) * config.ConsensusTimeout
 	vrfCacheCleanupInterval              = config.ConsensusDuration
 	flushSigChainDelay                   = 500 * time.Millisecond
 )
@@ -51,6 +51,11 @@ type PorServer struct {
 	sync.RWMutex
 	miningPorPackageCache common.Cache
 	destSigChainElemCache common.Cache
+}
+
+var Store interface {
+	GetHeightByBlockHash(hash common.Uint256) (uint32, error)
+	GetID(publicKey []byte) ([]byte, error)
 }
 
 type vrfResult struct {
@@ -122,7 +127,7 @@ func (ps *PorServer) GetOrComputeVrf(data []byte) ([]byte, []byte, error) {
 		}
 	}
 
-	vrf, proof, err := ed25519.GenerateVrf(ps.account.PrivKey(), data)
+	vrf, proof, err := crypto.GenerateVrf(ps.account.PrivKey(), data, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -164,16 +169,12 @@ func (ps *PorServer) Sign(relayMessage *pb.Relay, nextPubkey, prevNodeID []byte,
 	return nil
 }
 
-func (ps *PorServer) CreateSigChainForClient(dataSize uint32, blockHash *common.Uint256, srcID,
-	srcPubkey, destID, destPubkey, signature []byte, sigAlgo pb.SigAlgo) (*pb.SigChain, error) {
-	pubKey, err := ps.account.PubKey().EncodePoint(true)
-	if err != nil {
-		log.Error("Get account public key error:", err)
-		return nil, err
-	}
+func (ps *PorServer) CreateSigChainForClient(nonce, dataSize uint32, blockHash []byte, srcID, srcPubkey, destID, destPubkey, signature []byte, sigAlgo pb.SigAlgo) (*pb.SigChain, error) {
+	pubKey := ps.account.PubKey().EncodePoint()
 	sigChain, err := pb.NewSigChainWithSignature(
+		nonce,
 		dataSize,
-		blockHash.ToArray(),
+		blockHash,
 		srcID,
 		srcPubkey,
 		destID,
@@ -271,6 +272,27 @@ func (ps *PorServer) ShouldAddSigChainToCache(currentHeight, voteForHeight uint3
 	return true
 }
 
+func VerifyID(sc *pb.SigChain) error {
+	for i := range sc.Elems {
+		if i == 0 || (sc.IsComplete() && i == sc.Length()-1) {
+			continue
+		}
+
+		pk := sc.Elems[i-1].NextPubkey
+		id, err := Store.GetID(pk)
+		if err != nil {
+			return fmt.Errorf("get id of pk %x error: %v", pk, err)
+		}
+		if len(id) == 0 {
+			return fmt.Errorf("id of pk %x is empty", pk)
+		}
+		if !bytes.Equal(sc.Elems[i].Id, id) {
+			return fmt.Errorf("id of pk %x should be %x, got %x", pk, id, sc.Elems[i].Id)
+		}
+	}
+	return nil
+}
+
 func (ps *PorServer) AddSigChainFromTx(txn *transaction.Transaction, currentHeight uint32) (*PorPackage, error) {
 	porPkg, err := NewPorPackage(txn, false)
 	if err != nil {
@@ -282,6 +304,11 @@ func (ps *PorServer) AddSigChainFromTx(txn *transaction.Transaction, currentHeig
 
 	if !ps.ShouldAddSigChainToCache(currentHeight, porPkg.VoteForHeight, porPkg.SigHash) {
 		return nil, nil
+	}
+
+	err = VerifyID(porPkg.SigChain)
+	if err != nil {
+		return nil, err
 	}
 
 	err = porPkg.SigChain.Verify()

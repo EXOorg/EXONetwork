@@ -11,7 +11,6 @@ const (
 	SubscriptionsLimit      = 1000
 	BucketsLimit            = 1000
 	MaxSubscriptionDuration = 65535
-	MinNanoPayDuration      = 10
 )
 
 type IPayload interface {
@@ -30,25 +29,26 @@ func Pack(plType pb.PayloadType, payload IPayload) (*pb.Payload, error) {
 func Unpack(payload *pb.Payload) (IPayload, error) {
 	var pl IPayload
 	switch payload.Type {
-	case pb.CoinbaseType:
+	case pb.COINBASE_TYPE:
 		pl = new(pb.Coinbase)
-	case pb.TransferAssetType:
+	case pb.TRANSFER_ASSET_TYPE:
 		pl = new(pb.TransferAsset)
-	case pb.CommitType:
-		pl = new(pb.Commit)
-	case pb.RegisterNameType:
+	case pb.SIG_CHAIN_TXN_TYPE:
+		pl = new(pb.SigChainTxn)
+	case pb.REGISTER_NAME_TYPE:
 		pl = new(pb.RegisterName)
-	case pb.DeleteNameType:
+	case pb.DELETE_NAME_TYPE:
 		pl = new(pb.DeleteName)
-	case pb.SubscribeType:
+	case pb.SUBSCRIBE_TYPE:
 		pl = new(pb.Subscribe)
-	case pb.GenerateIDType:
+	case pb.GENERATE_ID_TYPE:
 		pl = new(pb.GenerateID)
-	case pb.NanoPayType:
+	case pb.NANO_PAY_TYPE:
 		pl = new(pb.NanoPay)
+	case pb.ISSUE_ASSET_TYPE:
+		pl = new(pb.IssueAsset)
 	default:
 		return nil, errors.New("invalid payload type.")
-
 	}
 
 	err := pl.Unmarshal(payload.Data)
@@ -71,8 +71,8 @@ func NewTransferAsset(sender, recipient common.Uint160, amount common.Fixed64) I
 	}
 }
 
-func NewCommit(sigChain []byte, submitter common.Uint160) IPayload {
-	return &pb.Commit{
+func NewSigChainTxn(sigChain []byte, submitter common.Uint160) IPayload {
+	return &pb.SigChainTxn{
 		SigChain:  sigChain,
 		Submitter: submitter.ToArray(),
 	}
@@ -109,13 +109,23 @@ func NewGenerateID(publicKey []byte, regFee common.Fixed64) IPayload {
 	}
 }
 
-func NewNanoPay(sender, recipient common.Uint160, nonce uint64, amount common.Fixed64, height, duration uint32) IPayload {
+func NewNanoPay(sender, recipient common.Uint160, id uint64, amount common.Fixed64, txnExpiration, nanoPayExpiration uint32) IPayload {
 	return &pb.NanoPay{
-		Sender:     sender.ToArray(),
-		Recipient:  recipient.ToArray(),
-		Nonce:      nonce,
-		Amount:     int64(amount),
-		Height:     height,
-		Duration:   duration,
+		Sender:            sender.ToArray(),
+		Recipient:         recipient.ToArray(),
+		Id:                id,
+		Amount:            int64(amount),
+		TxnExpiration:     txnExpiration,
+		NanoPayExpiration: nanoPayExpiration,
+	}
+}
+
+func NewIssueAsset(sender common.Uint160, name, symbol string, precision uint32, totalSupply common.Fixed64) IPayload {
+	return &pb.IssueAsset{
+		Sender:      sender.ToArray(),
+		Name:        name,
+		Symbol:      symbol,
+		TotalSupply: int64(totalSupply),
+		Precision:   precision,
 	}
 }

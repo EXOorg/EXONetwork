@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/transaction"
@@ -33,12 +33,6 @@ type PorPackage struct {
 	SigChain      *pb.SigChain `protobuf:"bytes,6,opt,name=SigChain" json:"SigChain,omitempty"`
 }
 
-type PorStore interface {
-	GetHeightByBlockHash(hash Uint256) (uint32, error)
-}
-
-var Store PorStore
-
 type PorPackages []*PorPackage
 
 func (c PorPackages) Len() int {
@@ -60,7 +54,7 @@ func (c PorPackages) Less(i, j int) bool {
 }
 
 func NewPorPackage(txn *transaction.Transaction, shouldVerify bool) (*PorPackage, error) {
-	if txn.UnsignedTx.Payload.Type != pb.CommitType {
+	if txn.UnsignedTx.Payload.Type != pb.SIG_CHAIN_TXN_TYPE {
 		return nil, errors.New("Transaction type mismatch")
 	}
 	payload, err := transaction.Unpack(txn.UnsignedTx.Payload)
@@ -68,7 +62,7 @@ func NewPorPackage(txn *transaction.Transaction, shouldVerify bool) (*PorPackage
 		return nil, err
 	}
 
-	rs := payload.(*pb.Commit)
+	rs := payload.(*pb.SigChainTxn)
 	sigChain := &pb.SigChain{}
 	err = proto.Unmarshal(rs.SigChain, sigChain)
 	if err != nil {
@@ -107,6 +101,11 @@ func NewPorPackage(txn *transaction.Transaction, shouldVerify bool) (*PorPackage
 	}
 
 	if shouldVerify {
+		err = VerifyID(sigChain)
+		if err != nil {
+			return nil, err
+		}
+
 		err = sigChain.Verify()
 		if err != nil {
 			return nil, err
@@ -114,7 +113,7 @@ func NewPorPackage(txn *transaction.Transaction, shouldVerify bool) (*PorPackage
 	}
 
 	pp := &PorPackage{
-		VoteForHeight: height + SigChainMiningHeightOffset + config.MaxRollbackBlocks,
+		VoteForHeight: height + SigChainMiningHeightOffset + config.SigChainBlockDelay,
 		BlockHash:     sigChain.BlockHash,
 		TxHash:        txHash.ToArray(),
 		SigHash:       sigHash,

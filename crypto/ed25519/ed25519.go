@@ -6,7 +6,6 @@ import (
 	"math/big"
 
 	"github.com/nknorg/nkn/crypto/ed25519/vrf"
-	"github.com/nknorg/nkn/crypto/util"
 	"github.com/nknorg/vxeddsa/extra25519"
 
 	"golang.org/x/crypto/ed25519"
@@ -15,11 +14,9 @@ import (
 const PublicKeySize = ed25519.PublicKeySize
 const PrivateKeySize = ed25519.PrivateKeySize
 const SignatureSize = ed25519.SignatureSize
+const SeedSize = ed25519.SeedSize
 
-func Init(algSet *util.CryptoAlgSet) {
-}
-
-func GenKeyPair(algSet *util.CryptoAlgSet) ([]byte, *big.Int, *big.Int, error) {
+func GenKeyPair() ([]byte, *big.Int, *big.Int, error) {
 	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, nil, errors.New("NewEd25519: Generate key pair error")
@@ -31,12 +28,12 @@ func GenKeyPair(algSet *util.CryptoAlgSet) ([]byte, *big.Int, *big.Int, error) {
 	return privKey, X, Y, nil
 }
 
-func Sign(algSet *util.CryptoAlgSet, priKey []byte, data []byte) (*big.Int, *big.Int, error) {
+func Sign(priKey []byte, data []byte) (*big.Int, *big.Int, error) {
 	sig := ed25519.Sign(priKey, data)
 	return new(big.Int).SetBytes(sig[:ed25519.SignatureSize/2]), new(big.Int).SetBytes(sig[ed25519.SignatureSize/2:]), nil
 }
 
-func Verify(algSet *util.CryptoAlgSet, X *big.Int, Y *big.Int, data []byte, r, s *big.Int) error {
+func Verify(X *big.Int, Y *big.Int, data []byte, r, s *big.Int) error {
 	pk := X.Bytes()
 	pubKey := [ed25519.PublicKeySize]byte{}
 	copy(pubKey[ed25519.PublicKeySize-len(pk):], pk)
@@ -74,25 +71,13 @@ func GetPrivateKeyFromSeed(seed []byte) []byte {
 	return ed25519.NewKeyFromSeed(seed)
 }
 
-func GetPublicKeySize() int {
-	return PublicKeySize
-}
-
-func GetPrivateKeySize() int {
-	return PrivateKeySize
-}
-
-func GetSignatureSize() int {
-	return SignatureSize
-}
-
-func GenerateVrf(privKey []byte, data []byte) (dataVrf []byte, proof []byte, err error) {
+func GenerateVrf(privKey, data []byte, randSrc bool) (dataVrf []byte, proof []byte, err error) {
 	if len(privKey) != ed25519.PrivateKeySize {
 		err = errors.New("bad length of privKey")
 		return
 	}
 	sk := vrf.PrivateKey(privKey)
-	dataVrf, proof = sk.Prove(data)
+	dataVrf, proof = sk.Prove(data, randSrc)
 	return
 }
 

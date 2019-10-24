@@ -1,26 +1,18 @@
 package block
 
 import (
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/gogo/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
 	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/pb"
+	"github.com/nknorg/nkn/signature"
 	"github.com/nknorg/nkn/transaction"
 	"github.com/nknorg/nkn/util/config"
-	"github.com/nknorg/nkn/vm/signature"
-)
-
-const (
-	BlockVersion  uint32 = 0
-	GenesisBeacon string = "6c9027722dc37f17739da69baffd6fc8281fe568701d8aa0092eb77549461469"
 )
 
 type Block struct {
@@ -75,7 +67,7 @@ func (b *Block) GetTxsSize() int {
 }
 
 func (b *Block) GetSigner() ([]byte, []byte, error) {
-	return b.Header.UnsignedHeader.Signer, b.Header.UnsignedHeader.ChordId, nil
+	return b.Header.UnsignedHeader.SignerPk, b.Header.UnsignedHeader.SignerId, nil
 }
 
 func (b *Block) Trim(w io.Writer) error {
@@ -157,39 +149,46 @@ func (b *Block) Verify() error {
 	return nil
 }
 
-func GenesisBlockInit() (*Block, error) {
-	if config.Parameters.GenesisBlockProposer == "" {
-		return nil, errors.New("GenesisBlockProposer is required in config.json")
-	}
-	proposer, err := HexStringToBytes(config.Parameters.GenesisBlockProposer)
-	if err != nil || len(proposer) != crypto.COMPRESSEDLEN {
-		return nil, errors.New("invalid GenesisBlockProposer configured")
-	}
-	genesisBlockProposer, _ := HexStringToBytes(config.Parameters.GenesisBlockProposer)
+func ComputeID(preBlockHash, txnHash Uint256, randomBeacon []byte) []byte {
+	data := append(preBlockHash[:], txnHash[:]...)
+	data = append(data, randomBeacon...)
+	id := crypto.Sha256(data)
+	return id
+}
 
-	genesisBeacon, err := hex.DecodeString(GenesisBeacon)
+func GenesisBlockInit() (*Block, error) {
+	genesisSignerPk, err := HexStringToBytes(config.Parameters.GenesisBlockProposer)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse GenesisBlockProposer error: %v", err)
 	}
+
+	genesisSignerID := ComputeID(EmptyUint256, EmptyUint256, config.GenesisBeacon[:config.RandomBeaconUniqueLength])
 
 	// block header
 	genesisBlockHeader := &Header{
 		Header: &pb.Header{
 			UnsignedHeader: &pb.UnsignedHeader{
-				Version:       BlockVersion,
+				Version:       config.HeaderVersion,
 				PrevBlockHash: EmptyUint256.ToArray(),
-				Timestamp:     time.Date(2018, time.January, 0, 0, 0, 0, 0, time.UTC).Unix(),
+				Timestamp:     config.GenesisTimestamp,
 				Height:        uint32(0),
-				RandomBeacon:  genesisBeacon,
-				Signer:        genesisBlockProposer,
+				RandomBeacon:  config.GenesisBeacon,
+				SignerPk:      genesisSignerPk,
+				SignerId:      genesisSignerID,
 			},
 		},
 	}
 
-	rewardAddress, _ := ToScriptHash(config.InitialIssueAddress)
-	donationProgramhash, _ := ToScriptHash(config.DonationAddress)
-	payload := transaction.NewCoinbase(donationProgramhash, rewardAddress, Fixed64(config.InitialIssueAmount))
-	pl, err := transaction.Pack(pb.CoinbaseType, payload)
+	rewardAddress, err := ToScriptHash(config.InitialIssueAddress)
+	if err != nil {
+		return nil, fmt.Errorf("parse InitialIssueAddress error: %v", err)
+	}
+	donationProgramhash, err := ToScriptHash(config.DonationAddress)
+	if err != nil {
+		return nil, fmt.Errorf("parse DonationAddress error: %v", err)
+	}
+	payload := transaction.NewCoinbase(donationProgramhash, rewardAddress, Fixed64(0))
+	pl, err := transaction.Pack(pb.COINBASE_TYPE, payload)
 	if err != nil {
 		return nil, err
 	}

@@ -38,13 +38,6 @@ func IsPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// GenChordID generates an ID for the node
-func GenChordID(host string) []byte {
-	hash := sha256.New()
-	hash.Write([]byte(host))
-	return hash.Sum(nil)
-}
-
 func MakeAddressString(pubKey []byte, identifier string) string {
 	var result strings.Builder
 	if identifier != "" {
@@ -77,7 +70,11 @@ func ParseClientAddress(addrStr string) ([]byte, []byte, string, error) {
 // AssembleClientAddress returns the client address string from identifier and
 // pubkey
 func AssembleClientAddress(identifier string, pubkey []byte) string {
-	return identifier + "." + hex.EncodeToString(pubkey)
+	addr := hex.EncodeToString(pubkey)
+	if len(identifier) > 0 {
+		addr = identifier + "." + addr
+	}
+	return addr
 }
 
 // ShouldRejectAddr returns if remoteAddr should be rejected by localAddr

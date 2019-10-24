@@ -4,9 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 	"github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/transaction"
 	"github.com/nknorg/nkn/util/log"
@@ -14,13 +13,11 @@ import (
 )
 
 func TestPorPackage(t *testing.T) {
-	crypto.SetAlg("P256R1")
-
 	from, _ := vault.NewAccount()
 	rel, _ := vault.NewAccount()
 	to, _ := vault.NewAccount()
-	toPk, _ := to.PubKey().EncodePoint(true)
-	relPk, _ := rel.PubKey().EncodePoint(true)
+	toPk := to.PubKey().EncodePoint()
+	relPk := rel.PubKey().EncodePoint()
 
 	var srcID []byte
 	dataHash := common.Uint256{}
@@ -41,7 +38,7 @@ func TestPorPackage(t *testing.T) {
 	}
 
 	buf, err := proto.Marshal(sc)
-	txn, err := transaction.NewCommitTransaction(buf, from.ProgramHash)
+	txn, err := transaction.NewSigChainTransaction(buf, from.ProgramHash)
 	if err != nil {
 		log.Error("txn wrong", txn)
 	}

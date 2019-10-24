@@ -1,12 +1,15 @@
 package wallet
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 
 	"github.com/nknorg/nkn/api/httpjson/client"
 	. "github.com/nknorg/nkn/cli/common"
 	. "github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/crypto"
+	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/password"
 	"github.com/nknorg/nkn/vault"
 
@@ -14,15 +17,15 @@ import (
 )
 
 func showAccountInfo(wallet vault.Wallet, verbose bool) {
-	const format = "%-34s  %s\n"
+	const format = "%-37s  %s\n"
 	account, _ := wallet.GetDefaultAccount()
 	fmt.Printf(format, "Address", "Public Key")
 	fmt.Printf(format, "-------", "----------")
 	address, _ := account.ProgramHash.ToAddress()
-	publicKey, _ := account.PublicKey.EncodePoint(true)
+	publicKey := account.PublicKey.EncodePoint()
 	fmt.Printf(format, address, BytesToHexString(publicKey))
 	if verbose {
-		fmt.Printf("\nPrivate Key\n-----------\n%s\n", BytesToHexString(account.PrivateKey))
+		fmt.Printf("\nSecret Seed\n-----------\n%s\n", BytesToHexString(crypto.GetSeedFromPrivateKey(account.PrivateKey)))
 	}
 }
 
@@ -61,7 +64,7 @@ func walletAction(c *cli.Context) error {
 		cli.ShowSubcommandHelp(c)
 		return nil
 	}
-	// wallet name is wallet.dat by default
+	// wallet file name
 	name := c.String("name")
 	if name == "" {
 		fmt.Fprintln(os.Stderr, "invalid wallet name")
@@ -91,8 +94,8 @@ func walletAction(c *cli.Context) error {
 
 	// list wallet info
 	if item := c.String("list"); item != "" {
-		if item != "account" && item != "balance" && item != "verbose" && item != "nonce" {
-			fmt.Fprintln(os.Stderr, "--list [account | balance | verbose | nonce]")
+		if item != "account" && item != "balance" && item != "verbose" && item != "nonce" && item != "id" {
+			fmt.Fprintln(os.Stderr, "--list [account | balance | verbose | nonce | id]")
 			os.Exit(1)
 		} else {
 			wallet, err := vault.OpenWallet(name, getPassword(passwd))
@@ -120,6 +123,16 @@ func walletAction(c *cli.Context) error {
 				account, _ := wallet.GetDefaultAccount()
 				address, _ := account.ProgramHash.ToAddress()
 				resp, err := client.Call(Address(), "getnoncebyaddr", 0, map[string]interface{}{"address": address})
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return err
+				}
+				FormatOutput(resp)
+			case "id":
+				account, _ := wallet.GetDefaultAccount()
+				publicKey := account.PubKey().EncodePoint()
+				pk := hex.EncodeToString(publicKey)
+				resp, err := client.Call(Address(), "getid", 0, map[string]interface{}{"publickey": pk})
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					return err
@@ -178,7 +191,7 @@ func NewCommand() *cli.Command {
 			cli.StringFlag{
 				Name:  "name, n",
 				Usage: "wallet name",
-				Value: vault.WalletFileName,
+				Value: config.Parameters.WalletFile,
 			},
 			cli.StringFlag{
 				Name:  "password, p",

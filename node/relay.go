@@ -15,7 +15,6 @@ import (
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
-	"github.com/nknorg/nkn/vm/contract"
 )
 
 type RelayService struct {
@@ -170,7 +169,7 @@ func (rs *RelayService) broadcastSigChain(sigChain *pb.SigChain) error {
 		return err
 	}
 
-	txn, err := MakeCommitTransaction(rs.wallet, buf)
+	txn, err := MakeSigChainTransaction(rs.wallet, buf)
 	if err != nil {
 		return err
 	}
@@ -215,15 +214,11 @@ func (rs *RelayService) backtrackDestSigChain(v interface{}) {
 
 func (rs *RelayService) signRelayMessage(relayMessage *pb.Relay, nextHop, prevHop *RemoteNode) error {
 	var nextPubkey []byte
-	var err error
 	if nextHop != nil {
-		nextPubkey, err = nextHop.GetPubKey().EncodePoint(true)
-		if err != nil {
-			return err
-		}
+		nextPubkey = nextHop.GetPubKey().EncodePoint()
 	}
 
-	mining := config.Parameters.Mining && rs.localNode.GetSyncState() == pb.PersistFinished
+	mining := config.Parameters.Mining && rs.localNode.GetSyncState() == pb.PERSIST_FINISHED
 
 	var prevNodeID []byte
 	if prevHop != nil {
@@ -237,7 +232,7 @@ func (localNode *LocalNode) startRelayer() {
 	localNode.relayer.Start()
 }
 
-func (localNode *LocalNode) SendRelayMessage(srcAddr, destAddr string, payload, signature []byte, maxHoldingSeconds uint32) error {
+func (localNode *LocalNode) SendRelayMessage(srcAddr, destAddr string, payload, signature, blockHash []byte, nonce, maxHoldingSeconds uint32) error {
 	srcID, srcPubkey, srcIdentifier, err := address.ParseClientAddress(srcAddr)
 	if err != nil {
 		return err
@@ -248,26 +243,22 @@ func (localNode *LocalNode) SendRelayMessage(srcAddr, destAddr string, payload, 
 		return err
 	}
 
-	height := chain.DefaultLedger.Store.GetHeight() - config.MaxRollbackBlocks
-	if height < 0 {
-		height = 0
-	}
-	blockHash := chain.DefaultLedger.Store.GetHeaderHashByHeight(height)
 	_, err = por.GetPorServer().CreateSigChainForClient(
+		nonce,
 		uint32(len(payload)),
-		&blockHash,
+		blockHash,
 		srcID,
 		srcPubkey,
 		destID,
 		destPubkey,
 		signature,
-		pb.VRF,
+		pb.SIGNATURE,
 	)
 	if err != nil {
 		return err
 	}
 
-	msg, err := NewRelayMessage(srcIdentifier, srcPubkey, destID, payload, blockHash.ToArray(), signature, maxHoldingSeconds)
+	msg, err := NewRelayMessage(srcIdentifier, srcPubkey, destID, payload, blockHash, signature, maxHoldingSeconds)
 	if err != nil {
 		return err
 	}
@@ -285,21 +276,21 @@ func (localNode *LocalNode) SendRelayMessage(srcAddr, destAddr string, payload, 
 	return nil
 }
 
-func MakeCommitTransaction(wallet vault.Wallet, sigChain []byte) (*transaction.Transaction, error) {
+func MakeSigChainTransaction(wallet vault.Wallet, sigChain []byte) (*transaction.Transaction, error) {
 	account, err := wallet.GetDefaultAccount()
 	if err != nil {
 		return nil, err
 	}
-	//TODO modify nonce
-	txn, err := transaction.NewCommitTransaction(sigChain, account.ProgramHash, 0)
+	txn, err := transaction.NewSigChainTransaction(sigChain, account.ProgramHash, 0)
 	if err != nil {
 		return nil, err
 	}
 
 	// sign transaction contract
-	ctx := contract.NewContractContext(txn)
-	wallet.Sign(ctx)
-	txn.SetPrograms(ctx.GetPrograms())
+	err = wallet.Sign(txn)
+	if err != nil {
+		return nil, err
+	}
 
 	return txn, nil
 }
@@ -320,7 +311,7 @@ func (rs *RelayService) flushSigChain(v interface{}) {
 		return
 	}
 
-	height := block.Header.UnsignedHeader.Height - config.MaxRollbackBlocks - 1
+	height := block.Header.UnsignedHeader.Height - config.SigChainBlockDelay - 1
 	if height < 0 {
 		height = 0
 	}

@@ -9,7 +9,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/golang/crypto/ripemd160"
+	"golang.org/x/crypto/ripemd160"
 )
 
 const MaxUint32 = ^uint32(0)
@@ -55,30 +55,6 @@ func BytesToHexString(data []byte) string {
 
 func HexStringToBytes(value string) ([]byte, error) {
 	return hex.DecodeString(value)
-}
-
-func ToArrayReverse(arr []byte) []byte {
-	l := len(arr)
-	x := make([]byte, 0)
-	for i := l - 1; i >= 0; i-- {
-		x = append(x, arr[i])
-	}
-	return x
-}
-
-func BytesReverse(u []byte) []byte {
-	for i, j := 0, len(u)-1; i < j; i, j = i+1, j-1 {
-		u[i], u[j] = u[j], u[i]
-	}
-	return u
-}
-
-func HexStringToBytesReverse(value string) ([]byte, error) {
-	u, err := hex.DecodeString(value)
-	if err != nil {
-		return u, err
-	}
-	return BytesReverse(u), err
 }
 
 func ClearBytes(arr []byte, len int) {

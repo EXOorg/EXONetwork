@@ -66,7 +66,7 @@ func NewNode(nnetNode *nnetpb.Node, nodeData *pb.NodeData) (*Node, error) {
 		Node:      nnetNode,
 		NodeData:  nodeData,
 		publicKey: publicKey,
-		syncState: pb.WaitForSyncing,
+		syncState: pb.WAIT_FOR_SYNCING,
 	}
 
 	return node, nil
@@ -95,10 +95,14 @@ func (n *Node) GetSyncState() pb.SyncState {
 	return n.syncState
 }
 
-func (n *Node) SetSyncState(s pb.SyncState) {
+func (n *Node) SetSyncState(s pb.SyncState) bool {
 	n.Lock()
 	defer n.Unlock()
+	if n.syncState == s {
+		return false
+	}
 	n.syncState = s
+	return true
 }
 
 func (n *Node) GetMinVerifiableHeight() uint32 {

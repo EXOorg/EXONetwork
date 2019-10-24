@@ -10,84 +10,114 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	gonat "github.com/nknorg/go-nat"
 	"github.com/nknorg/go-portscanner"
 	"github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/crypto/ed25519"
+	"github.com/nknorg/nkn/crypto/ed25519/vrf"
 	"github.com/nknorg/nkn/crypto/util"
 	"github.com/nknorg/nnet/transport"
-	"github.com/rdegges/go-ipify"
 )
 
-const (
-	DefaultConfigFilename = "./config.json"
-)
+const DefaultConfigFile = "config.json"
 
 const (
 	MaxNumTxnPerBlock            = 4096
 	MaxBlockSize                 = 1 * 1024 * 1024 // in bytes
 	ConsensusDuration            = 20 * time.Second
-	ConsensusTimeout             = time.Minute
+	ConsensusTimeout             = 60 * time.Second
 	MinNumSuccessors             = 8
 	NodeIDBytes                  = 32
-	MaxRollbackBlocks            = 1
-	SigChainPropogationTime      = 1
-	EncryptAlg                   = "Ed25519"
-	DBVersion                    = 0x0d
-	InitialIssueAddress          = "NKNQ83xc8zQNEE6WBDKm7tZrLwoMwAq4c4jo"
+	MaxRollbackBlocks            = 180
+	SigChainBlockDelay           = 1
+	SigChainPropogationTime      = 2
+	HeaderVersion                = 1
+	DBVersion                    = 0x01
+	InitialIssueAddress          = "NKNFCrUMFPkSeDRMG2ME21hD6wBCA2poc347"
 	InitialIssueAmount           = 700000000 * common.StorageFactor
 	TotalMiningRewards           = 300000000 * common.StorageFactor
 	TotalRewardDuration          = uint32(25)
 	InitialReward                = common.Fixed64(18000000 * common.StorageFactor)
-	RewardAdjustInterval         = 3 * 24 * 60 * 60 / int(ConsensusDuration/time.Second) //TODO reduce interval for testing
+	RewardAdjustInterval         = 365 * 24 * 60 * 60 / int(ConsensusDuration/time.Second)
 	ReductionAmount              = common.Fixed64(500000 * common.StorageFactor)
 	DonationAddress              = "NKNaaaaaaaaaaaaaaaaaaaaaaaaaaaeJ6gxa"
 	DonationAdjustDividendFactor = 1
 	DonationAdjustDivisorFactor  = 2
 	MinGenIDRegistrationFee      = 0
-	GenerateIDBlockDelay         = 1
-	RandomBeaconLength           = 32
-	ProtocolVersion              = 61
-	MinCompatibleProtocolVersion = 61
-	MaxCompatibleProtocolVersion = 65
+	GenerateIDBlockDelay         = 8
+	RandomBeaconUniqueLength     = vrf.Size
+	RandomBeaconLength           = vrf.Size + vrf.ProofSize
+	ProtocolVersion              = 30
+	MinCompatibleProtocolVersion = 30
+	MaxCompatibleProtocolVersion = 39
 	DefaultTxPoolCap             = 32
-	DefaultTxPoolOrphanCap       = 64
+	ShortHashSize                = uint32(8)
+	MaxAssetPrecision            = uint32(8)
+	NKNAssetName                 = "NKN"
+	NKNAssetSymbol               = "nkn"
+	NKNAssetPrecision            = uint32(8)
+	GASAssetName                 = "New Network Coin"
+	GASAssetSymbol               = "nnc"
+	GASAssetPrecision            = uint32(8)
 )
 
 var (
-	ShortHashSize uint32 = 8
-	ShortHashSalt []byte = util.RandomBytes(32)
+	ShortHashSalt    = util.RandomBytes(32)
+	GenesisTimestamp = time.Date(2019, time.June, 29, 13, 10, 13, 0, time.UTC).Unix()
+	GenesisBeacon    = make([]byte, RandomBeaconLength)
+	NKNAssetID       = common.Uint256{
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	}
+	GASAssetID = common.Uint256{
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+	}
 )
 
 var (
-	Version       string
-	SkipCheckPort bool
-	SkipNAT       bool
-	nat           gonat.NAT
-	Parameters    = &Configuration{
-		Version:      1,
-		Transport:    "tcp",
-		NodePort:     30001,
-		HttpWsPort:   30002,
-		HttpJsonPort: 30003,
-		NAT:          true,
-		Mining:       true,
-		MiningDebug:  true,
-		LogLevel:     1,
-		SeedList: []string{
-			"http://127.0.0.1:30003",
-		},
-		SyncBatchWindowSize:       1024,
-		SyncBlockHeadersBatchSize: 256,
+	Version              string
+	SkipNAT              bool
+	nat                  gonat.NAT
+	ConfigFile           string
+	LogPath              string
+	ChainDBPath          string
+	WalletFile           string
+	BeneficiaryAddr      string
+	SeedList             string
+	GenesisBlockProposer string
+	Parameters           = &Configuration{
+		Version:                   1,
+		Transport:                 "tcp",
+		NodePort:                  30001,
+		HttpWsPort:                30002,
+		HttpJsonPort:              30003,
+		NAT:                       true,
+		Mining:                    true,
+		MiningDebug:               true,
+		LogLevel:                  1,
+		MaxLogFileSize:            20,
+		SyncBatchWindowSize:       128,
+		SyncBlockHeadersBatchSize: 128,
 		SyncBlocksBatchSize:       8,
 		RPCReadTimeout:            5,
 		RPCWriteTimeout:           10,
 		KeepAliveTimeout:          15,
 		NATPortMappingTimeout:     365 * 86400,
-		NumTxnPerBlock:            MaxNumTxnPerBlock,
+		NumTxnPerBlock:            256,
 		TxPoolCap:                 DefaultTxPoolCap,
-		TxPoolOrphanCap:           DefaultTxPoolOrphanCap,
+		RegisterIDFee:             0,
+		LogPath:                   "Log",
+		ChainDBPath:               "ChainDB",
+		WalletFile:                "wallet.json",
+		MaxGetIDSeeds:             3,
 	}
 )
 
@@ -102,15 +132,15 @@ type Configuration struct {
 	HttpJsonPort              uint16        `json:"HttpJsonPort"`
 	NodePort                  uint16        `json:"-"`
 	LogLevel                  int           `json:"LogLevel"`
+	MaxLogFileSize            uint32        `json:"MaxLogSize"`
 	IsTLS                     bool          `json:"IsTLS"`
 	CertPath                  string        `json:"CertPath"`
 	KeyPath                   string        `json:"KeyPath"`
 	CAPath                    string        `json:"CAPath"`
-	GenBlockTime              uint          `json:"GenBlockTime"`
-	MaxLogSize                int64         `json:"MaxLogSize"`
 	MaxHdrSyncReqs            int           `json:"MaxConcurrentSyncHeaderReqs"`
 	GenesisBlockProposer      string        `json:"GenesisBlockProposer"`
 	MinTxnFee                 int64         `json:"MinTxnFee"`
+	RegisterIDFee             int64         `json:"RegisterIDFee"`
 	Hostname                  string        `json:"Hostname"`
 	Transport                 string        `json:"Transport"`
 	NAT                       bool          `json:"NAT"`
@@ -122,16 +152,24 @@ type Configuration struct {
 	SyncBlocksBatchSize       uint32        `json:"SyncBlocksBatchSize"`
 	NumTxnPerBlock            uint32        `json:"NumTxnPerBlock"`
 	TxPoolCap                 int           `json:"TxPoolCap"`
-	TxPoolOrphanCap           int           `json:"TxPoolOrphanCap"`
 	RPCReadTimeout            time.Duration `json:"RPCReadTimeout"`        // in seconds
 	RPCWriteTimeout           time.Duration `json:"RPCWriteTimeout"`       // in seconds
 	KeepAliveTimeout          time.Duration `json:"KeepAliveTimeout"`      // in seconds
 	NATPortMappingTimeout     time.Duration `json:"NATPortMappingTimeout"` // in seconds
+	LogPath                   string        `json:"LogPath"`
+	ChainDBPath               string        `json:"ChainDBPath"`
+	WalletFile                string        `json:"WalletFile"`
+	MaxGetIDSeeds             uint32        `json:"MaxGetIDSeeds"`
 }
 
 func Init() error {
-	if _, err := os.Stat(DefaultConfigFilename); err == nil {
-		file, err := ioutil.ReadFile(DefaultConfigFilename)
+	configFile := ConfigFile
+	if configFile == "" {
+		configFile = DefaultConfigFile
+	}
+
+	if _, err := os.Stat(configFile); err == nil {
+		file, err := ioutil.ReadFile(configFile)
 		if err != nil {
 			return err
 		}
@@ -147,6 +185,30 @@ func Init() error {
 		log.Println("Config file not exists, use default parameters.")
 	}
 
+	if len(LogPath) > 0 {
+		Parameters.LogPath = LogPath
+	}
+
+	if len(ChainDBPath) > 0 {
+		Parameters.ChainDBPath = ChainDBPath
+	}
+
+	if len(WalletFile) > 0 {
+		Parameters.WalletFile = WalletFile
+	}
+
+	if len(BeneficiaryAddr) > 0 {
+		Parameters.BeneficiaryAddr = BeneficiaryAddr
+	}
+
+	if len(SeedList) > 0 {
+		Parameters.SeedList = strings.Split(SeedList, ",")
+	}
+
+	if len(GenesisBlockProposer) > 0 {
+		Parameters.GenesisBlockProposer = GenesisBlockProposer
+	}
+
 	if Parameters.Hostname == "127.0.0.1" {
 		Parameters.incrementPort()
 	}
@@ -156,28 +218,7 @@ func Init() error {
 		return err
 	}
 
-	if Parameters.Hostname == "" {
-		log.Println("Getting my IP address...")
-		ip, err := ipify.GetIp()
-		if err != nil {
-			return err
-		}
-		log.Printf("My IP address is %s", ip)
-
-		Parameters.Hostname = ip
-
-		// if !SkipCheckPort {
-		// 	ok, err := Parameters.CheckPorts(ip)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// 	if !ok {
-		// 		return errors.New("Some ports are not open. Please make sure you set up port forwarding or firewall correctly")
-		// 	}
-		// }
-	}
-
-	err := check(Parameters)
+	err := Parameters.verify()
 	if err != nil {
 		return err
 	}
@@ -261,13 +302,36 @@ func (config *Configuration) CleanPortMapping() error {
 	return nil
 }
 
-func check(config *Configuration) error {
+func (config *Configuration) verify() error {
 	if len(config.SeedList) == 0 {
 		return errors.New("seed list in config file should not be blank")
 	}
 
 	if config.NumTxnPerBlock > MaxNumTxnPerBlock {
 		return fmt.Errorf("NumTxnPerBlock cannot be greater than %d", MaxNumTxnPerBlock)
+	}
+
+	if len(config.GenesisBlockProposer) == 0 {
+		return errors.New("no GenesisBlockProposer")
+	}
+
+	pk, err := common.HexStringToBytes(config.GenesisBlockProposer)
+	if err != nil {
+		return fmt.Errorf("parse GenesisBlockProposer error: %v", err)
+	}
+	if len(pk) != ed25519.PublicKeySize {
+		return fmt.Errorf("invalid GenesisBlockProposer length %d bytes, expecting %d bytes", len(pk), ed25519.PublicKeySize)
+	}
+
+	if len(config.BeneficiaryAddr) > 0 {
+		_, err = common.ToScriptHash(config.BeneficiaryAddr)
+		if err != nil {
+			return fmt.Errorf("parse BeneficiaryAddr error: %v", err)
+		}
+	}
+
+	if config.MaxLogFileSize <= 0 {
+		return fmt.Errorf("MaxLogFileSize should be >= 1 (MB)")
 	}
 
 	return nil

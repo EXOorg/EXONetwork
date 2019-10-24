@@ -14,7 +14,6 @@ import (
 	"github.com/nknorg/nnet/overlay/chord"
 )
 
-// TODO: move sigAlgo to config.json
 const (
 	sigAlgo                    = VRF
 	bitShiftPerSigChainElement = 4
@@ -78,9 +77,9 @@ func (sc *SigChain) SerializationMetadata(w io.Writer) error {
 	return nil
 }
 
-func NewSigChainWithSignature(dataSize uint32, blockHash, srcID, srcPubkey, destID, destPubkey, nextPubkey,
-	signature []byte, algo SigAlgo, mining bool) (*SigChain, error) {
+func NewSigChainWithSignature(nonce, dataSize uint32, blockHash, srcID, srcPubkey, destID, destPubkey, nextPubkey, signature []byte, algo SigAlgo, mining bool) (*SigChain, error) {
 	sc := &SigChain{
+		Nonce:      nonce,
 		DataSize:   dataSize,
 		BlockHash:  blockHash,
 		SrcId:      srcID,
@@ -89,7 +88,7 @@ func NewSigChainWithSignature(dataSize uint32, blockHash, srcID, srcPubkey, dest
 		DestPubkey: destPubkey,
 		Elems: []*SigChainElem{
 			{
-				Id:         srcID,
+				Id:         nil,
 				NextPubkey: nextPubkey,
 				SigAlgo:    algo,
 				Signature:  signature,
@@ -148,15 +147,26 @@ func (sc *SigChain) VerifySignatures() error {
 	sc.SerializationMetadata(buff)
 	prevSig := buff.Bytes()
 	for i, e := range sc.Elems {
-		ePk, err := crypto.DecodePoint(prevNextPubkey)
+		pk, err := crypto.DecodePoint(prevNextPubkey)
 		if err != nil {
-			return fmt.Errorf("invalid pubkey: %v", err)
+			return fmt.Errorf("invalid pubkey %x: %v", prevNextPubkey, err)
 		}
 
-		// verify each element signature
-		// skip first and last element for now, will remove this once client
-		// side signature is ready
-		if i > 0 && !(sc.IsComplete() && i == sc.Length()-1) {
+		if i == 0 || (sc.IsComplete() && i == sc.Length()-1) {
+			lastSignatureHash := sha256.Sum256(prevSig)
+			buff := bytes.NewBuffer(lastSignatureHash[:])
+			elem := NewSigChainElem(e.Id, e.NextPubkey, nil, nil, nil, e.Mining)
+			err = elem.SerializationUnsigned(buff)
+			if err != nil {
+				return fmt.Errorf("serialize sigchain elem error: %v", err)
+			}
+			digest := sha256.Sum256(buff.Bytes())
+
+			err = crypto.Verify(*pk, digest[:], e.Signature)
+			if err != nil {
+				return fmt.Errorf("signature %x is invalid: %v", e.Signature, err)
+			}
+		} else {
 			expectedSignature, err := ComputeSignature(e.Vrf, prevSig, e.Id, e.NextPubkey, e.Mining)
 			if err != nil {
 				return fmt.Errorf("compute signature error: %v", err)
@@ -166,7 +176,7 @@ func (sc *SigChain) VerifySignatures() error {
 				return fmt.Errorf("signature %x is different from expected value %x", e.Signature, expectedSignature)
 			}
 
-			ok := crypto.VerifyVrf(*ePk, sc.BlockHash, e.Vrf, e.Proof)
+			ok := crypto.VerifyVrf(*pk, sc.BlockHash, e.Vrf, e.Proof)
 			if !ok {
 				return fmt.Errorf("invalid vrf or proof")
 			}
@@ -187,7 +197,7 @@ func (sc *SigChain) VerifyPath() error {
 		return fmt.Errorf("sigchain should have at least 3 elements, but only has %d", sc.Length())
 	}
 
-	if !bytes.Equal(sc.SrcId, sc.Elems[0].Id) {
+	if len(sc.Elems[0].Id) > 0 && !bytes.Equal(sc.SrcId, sc.Elems[0].Id) {
 		return fmt.Errorf("sigchain has wrong src id")
 	}
 
@@ -240,7 +250,7 @@ func (sc *SigChain) IsComplete() bool {
 		return false
 	}
 
-	if !bytes.Equal(sc.DestId, sc.Elems[sc.Length()-1].Id) {
+	if len(sc.Elems[sc.Length()-1].Id) > 0 && !bytes.Equal(sc.DestId, sc.Elems[sc.Length()-1].Id) {
 		return false
 	}
 

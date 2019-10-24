@@ -10,19 +10,14 @@ import (
 	"runtime"
 	"sync"
 
-	simplejson "github.com/bitly/go-simplejson"
 	. "github.com/nknorg/nkn/common"
-)
-
-const (
-	WalletStoreVersion = "0.0.1"
 )
 
 type HeaderData struct {
 	PasswordHash string
 	IV           string
 	MasterKey    string
-	Version      string
+	Version      int
 }
 
 type AccountData struct {
@@ -76,17 +71,8 @@ func LoadStore(fullPath string) (*WalletStore, error) {
 		return nil, err
 	}
 
-	js, err := simplejson.NewJson(fileData)
-	value, ok := js.CheckGet("PrivateKeyEncrypted")
-	if ok {
-		privateKey := value.MustString()
-		js.Set("SeedEncrypted", privateKey[:64])
-		js.Del("PrivateKeyEncrypted")
-	}
-	data, _ := js.Encode()
-
 	var walletData WalletData
-	err = json.Unmarshal(data, &walletData)
+	err = json.Unmarshal(fileData, &walletData)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +156,7 @@ func (s *WalletStore) SaveAccountData(programHash []byte, encryptedSeed []byte, 
 	return nil
 }
 
-func (s *WalletStore) SaveBasicData(version, iv, masterKey, passwordHash []byte) error {
+func (s *WalletStore) SaveBasicData(version int, iv, masterKey, passwordHash []byte) error {
 	oldBlob, err := s.read()
 	if err != nil {
 		return err
@@ -179,7 +165,7 @@ func (s *WalletStore) SaveBasicData(version, iv, masterKey, passwordHash []byte)
 		return err
 	}
 
-	s.Data.Version = string(version)
+	s.Data.Version = version
 	s.Data.IV = BytesToHexString(iv)
 	s.Data.MasterKey = BytesToHexString(masterKey)
 	s.Data.PasswordHash = BytesToHexString(passwordHash)

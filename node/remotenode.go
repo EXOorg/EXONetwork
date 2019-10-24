@@ -15,10 +15,11 @@ type RemoteNode struct {
 	*Node
 	localNode *LocalNode
 	nnetNode  *nnetnode.RemoteNode
-	sharedKey *[32]byte
+	sharedKey *[sharedKeySize]byte
 
 	sync.RWMutex
-	height uint32
+	height         uint32
+	lastUpdateTime time.Time
 }
 
 func (remoteNode *RemoteNode) MarshalJSON() ([]byte, error) {
@@ -56,7 +57,7 @@ func NewRemoteNode(localNode *LocalNode, nnetNode *nnetnode.RemoteNode) (*Remote
 	if len(node.PublicKey) == 0 {
 		return nil, errors.New("nil public key")
 	}
-	sharedKey, err := localNode.computeSharedKey(node.PublicKey[1:])
+	sharedKey, err := localNode.computeSharedKey(node.PublicKey)
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +82,18 @@ func (remoteNode *RemoteNode) SetHeight(height uint32) {
 	remoteNode.Lock()
 	defer remoteNode.Unlock()
 	remoteNode.height = height
+}
+
+func (remoteNode *RemoteNode) GetLastUpdateTime() time.Time {
+	remoteNode.RLock()
+	defer remoteNode.RUnlock()
+	return remoteNode.lastUpdateTime
+}
+
+func (remoteNode *RemoteNode) SetLastUpdateTime(lastUpdateTime time.Time) {
+	remoteNode.Lock()
+	defer remoteNode.Unlock()
+	remoteNode.lastUpdateTime = lastUpdateTime
 }
 
 func (remoteNode *RemoteNode) CloseConn() {

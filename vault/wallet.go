@@ -6,27 +6,29 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"os"
 
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto"
-	"github.com/nknorg/nkn/util/log"
+	"github.com/nknorg/nkn/pb"
+	"github.com/nknorg/nkn/program"
+	"github.com/nknorg/nkn/signature"
+	"github.com/nknorg/nkn/transaction"
+	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/password"
-	"github.com/nknorg/nkn/vm/contract"
-	"github.com/nknorg/nkn/vm/signature"
 )
 
 const (
-	WalletIVLength        = 16
-	WalletMasterKeyLength = 32
-	WalletFileName        = "wallet.dat"
+	WalletIVLength             = 16
+	WalletMasterKeyLength      = 32
+	WalletVersion              = 1
+	MinCompatibleWalletVersion = 1
+	MaxCompatibleWalletVersion = 1
 )
 
 type Wallet interface {
-	Sign(context *contract.ContractContext) error
+	Sign(txn *transaction.Transaction) error
 	GetAccount(pubKey *crypto.PubKey) (*Account, error)
 	GetDefaultAccount() (*Account, error)
-	//GetUnspent() (map[Uint256][]*transaction.UTXOUnspent, error)
 }
 
 type WalletImpl struct {
@@ -34,7 +36,7 @@ type WalletImpl struct {
 	iv        []byte
 	masterKey []byte
 	account   *Account
-	contract  *contract.Contract
+	contract  *program.ProgramContext
 	*WalletStore
 }
 
@@ -65,7 +67,7 @@ func NewWallet(path string, password []byte, needAccount bool) (*WalletImpl, err
 		return nil, err
 	}
 	// persist to store
-	err = store.SaveBasicData([]byte(WalletStoreVersion), iv, encryptedMasterKey, pwdhash[:])
+	err = store.SaveBasicData(WalletVersion, iv, encryptedMasterKey, pwdhash[:])
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +96,8 @@ func OpenWallet(path string, password []byte) (*WalletImpl, error) {
 		return nil, err
 	}
 
-	if store.Data.Version != WalletStoreVersion {
-		return nil, fmt.Errorf("invalid wallet version.should be %s", WalletStoreVersion)
+	if store.Data.Version < MinCompatibleWalletVersion || store.Data.Version > MaxCompatibleWalletVersion {
+		return nil, fmt.Errorf("invalid wallet version %v, should be between %v and %v", store.Data.Version, MinCompatibleWalletVersion, MaxCompatibleWalletVersion)
 	}
 
 	passwordKey := crypto.ToAesKey(password)
@@ -129,9 +131,8 @@ func OpenWallet(path string, password []byte) (*WalletImpl, error) {
 	}
 
 	privateKey := crypto.GetPrivateKeyFromSeed(seed)
-	if err := crypto.CheckPrivateKey(privateKey); err != nil {
-		log.Error("open wallet error", err)
-		os.Exit(1)
+	if err = crypto.CheckPrivateKey(privateKey); err != nil {
+		return nil, err
 	}
 
 	account, err := NewAccountWithPrivatekey(privateKey)
@@ -139,10 +140,10 @@ func OpenWallet(path string, password []byte) (*WalletImpl, error) {
 		return nil, err
 	}
 
-	rawdata, _ := HexStringToBytes(store.Data.ContractData)
-	r := bytes.NewReader(rawdata)
-	ct := new(contract.Contract)
-	ct.Deserialize(r)
+	ct, err := program.CreateSignatureProgramContext(account.PubKey())
+	if err != nil {
+		return nil, err
+	}
 
 	return &WalletImpl{
 		path:        path,
@@ -154,16 +155,16 @@ func OpenWallet(path string, password []byte) (*WalletImpl, error) {
 	}, nil
 }
 
-func RecoverWallet(path string, password []byte, privateKeyHex string) (*WalletImpl, error) {
+func RecoverWallet(path string, password []byte, seedHex string) (*WalletImpl, error) {
 	wallet, err := NewWallet(path, password, false)
 	if err != nil {
 		return nil, errors.New("create new wallet error")
 	}
-	privateKey, err := HexStringToBytes(privateKeyHex)
+	seed, err := HexStringToBytes(seedHex)
 	if err != nil {
 		return nil, err
 	}
-	err = wallet.CreateAccount(privateKey)
+	err = wallet.CreateAccount(seed)
 	if err != nil {
 		return nil, err
 	}
@@ -171,24 +172,34 @@ func RecoverWallet(path string, password []byte, privateKeyHex string) (*WalletI
 	return wallet, nil
 }
 
-func (w *WalletImpl) CreateAccount(privateKey []byte) error {
+func (w *WalletImpl) CreateAccount(seed []byte) error {
 	var account *Account
 	var err error
-	if privateKey == nil {
+	if seed == nil {
 		account, err = NewAccount()
+		if err != nil {
+			return err
+		}
+		seed = crypto.GetSeedFromPrivateKey(account.PrivateKey)
 	} else {
+		if err = crypto.CheckSeed(seed); err != nil {
+			return err
+		}
+		privateKey := crypto.GetPrivateKeyFromSeed(seed)
+		if err = crypto.CheckPrivateKey(privateKey); err != nil {
+			return err
+		}
 		account, err = NewAccountWithPrivatekey(privateKey)
-	}
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
 	}
 
-	seed := crypto.GetSeedFromPrivateKey(account.PrivateKey)
 	encryptedSeed, err := crypto.AesEncrypt(seed, w.masterKey, w.iv)
 	if err != nil {
 		return err
 	}
-	contract, err := contract.CreateSignatureContract(account.PubKey())
+	contract, err := program.CreateSignatureProgramContext(account.PubKey())
 	if err != nil {
 		return err
 	}
@@ -209,7 +220,7 @@ func (w *WalletImpl) GetDefaultAccount() (*Account, error) {
 }
 
 func (w *WalletImpl) GetAccount(pubKey *crypto.PubKey) (*Account, error) {
-	redeemHash, err := contract.CreateRedeemHash(pubKey)
+	redeemHash, err := program.CreateProgramHash(pubKey)
 	if err != nil {
 		return nil, fmt.Errorf("%v\n%s", err, "[Account] GetAccount redeemhash generated failed")
 	}
@@ -221,25 +232,25 @@ func (w *WalletImpl) GetAccount(pubKey *crypto.PubKey) (*Account, error) {
 	return w.account, nil
 }
 
-func (w *WalletImpl) Sign(context *contract.ContractContext) error {
-	var err error
+func (w *WalletImpl) Sign(txn *transaction.Transaction) error {
 	contract, err := w.GetContract()
 	if err != nil {
-		return errors.New("no available contract in wallet")
-	}
-	account, err := w.GetDefaultAccount()
-	if err != nil {
-		return errors.New("no available account in wallet")
+		return fmt.Errorf("cannot get contract from wallet: %v", err)
 	}
 
-	signature, err := signature.SignBySigner(context.Data, account)
+	account, err := w.GetDefaultAccount()
+	if err != nil {
+		return fmt.Errorf("no available account in wallet: %v", account)
+	}
+
+	signature, err := signature.SignBySigner(txn, account)
 	if err != nil {
 		return err
 	}
-	err = context.AddContract(contract, account.PublicKey, signature)
-	if err != nil {
-		return err
-	}
+
+	program := contract.NewProgram(signature)
+
+	txn.SetPrograms([]*pb.Program{program})
 
 	return nil
 }
@@ -275,7 +286,7 @@ func (w *WalletImpl) ChangePassword(oldPassword []byte, newPassword []byte) bool
 	}
 
 	// update wallet file
-	err = w.SaveBasicData([]byte(WalletStoreVersion), w.iv, newMasterKey, newPasswordHash[:])
+	err = w.SaveBasicData(WalletVersion, w.iv, newMasterKey, newPasswordHash[:])
 	if err != nil {
 		return false
 	}
@@ -283,7 +294,7 @@ func (w *WalletImpl) ChangePassword(oldPassword []byte, newPassword []byte) bool
 	return true
 }
 
-func (w *WalletImpl) GetContract() (*contract.Contract, error) {
+func (w *WalletImpl) GetContract() (*program.ProgramContext, error) {
 	if w.contract == nil {
 		return nil, errors.New("contract error")
 	}
@@ -291,25 +302,18 @@ func (w *WalletImpl) GetContract() (*contract.Contract, error) {
 	return w.contract, nil
 }
 
-//func (w *WalletImpl) GetUnspent() (map[Uint256][]*transaction.UTXOUnspent, error) {
-//	//TODO fix it
-//	return nil, nil
-//}
-
-func GetWallet() Wallet {
-	if !FileExisted(WalletFileName) {
-		log.Errorf("No %s detected, please create a wallet by using command line.", WalletFileName)
-		os.Exit(1)
+func GetWallet() (Wallet, error) {
+	walletFileName := config.Parameters.WalletFile
+	if !FileExisted(walletFileName) {
+		return nil, fmt.Errorf("wallet file %s does not exist, please create a wallet using nknc.", walletFileName)
 	}
 	passwd, err := password.GetAccountPassword()
 	if err != nil {
-		log.Error("Get password error.")
-		os.Exit(1)
+		return nil, fmt.Errorf("get password error: %v", err)
 	}
-	c, err := OpenWallet(WalletFileName, passwd)
+	w, err := OpenWallet(walletFileName, passwd)
 	if err != nil {
-		log.Error(err)
-		return nil
+		return nil, fmt.Errorf("open wallet error: %v", err)
 	}
-	return c
+	return w, nil
 }

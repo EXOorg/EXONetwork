@@ -11,8 +11,8 @@ import (
 	"github.com/nknorg/nkn/common/serialization"
 	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/pb"
-	"github.com/nknorg/nkn/vm/contract"
-	"github.com/nknorg/nkn/vm/signature"
+	"github.com/nknorg/nkn/program"
+	"github.com/nknorg/nkn/signature"
 )
 
 type Transaction struct {
@@ -111,61 +111,65 @@ func (tx *Transaction) GetProgramHashes() ([]Uint160, error) {
 	}
 
 	switch tx.UnsignedTx.Payload.Type {
-	case pb.CommitType:
-		sender := payload.(*pb.Commit).Submitter
+	case pb.SIG_CHAIN_TXN_TYPE:
+		sender := payload.(*pb.SigChainTxn).Submitter
 		hashes = append(hashes, BytesToUint160(sender))
-	case pb.TransferAssetType:
+	case pb.TRANSFER_ASSET_TYPE:
 		sender := payload.(*pb.TransferAsset).Sender
 		hashes = append(hashes, BytesToUint160(sender))
-	case pb.CoinbaseType:
+	case pb.COINBASE_TYPE:
 		sender := payload.(*pb.Coinbase).Sender
 		hashes = append(hashes, BytesToUint160(sender))
-	case pb.RegisterNameType:
+	case pb.REGISTER_NAME_TYPE:
 		pubkey := payload.(*pb.RegisterName).Registrant
 		publicKey, err := crypto.NewPubKeyFromBytes(pubkey)
 		if err != nil {
 			return nil, err
 		}
-		programhash, err := contract.CreateRedeemHash(publicKey)
+		programhash, err := program.CreateProgramHash(publicKey)
 		if err != nil {
 			return nil, err
 		}
 		hashes = append(hashes, programhash)
-	case pb.DeleteNameType:
+	case pb.DELETE_NAME_TYPE:
 		pubkey := payload.(*pb.DeleteName).Registrant
 		publicKey, err := crypto.NewPubKeyFromBytes(pubkey)
 		if err != nil {
 			return nil, err
 		}
-		programhash, err := contract.CreateRedeemHash(publicKey)
+		programhash, err := program.CreateProgramHash(publicKey)
 		if err != nil {
 			return nil, err
 		}
 		hashes = append(hashes, programhash)
-	case pb.SubscribeType:
+	case pb.SUBSCRIBE_TYPE:
 		pubkey := payload.(*pb.Subscribe).Subscriber
 		publicKey, err := crypto.NewPubKeyFromBytes(pubkey)
 		if err != nil {
 			return nil, err
 		}
-		programhash, err := contract.CreateRedeemHash(publicKey)
+		programhash, err := program.CreateProgramHash(publicKey)
 		if err != nil {
 			return nil, err
 		}
 		hashes = append(hashes, programhash)
-	case pb.GenerateIDType:
+	case pb.GENERATE_ID_TYPE:
 		pubkey := payload.(*pb.GenerateID).PublicKey
 		publicKey, err := crypto.NewPubKeyFromBytes(pubkey)
 		if err != nil {
 			return nil, err
 		}
-		programhash, err := contract.CreateRedeemHash(publicKey)
+		programhash, err := program.CreateProgramHash(publicKey)
 		if err != nil {
 			return nil, err
 		}
 		hashes = append(hashes, programhash)
-	case pb.NanoPayType:
+	case pb.NANO_PAY_TYPE:
 		sender := payload.(*pb.NanoPay).Sender
+		hashes = append(hashes, BytesToUint160(sender))
+
+	case pb.ISSUE_ASSET_TYPE:
+		sender := payload.(*pb.IssueAsset).Sender
 		hashes = append(hashes, BytesToUint160(sender))
 	default:
 		return nil, errors.New("unsupport transaction type")
@@ -218,7 +222,7 @@ func (tx *Transaction) SetHash(hash Uint256) {
 }
 
 func (txn *Transaction) VerifySignature() error {
-	if txn.UnsignedTx.Payload.Type == pb.CoinbaseType {
+	if txn.UnsignedTx.Payload.Type == pb.COINBASE_TYPE {
 		return nil
 	}
 

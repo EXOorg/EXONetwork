@@ -15,6 +15,8 @@ import (
 	"github.com/nknorg/nkn/api/common"
 	"github.com/nknorg/nkn/api/websocket/messagebuffer"
 	"github.com/nknorg/nkn/api/websocket/session"
+	"github.com/nknorg/nkn/chain"
+	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/event"
 	"github.com/nknorg/nkn/node"
@@ -28,7 +30,9 @@ import (
 )
 
 const (
-	TlsPort uint16 = 443
+	TlsPort                      uint16 = 443
+	sigChainCacheExpiration             = config.ConsensusTimeout
+	sigChainCacheCleanupInterval        = time.Second
 )
 
 type Handler struct {
@@ -47,6 +51,7 @@ type WsServer struct {
 	localNode     *node.LocalNode
 	wallet        vault.Wallet
 	messageBuffer *messagebuffer.MessageBuffer
+	sigChainCache Cache
 }
 
 func InitWsServer(localNode *node.LocalNode, wallet vault.Wallet) *WsServer {
@@ -57,6 +62,7 @@ func InitWsServer(localNode *node.LocalNode, wallet vault.Wallet) *WsServer {
 		localNode:     localNode,
 		wallet:        wallet,
 		messageBuffer: messagebuffer.NewMessageBuffer(),
+		sigChainCache: NewGoCache(sigChainCacheExpiration, sigChainCacheCleanupInterval),
 	}
 	return ws
 }
@@ -146,18 +152,18 @@ func (ws *WsServer) registryMethod() {
 			return common.RespPacking(nil, common.INTERNAL_ERROR)
 		}
 
-		addr, err := localNode.FindWsAddr(clientID)
+		addr, pubkey, id, err := localNode.FindWsAddr(clientID)
 		if err != nil {
 			log.Errorf("Find websocket address error: %v", err)
 			return common.RespPacking(nil, common.INTERNAL_ERROR)
 		}
 
 		if addr != localNode.GetWsAddr() {
-			return common.RespPacking(addr, common.WRONG_NODE)
+			return common.RespPacking(common.NodeInfo(addr, pubkey, id), common.WRONG_NODE)
 		}
 
-		newSessionId := hex.EncodeToString(clientID)
-		session, err := ws.SessionList.ChangeSessionToClient(cmd["Userid"].(string), newSessionId)
+		newSessionID := hex.EncodeToString(clientID)
+		session, err := ws.SessionList.ChangeSessionToClient(cmd["Userid"].(string), newSessionID)
 		if err != nil {
 			log.Error("Change session id error: ", err)
 			return common.RespPacking(nil, common.INTERNAL_ERROR)
@@ -171,7 +177,20 @@ func (ws *WsServer) registryMethod() {
 			}
 		}()
 
-		return common.RespPacking(nil, common.SUCCESS)
+		var sigChainBlockHeight uint32
+		if chain.DefaultLedger.Store.GetHeight() >= config.SigChainBlockDelay {
+			sigChainBlockHeight = chain.DefaultLedger.Store.GetHeight() - config.SigChainBlockDelay
+		}
+		sigChainBlockHash, err := chain.DefaultLedger.Store.GetBlockHash(sigChainBlockHeight)
+		if err != nil {
+			log.Warningf("get sigchain block hash at height %d error: %v", sigChainBlockHeight, err)
+		}
+
+		res := make(map[string]interface{})
+		res["node"] = common.NodeInfo(addr, pubkey, id)
+		res["sigChainBlockHash"] = BytesToHexString(sigChainBlockHash.ToArray())
+
+		return common.RespPacking(res, common.SUCCESS)
 	}
 
 	actionMap := map[string]Handler{
@@ -282,13 +301,39 @@ func (ws *WsServer) IsValidMsg(reqMsg map[string]interface{}) bool {
 
 func (ws *WsServer) OnDataHandle(curSession *session.Session, messageType int, bysMsg []byte, r *http.Request) bool {
 	if messageType == websocket.BinaryMessage {
-		msg := &pb.OutboundMessage{}
+		msg := &pb.ClientMessage{}
 		err := proto.Unmarshal(bysMsg, msg)
 		if err != nil {
 			log.Error("Parse client message error:", err)
 			return false
 		}
-		ws.sendOutboundRelayMessage(curSession.GetAddrStr(), msg)
+
+		switch msg.MessageType {
+		case pb.OUTBOUND_MESSAGE:
+			outboundMsg := &pb.OutboundMessage{}
+			err = proto.Unmarshal(msg.Message, outboundMsg)
+			if err != nil {
+				log.Errorf("Unmarshal outbound message error: %v", err)
+				return false
+			}
+			ws.sendOutboundRelayMessage(curSession.GetAddrStr(), outboundMsg)
+		case pb.RECEIPT:
+			receipt := &pb.Receipt{}
+			err = proto.Unmarshal(msg.Message, receipt)
+			if err != nil {
+				log.Errorf("Unmarshal receipt error: %v", err)
+				return false
+			}
+			err = ws.handleReceipt(receipt)
+			if err != nil {
+				log.Errorf("Handle receipt error: %v", err)
+				return false
+			}
+		default:
+			log.Errorf("unsupported client message type %v", msg.MessageType)
+			return false
+		}
+
 		return true
 	}
 
@@ -327,7 +372,7 @@ func (ws *WsServer) OnDataHandle(curSession *session.Session, messageType int, b
 	ret := action.handler(ws, req)
 	resp := common.ResponsePack(ret["error"].(common.ErrCode))
 	resp["Action"] = actionName
-	resp["Result"] = ret["result"]
+	resp["Result"] = ret["resultOrData"]
 	if txHash, ok := resp["Result"].(string); ok && action.pushFlag {
 		ws.Lock()
 		defer ws.Unlock()
@@ -453,7 +498,7 @@ func (ws *WsServer) NotifyWrongClients() {
 			return
 		}
 
-		addr, err := localNode.FindWsAddr(clientID)
+		addr, pubkey, id, err := localNode.FindWsAddr(clientID)
 		if err != nil {
 			log.Errorf("Find websocket address error: %v", err)
 			return
@@ -461,7 +506,7 @@ func (ws *WsServer) NotifyWrongClients() {
 
 		if addr != localNode.GetWsAddr() {
 			resp := common.ResponsePack(common.WRONG_NODE)
-			resp["Result"] = addr
+			resp["Result"] = common.NodeInfo(addr, pubkey, id)
 			ws.respondToSession(client, resp)
 		}
 	})
