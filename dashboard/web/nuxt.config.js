@@ -13,12 +13,13 @@ export default {
     titleTemplate: '%s - ' + process.env.npm_package_name,
     title: process.env.npm_package_name || '',
     meta: [
+      {name:'theme-color', content:'#3f51b5'},
       {charset: 'utf-8'},
       {name: 'viewport', content: 'width=device-width, initial-scale=1'},
       {hid: 'description', name: 'description', content: process.env.npm_package_description || ''}
     ],
     link: [
-      {rel: 'icon', type: 'image/x-icon', href: '/favicon.ico'}
+      {rel: 'icon', type: 'image/x-icon', href: '/web/favicon.ico'}
 
     ]
   },
@@ -37,7 +38,9 @@ export default {
   */
   plugins: [
     '~/plugins/axios',
-    '~/plugins/i18n'
+    '~/plugins/i18n',
+    '~/plugins/task',
+    '~/plugins/router'
   ],
   /*
   ** Nuxt.js modules
@@ -63,8 +66,8 @@ export default {
       //   { code: 'es', iso: 'es-ES', file: 'es.js' }
       // ]
       locales: [
-        {code: 'en', name: 'English', iso:'en-US', file:'en/index.js'},
-        {code: 'zh', name: '简体中文', iso:'zh-CN', file:'zh/index.js'}
+        {code: 'en', name: 'English', iso: 'en-US', file: 'en/index.js'},
+        {code: 'zh', name: '简体中文', iso: 'zh-CN', file: 'zh/index.js'}
       ],
 
       // The app's default locale, URLs for this locale won't have a prefix if
@@ -133,20 +136,20 @@ export default {
       // app's i18n current state
       // Set to false to disable
       // vuex: {
-        // Module namespace
-        // moduleName: 'i18n',
+      // Module namespace
+      // moduleName: 'i18n',
 
-        // Mutations config
-        // mutations: {
-          // Mutation to commit to store current locale, set to false to disable
-          // setLocale: 'I18N_SET_LOCALE',
+      // Mutations config
+      // mutations: {
+      // Mutation to commit to store current locale, set to false to disable
+      // setLocale: 'I18N_SET_LOCALE',
 
-          // Mutation to commit to store current message, set to false to disable
-          // setMessages: 'I18N_SET_MESSAGES'
-        // },
+      // Mutation to commit to store current message, set to false to disable
+      // setMessages: 'I18N_SET_MESSAGES'
+      // },
 
-        // PreserveState from server
-        // preserveState: false
+      // PreserveState from server
+      // preserveState: false
       // },
 
       // By default, custom routes are extracted from page files using acorn parsing,
@@ -178,7 +181,8 @@ export default {
   /*
   ** axios configuration
   */
-  axios:{
+  axios: {
+    withCredentials: true,
     baseURL: '/',
   },
   /*

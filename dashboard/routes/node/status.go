@@ -3,16 +3,14 @@ package node
 import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
+	"github.com/nknorg/nkn/dashboard/helpers"
 	"github.com/nknorg/nkn/node"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	"net/http"
 )
 
-type NodeRouter struct {
-}
-
-func (nodeRouter *NodeRouter) Router(router *gin.RouterGroup) {
+func StatusRouter(router *gin.RouterGroup) {
 	router.GET("/node/status", func(context *gin.Context) {
 		var out map[string]interface{}
 
@@ -32,7 +30,12 @@ func (nodeRouter *NodeRouter) Router(router *gin.RouterGroup) {
 				return
 			}
 			out["beneficiaryAddr"] = config.Parameters.BeneficiaryAddr
-			context.JSON(http.StatusOK, out)
+
+			data := helpers.EncryptData(context, true, out)
+
+			context.JSON(http.StatusOK, gin.H{
+				"data": data,
+			})
 			return
 		}
 

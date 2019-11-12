@@ -9,6 +9,7 @@ import (
 
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto"
+	serviceConfig "github.com/nknorg/nkn/dashboard/config"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/program"
 	"github.com/nknorg/nkn/signature"
@@ -305,15 +306,34 @@ func (w *WalletImpl) GetContract() (*program.ProgramContext, error) {
 func GetWallet() (Wallet, error) {
 	walletFileName := config.Parameters.WalletFile
 	if !FileExisted(walletFileName) {
+		serviceConfig.Status = serviceConfig.Status | serviceConfig.SERVICE_STATUS_NO_WALLET_FILE
 		return nil, fmt.Errorf("wallet file %s does not exist, please create a wallet using nknc.", walletFileName)
+	} else {
+		serviceConfig.Status = serviceConfig.Status &^ serviceConfig.SERVICE_STATUS_NO_WALLET_FILE
 	}
+
 	passwd, err := password.GetAccountPassword()
 	if err != nil {
+		serviceConfig.Status = serviceConfig.Status | serviceConfig.SERVICE_STATUS_NO_PASSWORD
 		return nil, fmt.Errorf("get password error: %v", err)
+	} else {
+		serviceConfig.Status = serviceConfig.Status &^ serviceConfig.SERVICE_STATUS_NO_PASSWORD
 	}
+
+	if !config.Parameters.AllowEmptyBeneficiaryAddress && config.Parameters.BeneficiaryAddr == "" {
+		serviceConfig.Status = serviceConfig.Status | serviceConfig.SERVICE_STATUS_NO_BENEFICIARY
+		return nil, fmt.Errorf("wait for set beneficiary address.")
+	} else {
+		serviceConfig.Status = serviceConfig.Status &^ serviceConfig.SERVICE_STATUS_NO_BENEFICIARY
+	}
+
 	w, err := OpenWallet(walletFileName, passwd)
 	if err != nil {
+		serviceConfig.Status = serviceConfig.Status | serviceConfig.SERVICE_STATUS_NO_PASSWORD
 		return nil, fmt.Errorf("open wallet error: %v", err)
+	} else {
+		serviceConfig.Status = serviceConfig.Status &^ serviceConfig.SERVICE_STATUS_NO_PASSWORD
 	}
+	serviceConfig.Status = serviceConfig.SERVICE_STATUS_RUNNING
 	return w, nil
 }

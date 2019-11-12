@@ -1,10 +1,6 @@
 <template>
   <v-app>
     <v-toolbar :clipped-left="clipped" dark app tabs color="indigo" dense>
-      <!--<v-toolbar-side-icon @click="drawer = !drawer">
-        <v-icon class="fas fa-wallet"></v-icon>
-      </v-toolbar-side-icon>-->
-      <!--<div class="divider-vertical mx-3"></div>-->
       <v-toolbar-title class="ml-2">
         <v-avatar tile size="30">
           <img src="~/static/img/logo.png" alt="avatar">
@@ -51,19 +47,22 @@
       </v-container>
       <Footer/>
     </v-content>
+
+    <WatchOutBoundCount></WatchOutBoundCount>
   </v-app>
 </template>
 
 <script>
   import Footer from '~/components/Footer.vue'
   import NodeRunStatus from '~/components/status/NodeRunStatus.vue'
-  import {startLoopTask} from '~/helpers/task'
-  import {mapState, mapActions} from 'vuex'
+  import WatchOutBoundCount from '~/components/widget/WatchOutBoundCount.vue'
+  import {mapState} from 'vuex'
   import '~/styles/status.scss'
 
   export default {
     components: {
       Footer,
+      WatchOutBoundCount,
       NodeRunStatus
     },
     data() {
@@ -80,15 +79,7 @@
         return this.$i18n.locales
       }
     },
-    beforeMount() {
-      startLoopTask(this.getNodeStatus, 1000)
-    },
-    created() {
-
-    },
-
     methods: {
-      ...mapActions('node', ['getNodeStatus']),
       reload() {
         setTimeout(() => { // prevent execution before link to
           this.update = false

@@ -1,12 +1,18 @@
 package dashboard
 
 import (
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/securecookie"
+	"github.com/nknorg/nkn/dashboard/auth"
+	serviceConfig "github.com/nknorg/nkn/dashboard/config"
 	"github.com/nknorg/nkn/dashboard/routes"
 	"github.com/nknorg/nkn/node"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
+	"github.com/pborman/uuid"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,20 +21,18 @@ import (
 var (
 	localNode *node.LocalNode
 	wallet    vault.Wallet
-	isInit    = false
-	app       = gin.New()
 )
 
 func Init(ln *node.LocalNode, w vault.Wallet) {
-	isInit = true
 	localNode = ln
 	wallet = w
+	serviceConfig.IsInit = true
 }
 
 func Start() {
 	// build release settings
 	gin.SetMode(gin.ReleaseMode)
-
+	app := gin.New()
 	app.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
 		log.WebLog.Infof("%s - [%s] \"%s %s %s %d %s\" %s \"%s\"",
 			param.ClientIP,
@@ -46,19 +50,34 @@ func Start() {
 
 	app.Use(gin.Recovery())
 
+	store := cookie.NewStore(securecookie.GenerateRandomKey(16), securecookie.GenerateRandomKey(16))
+	store.Options(sessions.Options{
+		MaxAge:   30, //30s
+		Path:     "/",
+		HttpOnly: false,
+	})
+	app.Use(sessions.Sessions("session", store))
+
 	app.Use(func(context *gin.Context) {
 		// init config
-		if isInit {
+		if serviceConfig.IsInit {
 			context.Set("localNode", localNode)
 			context.Set("wallet", wallet)
 		}
+	})
 
-		method := context.Request.Method
+	app.Use(func(context *gin.Context) {
 		// header
-		context.Header("Access-Control-Allow-Origin", "*")
+		context.Header("Access-Control-Allow-Origin", context.Request.Header.Get("Origin"))
 		context.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE")
-		context.Header("Access-Control-Allow-Headers", "Origin,X-Requested-With,content-type,Authorization,Accept")
+		context.Header("Access-Control-Allow-Headers", "Origin,X-Requested-With,content-type,Authorization,Unix,Accept,Token")
 		context.Header("Access-Control-Allow-Credentials", "true")
+
+		context.Next()
+	})
+
+	app.Use(func(context *gin.Context) {
+		method := context.Request.Method
 		// pass all OPTIONS method
 		if method == "OPTIONS" {
 			context.JSON(http.StatusOK, "Options")
@@ -66,9 +85,24 @@ func Start() {
 		context.Next()
 	})
 
+	app.HEAD("/api/verification", auth.WalletAuth(), func(context *gin.Context) {
+
+	})
+
+	app.Use(func(context *gin.Context) {
+		session := sessions.Default(context)
+		token := session.Get("token")
+		if token == nil {
+			session.Set("token", uuid.NewUUID().String())
+			session.Save()
+		}
+
+		context.Next()
+	})
+
 	app.StaticFS("/web", http.Dir("web"))
 
-	// error
+	// error route
 	app.Use(func(context *gin.Context) {
 		context.Next()
 
@@ -78,13 +112,16 @@ func Start() {
 		}
 	})
 
+	app.GET("/", func(context *gin.Context) {
+		context.Redirect(301, "/web")
+	})
+
 	app.Use(routes.Routes(app))
 
-	// 404 router
+	// 404 route
 	app.Use(func(context *gin.Context) {
 		context.JSON(http.StatusNotFound, "not found")
 	})
 
-	app.Run(":" + strconv.Itoa(int(config.Parameters.WebServicePort)))
-
+	app.Run(config.Parameters.WebGuiListenAddress + ":" + strconv.Itoa(int(config.Parameters.WebGuiPort)))
 }

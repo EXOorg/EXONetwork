@@ -35,7 +35,12 @@
     </v-flex>
     <v-flex>
       <v-card min-width="800">
-        <v-card-title class="headline">{{$t('current_wallet_status.TITLE')}}</v-card-title>
+        <v-card-title class="headline">{{$t('current_wallet_status.TITLE')}}
+        <v-spacer></v-spacer>
+          <v-btn icon small>
+            <v-icon color="primary" class="fa fa-download" small @click="verificationPasswordDialog = true"></v-icon>
+          </v-btn>
+        </v-card-title>
         <div class="divider"></div>
         <v-card-text>
           <v-layout wrap>
@@ -65,9 +70,9 @@
           <v-layout>
             <v-flex xs12>
                 <span>
-                  {{$t('PRIVATE_KEY')}}:
+                  {{$t('SECRET_SEED')}}:
                   <v-btn icon small>
-                    <v-icon class="far fa-eye" small color="primary" @click="dialog = true"></v-icon>
+                    <v-icon class="far fa-eye" small color="primary" @click="secretSeedDialog = true"></v-icon>
                   </v-btn>
                 </span>
             </v-flex>
@@ -75,43 +80,45 @@
         </v-card-text>
       </v-card>
     </v-flex>
-    <PrivateKeyDialog v-model="dialog"></PrivateKeyDialog>
+    <SecretSeedDialog v-model="secretSeedDialog"></SecretSeedDialog>
+    <VerificationPasswordDialog v-model="verificationPasswordDialog" :on-success="onVerificationPasswordSuccess"></VerificationPasswordDialog>
   </v-layout>
 </template>
 
 <script>
+  import VerificationPassword from '~/components/dialog/VerificationPassword.vue'
   import NodeRunStatus from '~/components/status/NodeRunStatus.vue'
-  import PrivateKeyDialog from '~/components/dialog/PrivateKey.vue'
+  import SecretSeed from '~/components/dialog/SecretSeed.vue'
   import ClipboardText from '~/components/widget/ClipboardText.vue'
-  import {startLoopTask} from '~/helpers/task'
-  import {mapState, mapActions} from 'vuex'
+  import {mapState,mapActions} from 'vuex'
 
   export default {
     name: "nodeStatus",
     components: {
-      PrivateKeyDialog,
+      SecretSeedDialog: SecretSeed,
+      VerificationPasswordDialog: VerificationPassword,
       NodeRunStatus,
       ClipboardText
     },
     data: () => ({
-      dialog: false
+      secretSeedDialog: false,
+      verificationPasswordDialog: false
     }),
     computed: mapState({
       nodeStatus: state => state.node.nodeStatus,
       currentWalletStatus: state => state.wallet.currentWalletStatus
     }),
-    beforeMount() {
-      startLoopTask(this.getCurrentWalletStatus, 1000)
-    },
     created() {
 
     },
     methods: {
-      ...mapActions('node', ['getNodeStatus']),
-      ...mapActions('wallet', ['getCurrentWalletStatus']),
+      ...mapActions('wallet', ['downloadWallet']),
       remove(item) {
         const index = this.wallets.indexOf(item.name)
         if (index >= 0) this.wallets.splice(index, 1)
+      },
+      async onVerificationPasswordSuccess(data) {
+        await this.downloadWallet(data)
       }
     }
   }

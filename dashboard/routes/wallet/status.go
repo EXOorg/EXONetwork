@@ -5,16 +5,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/nknorg/nkn/chain"
 	. "github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/dashboard/auth"
+	"github.com/nknorg/nkn/dashboard/helpers"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
 	"net/http"
 )
 
-type WalletRouter struct {
-}
-
-func (walletRouter *WalletRouter) Router(router *gin.RouterGroup) {
+func StatusRouter(router *gin.RouterGroup) {
 	router.GET("/current-wallet/status", func(context *gin.Context) {
 		wallet, exists := context.Get("wallet")
 
@@ -41,15 +40,20 @@ func (walletRouter *WalletRouter) Router(router *gin.RouterGroup) {
 			}
 
 			balance := chain.DefaultLedger.Store.GetBalance(pg)
-			context.JSON(http.StatusOK, gin.H{
+
+			data := helpers.EncryptData(context, true, gin.H{
 				"balance":   balance.String(),
 				"address":   address,
 				"publicKey": BytesToHexString(account.PublicKey.EncodePoint()),
 			})
+
+			context.JSON(http.StatusOK, gin.H{
+				"data": data,
+			})
 			return
 		} else {
-			log.WebLog.Error("wallet has not init.")
-			context.AbortWithError(http.StatusInternalServerError, errors.New("wallet has not init."))
+			log.WebLog.Error("wallet has not been initialized.")
+			context.AbortWithError(http.StatusInternalServerError, errors.New("wallet has not been initialized."))
 			return
 		}
 
@@ -65,13 +69,16 @@ func (walletRouter *WalletRouter) Router(router *gin.RouterGroup) {
 				return
 			}
 
+			data := helpers.EncryptData(context, true, gin.H{
+				"secretSeed": BytesToHexString(crypto.GetSeedFromPrivateKey(account.PrivateKey)),
+			})
 			context.JSON(http.StatusOK, gin.H{
-				"privateKey": BytesToHexString(account.PrivateKey),
+				"data": data,
 			})
 			return
 		} else {
-			log.WebLog.Error("wallet has not init.")
-			context.AbortWithError(http.StatusInternalServerError, errors.New("wallet has not init."))
+			log.WebLog.Error("wallet has not been initialized.")
+			context.AbortWithError(http.StatusInternalServerError, errors.New("wallet has not been initialized."))
 			return
 		}
 
