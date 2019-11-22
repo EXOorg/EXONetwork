@@ -21,12 +21,22 @@ import (
 var (
 	localNode *node.LocalNode
 	wallet    vault.Wallet
+	id        []byte
 )
 
-func Init(ln *node.LocalNode, w vault.Wallet) {
-	localNode = ln
-	wallet = w
-	serviceConfig.IsInit = true
+func Init(ln *node.LocalNode, w vault.Wallet, d []byte) {
+	if ln != nil {
+		localNode = ln
+		serviceConfig.IsNodeInit = true
+	}
+	if w != nil {
+		wallet = w
+		serviceConfig.IsWalletInit = true
+	}
+	if len(d) > 0 {
+		id = d
+		serviceConfig.IsIdInit = true
+	}
 }
 
 func Start() {
@@ -52,7 +62,7 @@ func Start() {
 
 	store := cookie.NewStore(securecookie.GenerateRandomKey(16), securecookie.GenerateRandomKey(16))
 	store.Options(sessions.Options{
-		MaxAge:   30, //30s
+		MaxAge:   60, //30s
 		Path:     "/",
 		HttpOnly: false,
 	})
@@ -60,9 +70,14 @@ func Start() {
 
 	app.Use(func(context *gin.Context) {
 		// init config
-		if serviceConfig.IsInit {
+		if serviceConfig.IsNodeInit {
 			context.Set("localNode", localNode)
+		}
+		if serviceConfig.IsWalletInit {
 			context.Set("wallet", wallet)
+		}
+		if serviceConfig.IsIdInit {
+			context.Set("id", id)
 		}
 	})
 
@@ -91,9 +106,19 @@ func Start() {
 
 	app.Use(func(context *gin.Context) {
 		session := sessions.Default(context)
-		token := session.Get("token")
-		if token == nil {
-			session.Set("token", uuid.NewUUID().String())
+
+		now := time.Now().Unix()
+		if serviceConfig.TokenExp == 0 || serviceConfig.TokenExp+serviceConfig.TokenExpSec < now {
+			token := uuid.NewUUID().String()
+			serviceConfig.Token = token
+			serviceConfig.TokenExp = now + serviceConfig.TokenExpSec
+
+			session.Set("token", token)
+			session.Save()
+		}
+
+		if session.Get("token") == nil {
+			session.Set("token", serviceConfig.Token)
 			session.Save()
 		}
 
