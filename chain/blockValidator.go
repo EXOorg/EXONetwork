@@ -71,7 +71,7 @@ func TransactionCheck(ctx context.Context, block *block.Block) error {
 	for i, txn := range block.Transactions {
 		select {
 		case <-ctx.Done():
-			return errors.New("context deadline exceeded")
+			return ctx.Err()
 		default:
 		}
 
@@ -111,14 +111,14 @@ func TransactionCheck(ctx context.Context, block *block.Block) error {
 	for i, txn := range block.Transactions {
 		select {
 		case <-ctx.Done():
-			return errors.New("context deadline exceeded")
+			return ctx.Err()
 		default:
 		}
 
 		if i != 0 && txn.UnsignedTx.Payload.Type == pb.COINBASE_TYPE {
 			return errors.New("Coinbase transaction order is incorrect")
 		}
-		if err := VerifyTransaction(txn); err != nil {
+		if err := VerifyTransaction(txn, block.Header.UnsignedHeader.Height); err != nil {
 			return fmt.Errorf("transaction sanity check failed: %v", err)
 		}
 		if err := bvs.VerifyTransactionWithBlock(txn, block.Header.UnsignedHeader.Height); err != nil {
@@ -153,8 +153,10 @@ func TransactionCheck(ctx context.Context, block *block.Block) error {
 		}
 	}
 
+	bvs.Close()
+
 	//state root check
-	root, err := DefaultLedger.Store.GenerateStateRoot(block, true, false)
+	root, err := DefaultLedger.Store.GenerateStateRoot(ctx, block, true, false)
 	if err != nil {
 		return err
 	}

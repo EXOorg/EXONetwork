@@ -1,6 +1,8 @@
 package chain
 
 import (
+	"context"
+
 	"github.com/nknorg/nkn/block"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/transaction"
@@ -20,10 +22,10 @@ type ILedgerStore interface {
 	GetName(registrant []byte) (string, error)
 	GetRegistrant(name string) ([]byte, error)
 	IsSubscribed(topic string, bucket uint32, subscriber []byte, identifier string) (bool, error)
-	GetSubscribers(topic string, bucket uint32) (map[string]string, error)
+	GetSubscription(topic string, bucket uint32, subscriber []byte, identifier string) (string, uint32, error)
+	GetSubscribers(topic string, bucket, offset, limit uint32) ([]string, error)
+	GetSubscribersWithMeta(topic string, bucket, offset, limit uint32) (map[string]string, error)
 	GetSubscribersCount(topic string, bucket uint32) int
-	GetFirstAvailableTopicBucket(topic string) int
-	GetTopicBucketsCount(topic string) (uint32, error)
 	GetID(publicKey []byte) ([]byte, error)
 	GetBalance(addr Uint160) Fixed64
 	GetBalanceByAssetID(addr Uint160, assetID Uint256) Fixed64
@@ -41,7 +43,7 @@ type ILedgerStore interface {
 	IsTxHashDuplicate(txhash Uint256) bool
 	IsBlockInStore(hash Uint256) bool
 	Rollback(b *block.Block) error
-	GenerateStateRoot(b *block.Block, genesisBlockInitialized, needBeCommitted bool) (Uint256, error)
+	GenerateStateRoot(ctx context.Context, b *block.Block, genesisBlockInitialized, needBeCommitted bool) (Uint256, error)
 	GetAsset(assetID Uint256) (name, symbol string, totalSupply Fixed64, precision uint32, err error)
 
 	Close()

@@ -185,34 +185,34 @@ func CreateID(remote string, genIdTxn string) (string, error) {
 	return ret.Result, nil
 }
 
-func GetNonceByAddr(remote string, addr string) (uint64, error) {
+func GetNonceByAddr(remote string, addr string) (uint64, uint32, error) {
 	params := map[string]interface{}{
 		"address": addr,
 	}
 
 	resp, err := Call(remote, "getnoncebyaddr", 0, params)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	log.Infof("GetNonceByAddr got resp: %v from %s\n", string(resp), remote)
 
 	var ret struct {
 		Result struct {
-			nonce         uint64
-			nonceInTxPool uint64
-			currentHeight uint32
+			Nonce         uint64
+			NonceInTxPool uint64
+			CurrentHeight uint32
 		} `json:"result"`
 		Err map[string]interface{} `json:"error"`
 	}
 
 	if err := json.Unmarshal(resp, &ret); err != nil {
 		log.Error(err)
-		return 0, err
+		return 0, 0, err
 	}
 	if len(ret.Err) != 0 { // resp.error NOT empty
-		return 0, fmt.Errorf("GetNonceByAddr(%s) resp error: %v", remote, string(resp))
+		return 0, 0, fmt.Errorf("GetNonceByAddr(%s) resp error: %v", remote, string(resp))
 	}
 
-	return ret.Result.nonceInTxPool, nil
+	return ret.Result.NonceInTxPool, ret.Result.CurrentHeight, nil
 }

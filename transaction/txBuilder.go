@@ -66,8 +66,8 @@ func NewDeleteNameTransaction(registrant []byte, name string, nonce uint64, fee 
 	}, nil
 }
 
-func NewSubscribeTransaction(subscriber []byte, identifier string, topic string, bucket uint32, duration uint32, meta string, nonce uint64, fee Fixed64) (*Transaction, error) {
-	payload := NewSubscribe(subscriber, identifier, topic, bucket, duration, meta)
+func NewSubscribeTransaction(subscriber []byte, identifier string, topic string, duration uint32, meta string, nonce uint64, fee Fixed64) (*Transaction, error) {
+	payload := NewSubscribe(subscriber, identifier, topic, duration, meta)
 	pl, err := Pack(pb.SUBSCRIBE_TYPE, payload)
 	if err != nil {
 		return nil, err
@@ -80,14 +80,28 @@ func NewSubscribeTransaction(subscriber []byte, identifier string, topic string,
 	}, nil
 }
 
-func NewGenerateIDTransaction(publicKey []byte, regFee Fixed64, nonce uint64, fee Fixed64) (*Transaction, error) {
+func NewUnsubscribeTransaction(subscriber []byte, identifier string, topic string, nonce uint64, fee Fixed64) (*Transaction, error) {
+	payload := NewUnsubscribe(subscriber, identifier, topic)
+	pl, err := Pack(pb.UNSUBSCRIBE_TYPE, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	tx := NewMsgTx(pl, nonce, fee, util.RandomBytes(TransactionNonceLength))
+
+	return &Transaction{
+		Transaction: tx,
+	}, nil
+}
+
+func NewGenerateIDTransaction(publicKey []byte, regFee Fixed64, nonce uint64, fee Fixed64, attrs []byte) (*Transaction, error) {
 	payload := NewGenerateID(publicKey, regFee)
 	pl, err := Pack(pb.GENERATE_ID_TYPE, payload)
 	if err != nil {
 		return nil, err
 	}
 
-	tx := NewMsgTx(pl, nonce, fee, util.RandomBytes(TransactionNonceLength))
+	tx := NewMsgTx(pl, nonce, fee, attrs)
 
 	return &Transaction{
 		Transaction: tx,

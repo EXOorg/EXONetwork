@@ -4,13 +4,6 @@
         <div class="divider"></div>
         <v-card-text>
             <v-layout wrap>
-                <v-flex xs12>
-                    <v-subheader class="pa-0">{{$t('settings.TITLE')}}</v-subheader>
-                    <NodeRunStatus :node-status="this.nodeStatus"></NodeRunStatus>
-                    <!--<v-btn color="primary" :loading="restarting"
-                           :disabled="restarting" @click="restarting = !restarting">{{$t('RESTART')}}
-                    </v-btn>-->
-                </v-flex>
                 <v-flex xs12 md6>
                     <v-subheader class="pa-0">{{$t('settings.BENEFICIARY_TITLE')}}</v-subheader>
                     <v-text-field :label="$t('BENEFICIARY')" :value="nodeStatus.beneficiaryAddr" filled readonly
@@ -138,8 +131,8 @@
   import MaterialNotification from '~/components/material/Notification.vue'
   import NumberInput from '~/components/widget/NumberInput.vue'
   import Result from '~/components/dialog/Result.vue'
-  import {formatFee, parseFee} from '~/helpers/tools'
-  import {mapState, mapActions} from 'vuex'
+  import { formatFee, parseFee } from '~/helpers/tools'
+  import { mapState, mapActions } from 'vuex'
 
   export default {
     name: "settings",
@@ -173,18 +166,24 @@
       }
     },
     created() {
-      this.reset()
+
     },
     methods: {
       ...mapActions('node', ['setNodeConfig']),
       onDialogSuccess(data) {
         this.beneficiaryAddr = data.beneficiaryAddr
       },
-      reset() {
+      init() {
         this.registerIDTxnFee = formatFee(this.nodeStatus.registerIDTxnFee)
         this.numLowFeeTxnPerBlock = this.nodeStatus.numLowFeeTxnPerBlock
         this.lowFeeTxnSizePerBlock = this.nodeStatus.lowFeeTxnSizePerBlock
         this.minTxnFee = formatFee(this.nodeStatus.minTxnFee)
+      },
+      reset() {
+        this.registerIDTxnFee = 0
+        this.numLowFeeTxnPerBlock = 0
+        this.lowFeeTxnSizePerBlock = 4096
+        this.minTxnFee = 0.1
       },
       submit() {
         if (this.$refs.form.validate()) {
@@ -204,7 +203,6 @@
           this.submitResult = 'success'
           this.submitResultDialog = true
         } catch (e) {
-          console.log(e)
           this.submitResult = 'error'
           this.submitResultDialog = true
         }
@@ -214,7 +212,7 @@
       nodeStatus(v) {
         if (!this.loaded) {
           this.loaded = true
-          this.reset()
+          this.init()
         }
       }
     }

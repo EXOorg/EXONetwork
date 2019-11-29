@@ -1,7 +1,6 @@
-package id
+package pubsub
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -16,7 +15,7 @@ import (
 	"github.com/urfave/cli"
 )
 
-func generateIDAction(c *cli.Context) error {
+func subscribeAction(c *cli.Context) error {
 	if c.NumFlags() == 0 {
 		cli.ShowSubcommandHelp(c)
 		return nil
@@ -38,39 +37,48 @@ func generateIDAction(c *cli.Context) error {
 		txnFee, _ = StringToFixed64(fee)
 	}
 
-	var regFee Fixed64
-	fee = c.String("regfee")
-	if fee == "" {
-		regFee = Fixed64(0)
-	} else {
-		regFee, _ = StringToFixed64(fee)
-	}
-
 	nonce := c.Uint64("nonce")
 
 	var resp []byte
 	switch {
-	case c.Bool("genid"):
-		account, err := myWallet.GetDefaultAccount()
-		if err != nil {
-			return err
+	case c.Bool("sub"):
+		id := c.String("identifier")
+		if id == "" {
+			fmt.Println("identifier is required with [--id]")
+			return nil
 		}
 
-		walletAddr, err := account.ProgramHash.ToAddress()
-		if err != nil {
-			return err
+		topic := c.String("topic")
+		if topic == "" {
+			fmt.Println("topic is required with [--topic]")
+			return nil
 		}
 
-		remoteNonce, height, err := client.GetNonceByAddr(Address(), walletAddr)
-		if err != nil {
-			return err
+		duration := c.Uint64("duration")
+
+		meta := c.String("meta")
+		if meta == "" {
+			fmt.Println("meta is required with [--meta]")
+			return nil
 		}
 
-		if nonce == 0 {
-			nonce = remoteNonce
+		txn, _ := MakeSubscribeTransaction(myWallet, id, topic, uint32(duration), meta, nonce, txnFee)
+		buff, _ := txn.Marshal()
+		resp, err = client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": hex.EncodeToString(buff)})
+	case c.Bool("unsub"):
+		id := c.String("identifier")
+		if id == "" {
+			fmt.Println("identifier is required with [--id]")
+			return nil
 		}
 
-		txn, _ := MakeGenerateIDTransaction(context.Background(), myWallet, regFee, nonce, txnFee, config.MaxGenerateIDTxnHash.GetValueAtHeight(height+1))
+		topic := c.String("topic")
+		if topic == "" {
+			fmt.Println("topic is required with [--topic]")
+			return nil
+		}
+
+		txn, _ := MakeUnsubscribeTransaction(myWallet, id, topic, nonce, txnFee)
 		buff, _ := txn.Marshal()
 		resp, err = client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": hex.EncodeToString(buff)})
 	default:
@@ -88,14 +96,34 @@ func generateIDAction(c *cli.Context) error {
 
 func NewCommand() *cli.Command {
 	return &cli.Command{
-		Name:        "id",
-		Usage:       "generate id for nknd",
-		Description: "With nknc id, you could generate ID.",
+		Name:        "pubsub",
+		Usage:       "manage topic subscriptions",
+		Description: "With nknc pubsub, you could manage topic subscriptions.",
 		ArgsUsage:   "[args]",
 		Flags: []cli.Flag{
 			cli.BoolFlag{
-				Name:  "genid",
-				Usage: "generate id",
+				Name:  "sub, s",
+				Usage: "subscribe to topic",
+			},
+			cli.BoolFlag{
+				Name:  "unsub, u",
+				Usage: "unsubscribe from topic",
+			},
+			cli.StringFlag{
+				Name:  "identifier, id",
+				Usage: "identifier",
+			},
+			cli.StringFlag{
+				Name:  "topic",
+				Usage: "topic",
+			},
+			cli.Uint64Flag{
+				Name:  "duration",
+				Usage: "duration",
+			},
+			cli.StringFlag{
+				Name:  "meta",
+				Usage: "meta",
 			},
 			cli.StringFlag{
 				Name:  "wallet, w",
@@ -107,11 +135,6 @@ func NewCommand() *cli.Command {
 				Usage: "wallet password",
 			},
 			cli.StringFlag{
-				Name:  "regfee",
-				Usage: "registration fee",
-				Value: "",
-			},
-			cli.StringFlag{
 				Name:  "fee, f",
 				Usage: "transaction fee",
 				Value: "",
@@ -121,9 +144,9 @@ func NewCommand() *cli.Command {
 				Usage: "nonce",
 			},
 		},
-		Action: generateIDAction,
+		Action: subscribeAction,
 		OnUsageError: func(c *cli.Context, err error, isSubcommand bool) error {
-			PrintError(c, err, "id")
+			PrintError(c, err, "pubsub")
 			return cli.NewExitError("", 1)
 		},
 	}

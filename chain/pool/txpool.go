@@ -17,22 +17,28 @@ import (
 	"github.com/nknorg/nkn/util/log"
 )
 
+func compareTxnPriority(txn1, txn2 *transaction.Transaction) int {
+	if txn1.UnsignedTx.Fee > txn2.UnsignedTx.Fee {
+		return 1
+	}
+	if txn1.UnsignedTx.Fee < txn2.UnsignedTx.Fee {
+		return -1
+	}
+	if txn1.GetSize() > txn2.GetSize() {
+		return -1
+	}
+	if txn1.GetSize() < txn2.GetSize() {
+		return 1
+	}
+	return 0
+}
+
 type dropTxnsHeap []*transaction.Transaction
 
-func (s dropTxnsHeap) Len() int      { return len(s) }
-func (s dropTxnsHeap) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
-
-func (s dropTxnsHeap) Less(i, j int) bool {
-	if s[i].UnsignedTx.Fee == s[j].UnsignedTx.Fee {
-		return s[i].GetSize() > s[j].GetSize()
-	}
-	return s[i].UnsignedTx.Fee < s[j].UnsignedTx.Fee
-}
-
-func (s *dropTxnsHeap) Push(x interface{}) {
-	*s = append(*s, x.(*transaction.Transaction))
-}
-
+func (s dropTxnsHeap) Len() int            { return len(s) }
+func (s dropTxnsHeap) Swap(i, j int)       { s[i], s[j] = s[j], s[i] }
+func (s dropTxnsHeap) Less(i, j int) bool  { return compareTxnPriority(s[i], s[j]) < 0 }
+func (s *dropTxnsHeap) Push(x interface{}) { *s = append(*s, x.(*transaction.Transaction)) }
 func (s *dropTxnsHeap) Pop() interface{} {
 	old := *s
 	n := len(old)
@@ -42,7 +48,8 @@ func (s *dropTxnsHeap) Pop() interface{} {
 }
 
 var (
-	ErrDuplicatedTx = errors.New("duplicate transaction check failed")
+	ErrDuplicatedTx      = errors.New("duplicate transaction check failed")
+	ErrRejectLowPriority = errors.New("txpool full, rejecting transaction with low priority")
 )
 
 // TxnPool is a list of txns that need to by add to ledger sent by user.
@@ -54,6 +61,9 @@ type TxnPool struct {
 	blockValidationState *chain.BlockValidationState
 	txnCount             int32
 	txnSize              int64
+
+	sync.RWMutex
+	lastDroppedTxn *transaction.Transaction
 }
 
 func NewTxPool() *TxnPool {
@@ -82,12 +92,25 @@ func isTxPoolFull(txnCount int32, txnSize int64) bool {
 	return false
 }
 
+func (tp *TxnPool) getLastDroppedTxn() *transaction.Transaction {
+	tp.RLock()
+	defer tp.RUnlock()
+	return tp.lastDroppedTxn
+}
+
+func (tp *TxnPool) setLastDroppedTxn(txn *transaction.Transaction) {
+	tp.Lock()
+	defer tp.Unlock()
+	tp.lastDroppedTxn = txn
+}
+
 func (tp *TxnPool) DropTxns() {
 	currentTxnCount := atomic.LoadInt32(&tp.txnCount)
 	currentTxnSize := atomic.LoadInt64(&tp.txnSize)
 
 	if !isTxPoolFull(currentTxnCount, currentTxnSize) {
 		log.Infof("DropTxns: %v txns (%v bytes) in txpool, no need to drop", currentTxnCount, currentTxnSize)
+		tp.setLastDroppedTxn(nil)
 		return
 	}
 
@@ -99,12 +122,9 @@ func (tp *TxnPool) DropTxns() {
 	tp.TxLists.Range(func(_, v interface{}) bool {
 		if list, ok := v.(*NonceSortedTxs); ok {
 			if listSize := list.Len(); listSize != 0 {
-				nonce, err := list.GetLatestNonce()
+				txn, err := list.GetLatestTxn()
 				if err == nil {
-					txn, err := list.Get(nonce)
-					if err == nil {
-						dropList = append(dropList, txn)
-					}
+					dropList = append(dropList, txn)
 				}
 			}
 		}
@@ -154,11 +174,7 @@ func (tp *TxnPool) DropTxns() {
 			}
 
 			if list.Len() > 0 {
-				nonce, err := list.GetLatestNonce()
-				if err != nil {
-					continue
-				}
-				nextTxn, err := list.Get(nonce)
+				nextTxn, err := list.GetLatestTxn()
 				if err != nil {
 					continue
 				}
@@ -192,10 +208,21 @@ func (tp *TxnPool) DropTxns() {
 	}
 	log.Infof("DropTxns: dropped %v txns (%v bytes)", len(txnsDropped), bytesDropped)
 
+	if len(txnsDropped) > 0 {
+		tp.setLastDroppedTxn(txnsDropped[len(txnsDropped)-1])
+	} else {
+		tp.setLastDroppedTxn(nil)
+	}
+
 	return
 }
 
 func (tp *TxnPool) AppendTxnPool(txn *transaction.Transaction) error {
+	lastDroppedTxn := tp.getLastDroppedTxn()
+	if lastDroppedTxn != nil && compareTxnPriority(txn, lastDroppedTxn) <= 0 {
+		return ErrRejectLowPriority
+	}
+
 	sender, err := txn.GetProgramHashes()
 	if err != nil {
 		return err
@@ -206,12 +233,12 @@ func (tp *TxnPool) AppendTxnPool(txn *transaction.Transaction) error {
 		return err
 	}
 
-	if _, err := list.Get(txn.UnsignedTx.Nonce); err != nil && list.Full() {
-		return errors.New("txpool full, too many transaction in txpool")
+	if _, err := list.GetByNonce(txn.UnsignedTx.Nonce); err != nil && list.Full() {
+		return errors.New("account txpool full, too many transaction in list")
 	}
 
 	// 2. verify txn
-	if err := chain.VerifyTransaction(txn); err != nil {
+	if err := chain.VerifyTransaction(txn, chain.DefaultLedger.Store.GetHeight()+1); err != nil {
 		return err
 	}
 
@@ -284,7 +311,7 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 		tp.NanoPayTxs.Store(txn.Hash(), txn)
 		tp.blockValidationState.Commit()
 	default:
-		if oldTxn, err := list.Get(txn.UnsignedTx.Nonce); err == nil {
+		if oldTxn, err := list.GetByNonce(txn.UnsignedTx.Nonce); err == nil {
 			log.Debug("replace old tx")
 			tp.blockValidationState.Lock()
 			defer tp.blockValidationState.Unlock()
@@ -296,7 +323,7 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 				return err
 			}
 
-			if err := list.Add(txn); err != nil {
+			if err := list.Replace(txn); err != nil {
 				return err
 			}
 
@@ -457,6 +484,14 @@ func (tp *TxnPool) GetAllTransactions() []*transaction.Transaction {
 	return txs
 }
 
+func (tp *TxnPool) GetSubscribers(topic string) []string {
+	return tp.blockValidationState.GetSubscribers(topic)
+}
+
+func (tp *TxnPool) GetSubscribersWithMeta(topic string) map[string]string {
+	return tp.blockValidationState.GetSubscribersWithMeta(topic)
+}
+
 func (tp *TxnPool) GetAllTransactionLists() map[common.Uint160][]*transaction.Transaction {
 	txs := make(map[common.Uint160][]*transaction.Transaction)
 
@@ -508,13 +543,11 @@ func (tp *TxnPool) CleanSubmittedTransactions(txns []*transaction.Transaction) e
 
 			if v, ok := tp.TxLists.Load(sender); ok {
 				if list, ok := v.(*NonceSortedTxs); ok {
-					if _, err := list.Get(txNonce); err == nil {
+					if _, err := list.GetByNonce(txNonce); err == nil {
 						nonce := list.getNonce(list.idx[0])
-						for i := 0; uint64(i) <= txNonce-nonce; i++ {
-							t, err := list.Pop()
-							if err == nil {
-								txnsToRemove = append(txnsToRemove, t)
-							}
+						txLst, err := list.PopN(uint16(txNonce - nonce + 1))
+						if err == nil {
+							txnsToRemove = append(txnsToRemove, txLst...)
 						}
 					}
 				}
@@ -527,15 +560,14 @@ func (tp *TxnPool) CleanSubmittedTransactions(txns []*transaction.Transaction) e
 			atomic.AddInt32(&tp.txnCount, -1)
 			atomic.AddInt64(&tp.txnSize, -int64(t.GetSize()))
 		}
-
-		tp.TxLists.Range(func(k, v interface{}) bool {
-			listLen := v.(*NonceSortedTxs).Len()
-			if listLen == 0 {
-				tp.TxLists.Delete(k)
-			}
-			return true
-		})
 	}
+
+	tp.TxLists.Range(func(k, v interface{}) bool {
+		if v.(*NonceSortedTxs).CleanIfEmpty() {
+			tp.TxLists.Delete(k)
+		}
+		return true
+	})
 
 	tp.blockValidationState.Lock()
 	defer tp.blockValidationState.Unlock()

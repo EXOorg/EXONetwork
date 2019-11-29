@@ -7,12 +7,6 @@ import (
 	"github.com/nknorg/nkn/pb"
 )
 
-const (
-	SubscriptionsLimit      = 1000
-	BucketsLimit            = 1000
-	MaxSubscriptionDuration = 65535
-)
-
 type IPayload interface {
 	Marshal() (data []byte, err error)
 	Unmarshal(data []byte) error
@@ -41,6 +35,8 @@ func Unpack(payload *pb.Payload) (IPayload, error) {
 		pl = new(pb.DeleteName)
 	case pb.SUBSCRIBE_TYPE:
 		pl = new(pb.Subscribe)
+	case pb.UNSUBSCRIBE_TYPE:
+		pl = new(pb.Unsubscribe)
 	case pb.GENERATE_ID_TYPE:
 		pl = new(pb.GenerateID)
 	case pb.NANO_PAY_TYPE:
@@ -91,14 +87,21 @@ func NewDeleteName(registrant []byte, name string) IPayload {
 	}
 }
 
-func NewSubscribe(subscriber []byte, id, topic string, bucket, duration uint32, meta string) IPayload {
+func NewSubscribe(subscriber []byte, id, topic string, duration uint32, meta string) IPayload {
 	return &pb.Subscribe{
 		Subscriber: subscriber,
 		Identifier: id,
 		Topic:      topic,
-		Bucket:     bucket,
 		Duration:   duration,
 		Meta:       meta,
+	}
+}
+
+func NewUnsubscribe(subscriber []byte, id, topic string) IPayload {
+	return &pb.Unsubscribe{
+		Subscriber: subscriber,
+		Identifier: id,
+		Topic:      topic,
 	}
 }
 

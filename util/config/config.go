@@ -24,8 +24,6 @@ import (
 )
 
 const (
-	MaxUint                      = ^uint(0)
-	MaxInt                       = int(MaxUint >> 1)
 	MaxNumTxnPerBlock            = 4096
 	MaxBlockSize                 = 1 * 1024 * 1024 // in bytes
 	ConsensusDuration            = 20 * time.Second
@@ -63,15 +61,20 @@ const (
 	GASAssetName                 = "New Network Coin"
 	GASAssetSymbol               = "nnc"
 	GASAssetPrecision            = uint32(8)
+	DumpMemInterval              = 30 * time.Second
 )
 
 const (
-	defaultConfigFile          = "config.json"
-	defaultSyncMemoryPercent   = 10
-	defaultSyncBatchWindowSize = 64
+	defaultConfigFile             = "config.json"
+	defaultSyncMaxMemoryPercent   = 25
+	defaultSyncBatchWindowSize    = 64
+	defaultTxPoolMaxMemoryPercent = 0.4
+	defaultTxPoolMaxMemorySize    = 32
 )
 
 var (
+	Debug            = false
+	PprofPort        = "127.0.0.1:8080"
 	ShortHashSalt    = util.RandomBytes(32)
 	GenesisTimestamp = time.Date(2019, time.June, 29, 13, 10, 13, 0, time.UTC).Unix()
 	GenesisBeacon    = make([]byte, RandomBeaconLength)
@@ -87,14 +90,36 @@ var (
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 	}
-	MaxTxnSubIdentifierList = HeightDependentInt{ // ChangePoin for txn payload Subscribe.Identifier
+	MaxSubscribeIdentifierLen = HeightDependentInt32{
 		heights: []uint32{133400, 0},
-		values:  []int{64, MaxInt},
+		values:  []int32{64, common.MaxInt32},
 	}
-	MaxTxnSubMetaList = HeightDependentInt{ // ChangePoin for txn payload Subscribe.Meta
+	MaxSubscribeMetaLen = HeightDependentInt32{
 		heights: []uint32{133400, 0},
-		values:  []int{1024, MaxInt},
+		values:  []int32{1024, common.MaxInt32},
 	}
+	MaxSubscribeBucket = HeightDependentInt32{
+		heights: []uint32{245000, 0},
+		values:  []int32{0, 1000},
+	}
+	MaxSubscribeDuration = HeightDependentInt32{
+		heights: []uint32{245000, 0},
+		values:  []int32{400000, 65535},
+	}
+	MaxSubscriptionsCount = 100000
+	MaxGenerateIDTxnHash  = HeightDependentUint256{
+		heights: []uint32{245000, 0},
+		values: []common.Uint256{
+			common.Uint256{
+				0x00, 0x00, 0x00, 0x07, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			},
+			common.MaxUint256,
+		},
+	}
+	MaxTxnAttributesLen = 100
 )
 
 var (
@@ -134,7 +159,7 @@ var (
 		NumTxnPerBlock:               256,
 		TxPoolPerAccountTxCap:        32,
 		TxPoolTotalTxCap:             0,
-		TxPoolMaxMemorySize:          32,
+		TxPoolMaxMemorySize:          0,
 		RegisterIDRegFee:             0,
 		RegisterIDTxnFee:             0,
 		LogPath:                      "Log",
@@ -143,7 +168,7 @@ var (
 		MaxGetIDSeeds:                3,
 		DBFilesCacheCapacity:         100,
 		NumLowFeeTxnPerBlock:         0,
-		LowFeeTxnSizePerBlock:        4096,
+		LowFeeTxnSizePerBlock:        2048,
 		MinTxnFee:                    10000000,
 		AllowEmptyBeneficiaryAddress: false,
 		WebGuiListenAddress:          "127.0.0.1",
@@ -263,14 +288,22 @@ func Init() error {
 	if Parameters.SyncBatchWindowSize == 0 {
 		syncBlocksMaxMemorySize := uint64(Parameters.SyncBlocksMaxMemorySize) * 1024 * 1024
 		if syncBlocksMaxMemorySize == 0 {
-			syncBlocksMaxMemorySize = memory.TotalMemory() * defaultSyncMemoryPercent / 100
+			syncBlocksMaxMemorySize = uint64(float64(memory.TotalMemory()) * defaultSyncMaxMemoryPercent / 100.0)
 		}
 
 		Parameters.SyncBatchWindowSize = uint32(syncBlocksMaxMemorySize/MaxBlockSize) / Parameters.SyncBlocksBatchSize
 		if Parameters.SyncBatchWindowSize == 0 {
 			Parameters.SyncBatchWindowSize = defaultSyncBatchWindowSize
 		}
-		log.Printf("Set SyncBatchWindowSize to %vMB", Parameters.SyncBatchWindowSize)
+		log.Printf("Set SyncBatchWindowSize to %v", Parameters.SyncBatchWindowSize)
+	}
+
+	if Parameters.TxPoolMaxMemorySize == 0 {
+		Parameters.TxPoolMaxMemorySize = uint32(float64(memory.TotalMemory()) / 1024 / 1024 * defaultTxPoolMaxMemoryPercent / 100.0)
+		if Parameters.TxPoolMaxMemorySize == 0 {
+			Parameters.TxPoolMaxMemorySize = defaultTxPoolMaxMemorySize
+		}
+		log.Printf("Set TxPoolMaxMemorySize to %v", Parameters.TxPoolMaxMemorySize)
 	}
 
 	err = Parameters.verify()

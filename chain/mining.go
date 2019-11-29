@@ -92,7 +92,7 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 	for {
 		select {
 		case <-ctx.Done():
-			break
+			return nil, ctx.Err()
 		default:
 		}
 
@@ -110,7 +110,7 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 			break
 		}
 
-		if err := VerifyTransaction(txn); err != nil {
+		if err := VerifyTransaction(txn, height); err != nil {
 			log.Warningf("invalid transaction: %v", err)
 			txnCollection.Pop()
 			continue
@@ -143,6 +143,8 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 			lowFeeTxSize += txn.GetSize()
 		}
 	}
+
+	bvs.Close()
 
 	txnRoot, err := crypto.ComputeRoot(txnHashList)
 	if err != nil {
@@ -184,7 +186,7 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 		Transactions: txnList,
 	}
 
-	curStateHash, err := DefaultLedger.Store.GenerateStateRoot(block, true, false)
+	curStateHash, err := DefaultLedger.Store.GenerateStateRoot(ctx, block, true, false)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package pool
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/nknorg/nkn/common"
@@ -66,6 +67,15 @@ func (nst *NonceSortedTxs) Empty() bool {
 	return nst.empty()
 }
 
+func (nst *NonceSortedTxs) CleanIfEmpty() (isEmpty bool) {
+	nst.mu.Lock()
+	defer nst.mu.Unlock()
+	if isEmpty = nst.empty(); isEmpty {
+		nst.txs = nil
+	}
+	return isEmpty
+}
+
 func (nst *NonceSortedTxs) full() bool {
 	return nst.len() >= nst.cap
 }
@@ -82,12 +92,15 @@ func (nst *NonceSortedTxs) Push(tx *transaction.Transaction) error {
 
 	hash := tx.Hash()
 	nst.idx = append(nst.idx, hash)
+	if nst.txs == nil {
+		nst.txs = make(map[common.Uint256]*transaction.Transaction)
+	}
 	nst.txs[hash] = tx
 
 	return nil
 }
 
-func (nst *NonceSortedTxs) Pop() (*transaction.Transaction, error) {
+func (nst *NonceSortedTxs) PopN(n uint16) ([]*transaction.Transaction, error) {
 	nst.mu.Lock()
 	defer nst.mu.Unlock()
 
@@ -95,12 +108,20 @@ func (nst *NonceSortedTxs) Pop() (*transaction.Transaction, error) {
 		return nil, ErrNonceSortedTxsEmpty
 	}
 
-	hash := nst.idx[0]
-	nst.idx = nst.idx[1:]
-	tx := nst.txs[hash]
-	delete(nst.txs, hash)
+	ret := make([]*transaction.Transaction, 0, n)
+	hashLst := nst.idx[0:n]
+	nst.idx = nst.idx[n:]
 
-	return tx, nil
+	for _, hash := range hashLst {
+		if tx, ok := nst.txs[hash]; ok {
+			ret = append(ret, tx)
+		} else {
+			panic(fmt.Errorf("%s txList consistency error. Missing idx %s in txs", nst.account.ToHexString(), hash.ToHexString()))
+		}
+		delete(nst.txs, hash)
+	}
+
+	return ret, nil
 }
 
 func (nst *NonceSortedTxs) Drop(hashToDrop common.Uint256) (*transaction.Transaction, bool, error) {
@@ -142,7 +163,7 @@ func (nst *NonceSortedTxs) getNonce(hash common.Uint256) uint64 {
 	panic("no such tx in NonceSortedTxs")
 }
 
-func (nst *NonceSortedTxs) Add(tx *transaction.Transaction) error {
+func (nst *NonceSortedTxs) Replace(tx *transaction.Transaction) error {
 	nst.mu.Lock()
 	defer nst.mu.Unlock()
 
@@ -163,7 +184,7 @@ func (nst *NonceSortedTxs) Add(tx *transaction.Transaction) error {
 	return nil
 }
 
-func (nst *NonceSortedTxs) Get(nonce uint64) (*transaction.Transaction, error) {
+func (nst *NonceSortedTxs) GetByNonce(nonce uint64) (*transaction.Transaction, error) {
 	nst.mu.RLock()
 	defer nst.mu.RUnlock()
 
@@ -181,12 +202,33 @@ func (nst *NonceSortedTxs) Get(nonce uint64) (*transaction.Transaction, error) {
 }
 
 func (nst *NonceSortedTxs) GetAllTransactions() []*transaction.Transaction {
-	txns := make([]*transaction.Transaction, 0)
-	for _, txnHash := range nst.idx {
-		txns = append(txns, nst.txs[txnHash])
+	nst.mu.RLock()
+	defer nst.mu.RUnlock()
+
+	txns := make([]*transaction.Transaction, 0, nst.len())
+	if !nst.empty() {
+		for _, txnHash := range nst.idx {
+			txns = append(txns, nst.txs[txnHash])
+		}
 	}
 
 	return txns
+}
+
+func (nst *NonceSortedTxs) GetLatestTxn() (*transaction.Transaction, error) {
+	nst.mu.RLock()
+	defer nst.mu.RUnlock()
+
+	if nst.empty() {
+		return nil, ErrNonceSortedTxsEmpty
+	}
+
+	hash := nst.idx[nst.len()-1]
+	tx, ok := nst.txs[hash]
+	if !ok {
+		panic(fmt.Errorf("%s txList consistency error. Missing idx %s in txs", nst.account.ToHexString(), hash.ToHexString()))
+	}
+	return tx, nil
 }
 
 func (nst *NonceSortedTxs) GetLatestNonce() (uint64, error) {
@@ -205,8 +247,10 @@ func (nst *NonceSortedTxs) ExistTx(hash common.Uint256) bool {
 	nst.mu.RLock()
 	defer nst.mu.RUnlock()
 
-	if _, ok := nst.txs[hash]; ok {
-		return true
+	if !nst.empty() {
+		if _, ok := nst.txs[hash]; ok {
+			return true
+		}
 	}
 
 	return false
