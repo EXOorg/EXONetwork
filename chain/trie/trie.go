@@ -5,16 +5,21 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/nknorg/nkn/chain/db"
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/util/log"
 )
 
-var secureKeyPrefix = []byte{0xa0}
-
 type Database interface {
 	Get(key []byte) ([]byte, error)
 	Has(key []byte) (bool, error)
+	Delete(key []byte) error
+	Compact() error
+	NewBatch() error
 	BatchPut(key, value []byte) error
+	BatchDelete(key []byte) error
+	BatchCommit() error
+	NewIterator(prefix []byte) db.IIterator
 }
 
 type Trie struct {
@@ -26,7 +31,7 @@ type Trie struct {
 func New(hash common.Uint256, db Database) (*Trie, error) {
 	trie := &Trie{db: db, originalRoot: hash}
 	if hash != common.EmptyUint256 && db != nil {
-		root, err := trie.resolveHash(hash.ToArray())
+		root, err := trie.resolveHash(hash.ToArray(), false)
 		if err != nil {
 			return nil, err
 		}
@@ -86,7 +91,7 @@ func (t *Trie) tryGet(origNode node, key []byte, pos int) (value []byte, newNode
 		n.Children[key[pos]] = newNode
 		return value, n, nil
 	case hashNode:
-		child, err := t.resolveHash(n)
+		child, err := t.resolveHash(n, false)
 		if err != nil {
 			return nil, n, err
 		}
@@ -158,7 +163,7 @@ func (t *Trie) insert(n node, key []byte, value node) (node, error) {
 	case nil:
 		return &shortNode{Key: key, Val: value, flags: nodeFlag{dirty: true}}, nil
 	case hashNode:
-		rn, err := t.resolveHash(n)
+		rn, err := t.resolveHash(n, false)
 		if err != nil {
 			return nil, err
 		}
@@ -246,7 +251,7 @@ func (t *Trie) delete(n node, key []byte) (node, error) {
 	case nil:
 		return nil, nil
 	case hashNode:
-		rn, err := t.resolveHash(n)
+		rn, err := t.resolveHash(n, false)
 		if err != nil {
 			return nil, err
 		}
@@ -301,17 +306,17 @@ func (t *Trie) hashRoot(db Database) (node, node, error) {
 
 func (t *Trie) resolve(n node) (node, error) {
 	if n, ok := n.(hashNode); ok {
-		return t.resolveHash(n)
+		return t.resolveHash(n, false)
 	}
 	return n, nil
 }
 
-func (t *Trie) resolveHash(n hashNode) (node, error) {
-	enc, err := t.db.Get(append(secureKeyPrefix, []byte(n)...))
+func (t *Trie) resolveHash(n hashNode, needFlags bool) (node, error) {
+	enc, err := t.db.Get(db.TrieNodeKey([]byte(n)))
 	if err != nil {
 		return nil, err
 	}
-	dec := mustDecodeNode(n, enc)
+	dec := mustDecodeNode(n, enc, needFlags)
 	return dec, nil
 }
 
@@ -325,4 +330,70 @@ func concat(s1 []byte, s2 ...byte) []byte {
 func (t *Trie) Copy() *Trie {
 	cpy := *t
 	return &cpy
+}
+
+func (t *Trie) TryTraverse() error {
+	return t.traverse(t.root, true)
+}
+
+func (t *Trie) traverse(n node, needPrint bool) error {
+	switch n := n.(type) {
+	case *shortNode:
+		if needPrint {
+			hash, _ := n.cache()
+			hs, _ := common.Uint256ParseFromBytes(hash)
+			fmt.Println(hs.ToHexString())
+		}
+		if err := t.traverse(n.Val, needPrint); err != nil {
+			return err
+		}
+
+		return nil
+	case *fullNode:
+		if needPrint {
+			hash, _ := n.cache()
+			hs, _ := common.Uint256ParseFromBytes(hash)
+			fmt.Println(hs.ToHexString())
+		}
+		for i := 0; i < LenOfChildrenNodes; i++ {
+			if n.Children[i] != nil {
+				err := t.traverse(n.Children[i], needPrint)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	case hashNode:
+		if needPrint {
+			hs, _ := common.Uint256ParseFromBytes(n)
+			fmt.Println(hs.ToHexString())
+		}
+		child, err := t.resolveHash(n, needPrint)
+		if err != nil {
+			return err
+		}
+		return t.traverse(child, needPrint)
+	case nil:
+		if needPrint {
+			fmt.Println("<nil>")
+		}
+		return nil
+	case valueNode:
+		if needPrint {
+			hs, _ := common.Uint256ParseFromBytes(n)
+			fmt.Println(hs.ToHexString())
+		}
+		return nil
+	default:
+		panic(fmt.Sprintf("invalid node type : %v, %v", reflect.TypeOf(n), n))
+
+	}
+
+	return nil
+}
+
+func (t *Trie) NewRefCounts(targetRefCountHeight, targetPruningHeight uint32) (*RefCounts, error) {
+	return NewRefCounts(t, targetRefCountHeight, targetPruningHeight)
 }

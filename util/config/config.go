@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -33,6 +34,10 @@ const (
 	MaxRollbackBlocks            = 180
 	SigChainBlockDelay           = 1
 	SigChainPropogationTime      = 2
+	GossipSampleChordNeighbor    = 0.1
+	GossipSampleRandomNeighbor   = 1.0
+	VotingSampleChordNeighbor    = 0.5
+	VotingSampleRandomNeighbor   = 0.0
 	HeaderVersion                = 1
 	DBVersion                    = 0x01
 	InitialIssueAddress          = "NKNFCrUMFPkSeDRMG2ME21hD6wBCA2poc347"
@@ -62,6 +67,7 @@ const (
 	GASAssetSymbol               = "nnc"
 	GASAssetPrecision            = uint32(8)
 	DumpMemInterval              = 30 * time.Second
+	MaxClientMessageSize         = 4 * 1024 * 1024
 )
 
 const (
@@ -92,11 +98,11 @@ var (
 	}
 	MaxSubscribeIdentifierLen = HeightDependentInt32{
 		heights: []uint32{133400, 0},
-		values:  []int32{64, common.MaxInt32},
+		values:  []int32{64, math.MaxInt32},
 	}
 	MaxSubscribeMetaLen = HeightDependentInt32{
 		heights: []uint32{133400, 0},
-		values:  []int32{1024, common.MaxInt32},
+		values:  []int32{1024, math.MaxInt32},
 	}
 	MaxSubscribeBucket = HeightDependentInt32{
 		heights: []uint32{245000, 0},
@@ -119,7 +125,11 @@ var (
 			common.MaxUint256,
 		},
 	}
-	MaxTxnAttributesLen = 100
+	MaxTxnAttributesLen  = 100
+	AllowTxnRegisterName = HeightDependentBool{
+		heights: []uint32{7500, 0},
+		values:  []bool{false, true},
+	}
 )
 
 var (
@@ -137,6 +147,7 @@ var (
 	WebGuiListenAddress          string
 	WebGuiCreateWallet           bool
 	PasswordFile                 string
+	StatePruningMode             string
 	Parameters                   = &Configuration{
 		Version:                      1,
 		Transport:                    "tcp",
@@ -175,6 +186,8 @@ var (
 		WebGuiPort:                   30000,
 		WebGuiCreateWallet:           false,
 		PasswordFile:                 "",
+		RecentStateCount:             1024,
+		StatePruningMode:             "none",
 	}
 )
 
@@ -228,6 +241,8 @@ type Configuration struct {
 	WebGuiPort                   uint16        `json:"WebGuiPort"`
 	WebGuiCreateWallet           bool          `json:"WebGuiCreateWallet"`
 	PasswordFile                 string        `json:"PasswordFile"`
+	RecentStateCount             uint32        `json:"RecentStateCount"`
+	StatePruningMode             string        `json:"StatePruningMode"`
 }
 
 func Init() error {
@@ -283,6 +298,10 @@ func Init() error {
 
 	if len(PasswordFile) > 0 {
 		Parameters.PasswordFile = PasswordFile
+	}
+
+	if len(StatePruningMode) > 0 {
+		Parameters.StatePruningMode = StatePruningMode
 	}
 
 	if Parameters.SyncBatchWindowSize == 0 {
@@ -425,6 +444,13 @@ func (config *Configuration) verify() error {
 
 	if config.MaxLogFileSize <= 0 {
 		return fmt.Errorf("MaxLogFileSize should be >= 1 (MB)")
+	}
+
+	switch config.StatePruningMode {
+	case "lowmem":
+	case "none":
+	default:
+		return fmt.Errorf("unknown state pruning mode %v", config.StatePruningMode)
 	}
 
 	return nil
