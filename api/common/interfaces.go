@@ -121,11 +121,7 @@ func getBlockCount(s Serverer, params map[string]interface{}) map[string]interfa
 // params: {}
 // return: {"resultOrData":<result>|<error data>, "error":<errcode>}
 func getChordRingInfo(s Serverer, params map[string]interface{}) map[string]interface{} {
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-	return respPacking(SUCCESS, localNode.GetChordInfo())
+	return respPacking(SUCCESS, s.GetNetNode().GetChordInfo())
 }
 
 // getLatestBlockHeight gets the latest block height
@@ -168,6 +164,7 @@ func getBlockTxsByHeight(s Serverer, params map[string]interface{}) map[string]i
 		return respPacking(INVALID_PARAMS, "height should be float64")
 	}
 	index := uint32(params["height"].(float64))
+
 	hash, err := chain.DefaultLedger.Store.GetBlockHash(index)
 	if err != nil {
 		return respPacking(UNKNOWN_HASH, err.Error())
@@ -187,12 +184,7 @@ func getBlockTxsByHeight(s Serverer, params map[string]interface{}) map[string]i
 // params: {}
 // return: {"resultOrData":<result>|<error data>, "error":<errcode>}
 func getConnectionCount(s Serverer, params map[string]interface{}) map[string]interface{} {
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-
-	return respPacking(SUCCESS, localNode.GetConnectionCnt())
+	return respPacking(SUCCESS, s.GetNetNode().GetConnectionCnt())
 }
 
 // getRawMemPool gets the transactions in txpool
@@ -208,12 +200,7 @@ func getRawMemPool(s Serverer, params map[string]interface{}) map[string]interfa
 		return respPacking(INVALID_PARAMS, "action should be a string")
 	}
 
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-
-	txpool := localNode.GetTxnPool()
+	txpool := s.GetNetNode().GetTxnPool()
 
 	switch action {
 	case "addresslist":
@@ -287,6 +274,7 @@ func getTransaction(s Serverer, params map[string]interface{}) map[string]interf
 	if err != nil {
 		return respPacking(INVALID_PARAMS, err.Error())
 	}
+
 	tx, err := chain.DefaultLedger.Store.GetTransaction(hash)
 	if err != nil {
 		return respPacking(UNKNOWN_TRANSACTION, err.Error())
@@ -312,11 +300,6 @@ func sendRawTransaction(s Serverer, params map[string]interface{}) map[string]in
 		return respPacking(INVALID_PARAMS, "length of params is less than 1")
 	}
 
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-
 	var hash common.Uint256
 	if str, ok := params["tx"].(string); ok {
 		hex, err := common.HexStringToBytes(str)
@@ -329,11 +312,11 @@ func sendRawTransaction(s Serverer, params map[string]interface{}) map[string]in
 		}
 
 		hash = txn.Hash()
-		if errCode, err := VerifyAndSendTx(localNode, &txn); errCode != ErrNoError {
+		if errCode, err := VerifyAndSendTx(s.GetNetNode(), &txn); errCode != ErrNoError {
 			return respPacking(errCode, err.Error())
 		}
 	} else {
-		return respPacking(INVALID_PARAMS, err.Error())
+		return respPacking(INVALID_PARAMS, "tx should be a hex string")
 	}
 
 	return respPacking(SUCCESS, common.BytesToHexString(hash.ToArray()))
@@ -343,24 +326,14 @@ func sendRawTransaction(s Serverer, params map[string]interface{}) map[string]in
 // params: {}
 // return: {"resultOrData":<result>|<error data>, "error":<errcode>}
 func getNeighbor(s Serverer, params map[string]interface{}) map[string]interface{} {
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-
-	return respPacking(SUCCESS, localNode.GetNeighborInfo())
+	return respPacking(SUCCESS, s.GetNetNode().GetNeighborInfo())
 }
 
 // getNodeState gets the state of this node
 // params: {}
 // return: {"resultOrData":<result>|<error data>, "error":<errcode>}
 func getNodeState(s Serverer, params map[string]interface{}) map[string]interface{} {
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-
-	return respPacking(SUCCESS, localNode)
+	return respPacking(SUCCESS, s.GetNetNode())
 }
 
 // setDebugInfo sets log level
@@ -411,12 +384,34 @@ func getWsAddr(s Serverer, params map[string]interface{}) map[string]interface{}
 	}
 
 	clientID, _, _, err := address.ParseClientAddress(str)
-	localNode, err := s.GetNetNode()
 	if err != nil {
 		return respPacking(INTERNAL_ERROR, err.Error())
 	}
 
-	addr, pubkey, id, err := localNode.FindWsAddr(clientID)
+	addr, pubkey, id, err := s.GetNetNode().FindWsAddr(clientID)
+	if err != nil {
+		return respPacking(INTERNAL_ERROR, err.Error())
+	}
+
+	return respPacking(SUCCESS, NodeInfo(addr, pubkey, id))
+}
+
+func getWssAddr(s Serverer, params map[string]interface{}) map[string]interface{} {
+	if len(params) < 1 {
+		return respPacking(INVALID_PARAMS, "length of params is less than 1")
+	}
+
+	str, ok := params["address"].(string)
+	if !ok {
+		return respPacking(INTERNAL_ERROR, "address should be a string")
+	}
+
+	clientID, _, _, err := address.ParseClientAddress(str)
+	if err != nil {
+		return respPacking(INTERNAL_ERROR, err.Error())
+	}
+
+	addr, pubkey, id, err := s.GetNetNode().FindWssAddr(clientID)
 	if err != nil {
 		return respPacking(INTERNAL_ERROR, err.Error())
 	}
@@ -507,14 +502,9 @@ func getNonceByAddr(s Serverer, params map[string]interface{}) map[string]interf
 		return respPacking(INVALID_PARAMS, "length of params is less than 1")
 	}
 
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-
 	addr, ok := params["address"].(string)
 	if !ok {
-		return respPacking(INVALID_PARAMS, err.Error())
+		return respPacking(INVALID_PARAMS, "invalid address")
 	}
 
 	pg, err := common.ToScriptHash(addr)
@@ -524,7 +514,7 @@ func getNonceByAddr(s Serverer, params map[string]interface{}) map[string]interf
 
 	persistNonce := chain.DefaultLedger.Store.GetNonce(pg)
 
-	txpool := localNode.GetTxnPool()
+	txpool := s.GetNetNode().GetTxnPool()
 	txPoolNonce, err := txpool.GetNonceByTxnPool(pg)
 	if err != nil {
 		txPoolNonce = persistNonce
@@ -719,15 +709,11 @@ func getSubscribers(s Serverer, params map[string]interface{}) map[string]interf
 
 	txPool, _ := params["txPool"].(bool)
 
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-
 	response := make(map[string]interface{})
 
 	meta, _ := params["meta"].(bool)
 	var subscribers interface{}
+	var err error
 	if !meta {
 		subscribers, err = chain.DefaultLedger.Store.GetSubscribers(topic, uint32(bucket), uint32(offset), uint32(limit))
 	} else {
@@ -740,9 +726,9 @@ func getSubscribers(s Serverer, params map[string]interface{}) map[string]interf
 
 	if txPool {
 		if !meta {
-			response["subscribersInTxPool"] = localNode.GetTxnPool().GetSubscribers(topic)
+			response["subscribersInTxPool"] = s.GetNetNode().GetTxnPool().GetSubscribers(topic)
 		} else {
-			response["subscribersInTxPool"] = localNode.GetTxnPool().GetSubscribersWithMeta(topic)
+			response["subscribersInTxPool"] = s.GetNetNode().GetTxnPool().GetSubscribersWithMeta(topic)
 		}
 	}
 
@@ -858,13 +844,7 @@ func findSuccessorAddrs(s Serverer, params map[string]interface{}) map[string]in
 		return respPacking(INVALID_PARAMS, err.Error())
 	}
 
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		log.Error("Cannot get node:", err)
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-
-	addrs, err := localNode.FindSuccessorAddrs(key, config.MinNumSuccessors)
+	addrs, err := s.GetNetNode().FindSuccessorAddrs(key, config.MinNumSuccessors)
 	if err != nil {
 		log.Error("Cannot get successor address:", err)
 		return respPacking(INTERNAL_ERROR, err.Error())
@@ -890,13 +870,7 @@ func findSuccessorAddr(s Serverer, params map[string]interface{}) map[string]int
 		return respPacking(INVALID_PARAMS, err.Error())
 	}
 
-	localNode, err := s.GetNetNode()
-	if err != nil {
-		log.Error("Cannot get node:", err)
-		return respPacking(INTERNAL_ERROR, err.Error())
-	}
-
-	addrs, err := localNode.FindSuccessorAddrs(key, 1)
+	addrs, err := s.GetNetNode().FindSuccessorAddrs(key, 1)
 	if err != nil || len(addrs) == 0 {
 		log.Error("Cannot get successor address:", err)
 		return respPacking(INTERNAL_ERROR, err.Error())
@@ -916,6 +890,7 @@ var InitialAPIHandlers = map[string]APIHandler{
 	"gettransaction":       {Handler: getTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
 	"sendrawtransaction":   {Handler: sendRawTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
 	"getwsaddr":            {Handler: getWsAddr, AccessCtrl: BIT_JSONRPC},
+	"getwssaddr":           {Handler: getWssAddr, AccessCtrl: BIT_JSONRPC},
 	"getversion":           {Handler: getVersion, AccessCtrl: BIT_JSONRPC},
 	"getneighbor":          {Handler: getNeighbor, AccessCtrl: BIT_JSONRPC},
 	"getnodestate":         {Handler: getNodeState, AccessCtrl: BIT_JSONRPC},

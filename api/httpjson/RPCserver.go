@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nknorg/nkn/api/common"
+	"github.com/nknorg/nkn/chain"
 	"github.com/nknorg/nkn/node"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
@@ -21,8 +22,11 @@ type RPCServer struct {
 	//keeps track of every function to be called on specific rpc call
 	mainMux ServeMux
 
-	//defines a slice of listeners for RPCServer, such as "127.0.0.1:30004"
-	listeners []string
+	//defines http listener for RPCServer, such as "127.0.0.1:30004"
+	httpListener string
+
+	//defines https listener for RPCServer
+	httpsListener string
 
 	//the reference of local node
 	localNode *node.LocalNode
@@ -47,9 +51,10 @@ func NewServer(localNode *node.LocalNode, wallet vault.Wallet) *RPCServer {
 		mainMux: ServeMux{
 			m: make(map[string]common.Handler),
 		},
-		listeners: []string{":" + strconv.Itoa(int(config.Parameters.HttpJsonPort))},
-		localNode: localNode,
-		wallet:    wallet,
+		httpListener:  ":" + strconv.Itoa(int(config.Parameters.HttpJsonPort)),
+		httpsListener: ":" + strconv.Itoa(int(config.Parameters.HttpsJsonPort)),
+		localNode:     localNode,
+		wallet:        wallet,
 	}
 
 	return server
@@ -58,6 +63,28 @@ func NewServer(localNode *node.LocalNode, wallet vault.Wallet) *RPCServer {
 //this is the funciton that should be called in order to answer an rpc call
 //should be registered like "http.HandleFunc("/", httpjsonrpc.Handle)"
 func (s *RPCServer) Handle(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			log.Errorf("HTTP JSON RPC handler panic: %v", err)
+			data, err := json.Marshal(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"error": map[string]interface{}{
+					"code":    -common.INTERNAL_ERROR,
+					"message": common.ErrMessage[common.INTERNAL_ERROR],
+				},
+				"id": "1",
+			})
+			if err != nil {
+				log.Error("HTTP JSON RPC JSON Marshal error: ", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write(data)
+		}
+	}()
+
 	s.mainMux.RLock()
 	defer s.mainMux.RUnlock()
 	//CORS headers
@@ -103,6 +130,7 @@ func (s *RPCServer) Handle(w http.ResponseWriter, r *http.Request) {
 			})
 			if err != nil {
 				log.Error("HTTP JSON RPC Handle - json.Marshal: ", err)
+				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			w.Write(data)
@@ -125,6 +153,33 @@ func (s *RPCServer) Handle(w http.ResponseWriter, r *http.Request) {
 		//get the corresponding function
 		function, ok := s.mainMux.m[method]
 		if ok {
+			defer func() {
+				err := recover()
+				if err != nil {
+					var errcode common.ErrCode
+					if _, err = chain.GetDefaultLedger(); err != nil {
+						errcode = common.ErrNullDB
+					} else if s.GetNetNode() == nil {
+						errcode = common.ErrNullID
+					} else {
+						panic(err)
+					}
+					data, err := json.Marshal(map[string]interface{}{
+						"jsonrpc": "2.0",
+						"error": map[string]interface{}{
+							"code":    -errcode,
+							"message": common.ErrMessage[errcode],
+						},
+						"id": id,
+					})
+					if err != nil {
+						log.Error("HTTP JSON RPC JSON Marshal error: ", err)
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					w.Write(data)
+				}
+			}()
 			var data []byte
 			var err error
 			response := function(s, params)
@@ -149,6 +204,7 @@ func (s *RPCServer) Handle(w http.ResponseWriter, r *http.Request) {
 			}
 			if err != nil {
 				log.Error("HTTP JSON RPC Handle - json.Marshal: ", err)
+				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			w.Write(data)
@@ -166,6 +222,7 @@ func (s *RPCServer) Handle(w http.ResponseWriter, r *http.Request) {
 			})
 			if err != nil {
 				log.Error("HTTP JSON RPC Handle - json.Marshal: ", err)
+				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			w.Write(data)
@@ -197,7 +254,7 @@ func (s *RPCServer) initTlsListen(cert, key string) (net.Listener, error) {
 		Certificates: []tls.Certificate{pair},
 	}
 
-	listener, err := tls.Listen("tcp", s.listeners[0], tlsConfig)
+	listener, err := tls.Listen("tcp", s.httpsListener, tlsConfig)
 	if err != nil {
 		log.Error(err)
 		return nil, err
@@ -212,20 +269,18 @@ func (s *RPCServer) Start() {
 		}
 	}
 
-	var listener net.Listener
+	var listener, tlsListener net.Listener
 	var err error
-	if config.Parameters.IsTLS {
-		listener, err = s.initTlsListen(config.Parameters.RPCCert, config.Parameters.RPCKey)
-		if err != nil {
-			log.Error("Https Cert: ", err.Error())
-			return
-		}
-	} else {
-		listener, err = net.Listen("tcp", s.listeners[0])
-		if err != nil {
-			log.Error("net.Listen: ", err.Error())
-			return
-		}
+	tlsListener, err = s.initTlsListen(config.Parameters.HttpsJsonCert, config.Parameters.HttpsJsonKey)
+	if err != nil {
+		log.Error("Https Cert: ", err.Error())
+		return
+	}
+
+	listener, err = net.Listen("tcp", s.httpListener)
+	if err != nil {
+		log.Error("net.Listen: ", err.Error())
+		return
 	}
 
 	rpcServeMux := http.NewServeMux()
@@ -234,15 +289,27 @@ func (s *RPCServer) Start() {
 		Handler:      rpcServeMux,
 		ReadTimeout:  config.Parameters.RPCReadTimeout * time.Second,
 		WriteTimeout: config.Parameters.RPCWriteTimeout * time.Second,
-		IdleTimeout:  config.Parameters.KeepAliveTimeout * time.Second,
+		IdleTimeout:  config.Parameters.RPCIdleTimeout * time.Second,
 	}
-	httpServer.Serve(listener)
+
+	httpServer.SetKeepAlivesEnabled(config.Parameters.RPCKeepAlivesEnabled)
+
+	go httpServer.Serve(listener)
+	go httpServer.Serve(tlsListener)
 }
 
-func (s *RPCServer) GetNetNode() (*node.LocalNode, error) {
-	return s.localNode, nil
+func (s *RPCServer) GetLocalNode() *node.LocalNode {
+	s.mainMux.RLock()
+	defer s.mainMux.RUnlock()
+	return s.localNode
 }
 
-func (s *RPCServer) GetWallet() (vault.Wallet, error) {
-	return s.wallet, nil
+func (s *RPCServer) SetLocalNode(ln *node.LocalNode) {
+	s.mainMux.Lock()
+	defer s.mainMux.Unlock()
+	s.localNode = ln
+}
+
+func (s *RPCServer) GetNetNode() *node.LocalNode {
+	return s.GetLocalNode()
 }

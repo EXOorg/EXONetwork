@@ -22,6 +22,7 @@ import (
 	"github.com/nknorg/nkn/crypto/util"
 	"github.com/nknorg/nnet/transport"
 	"github.com/pbnjay/memory"
+	goupnp "gitlab.com/NebulousLabs/go-upnp"
 )
 
 const (
@@ -135,7 +136,7 @@ var (
 var (
 	Version                      string
 	SkipNAT                      bool
-	nat                          gonat.NAT
+	gateway                      interface{}
 	ConfigFile                   string
 	LogPath                      string
 	ChainDBPath                  string
@@ -153,7 +154,9 @@ var (
 		Transport:                    "tcp",
 		NodePort:                     30001,
 		HttpWsPort:                   30002,
+		HttpWssPort:                  30004,
 		HttpJsonPort:                 30003,
+		HttpsJsonPort:                30005,
 		NAT:                          true,
 		Mining:                       true,
 		MiningDebug:                  true,
@@ -165,9 +168,11 @@ var (
 		SyncBlocksMaxMemorySize:      0,
 		RPCReadTimeout:               5,
 		RPCWriteTimeout:              10,
-		KeepAliveTimeout:             15,
+		RPCIdleTimeout:               0,
+		RPCKeepAlivesEnabled:         false,
 		NATPortMappingTimeout:        365 * 86400,
 		NumTxnPerBlock:               256,
+		TlsDomain:                    "{{.DashedIP}}.ipv4.nknlabs.io",
 		TxPoolPerAccountTxCap:        32,
 		TxPoolTotalTxCap:             0,
 		TxPoolMaxMemorySize:          0,
@@ -176,6 +181,10 @@ var (
 		LogPath:                      "Log",
 		ChainDBPath:                  "ChainDB",
 		WalletFile:                   "wallet.json",
+		HttpWssCert:                  "certs/STAR.ipv4.nknlabs.io.cert",
+		HttpWssKey:                   "certs/STAR.ipv4.nknlabs.io.key",
+		HttpsJsonCert:                "certs/STAR.ipv4.nknlabs.io.cert",
+		HttpsJsonKey:                 "certs/STAR.ipv4.nknlabs.io.key",
 		MaxGetIDSeeds:                3,
 		DBFilesCacheCapacity:         100,
 		NumLowFeeTxnPerBlock:         0,
@@ -194,19 +203,18 @@ var (
 type Configuration struct {
 	Version                      int           `json:"Version"`
 	SeedList                     []string      `json:"SeedList"`
-	RestCertPath                 string        `json:"RestCertPath"`
-	RestKeyPath                  string        `json:"RestKeyPath"`
-	RPCCert                      string        `json:"RPCCert"`
-	RPCKey                       string        `json:"RPCKey"`
+	HttpWssCert                  string        `json:"HttpWssCert"`
+	HttpWssKey                   string        `json:"HttpWssKey"`
 	HttpWsPort                   uint16        `json:"HttpWsPort"`
+	HttpWssPort                  uint16        `json:"HttpWssPort"`
 	HttpJsonPort                 uint16        `json:"HttpJsonPort"`
+	HttpsJsonCert                string        `json:"HttpsJsonCert"`
+	HttpsJsonKey                 string        `json:"HttpsJsonKey"`
+	HttpsJsonPort                uint16        `json:"HttpsJsonPort"`
 	NodePort                     uint16        `json:"-"`
 	LogLevel                     int           `json:"LogLevel"`
 	MaxLogFileSize               uint32        `json:"MaxLogSize"`
 	IsTLS                        bool          `json:"IsTLS"`
-	CertPath                     string        `json:"CertPath"`
-	KeyPath                      string        `json:"KeyPath"`
-	CAPath                       string        `json:"CAPath"`
 	GenesisBlockProposer         string        `json:"GenesisBlockProposer"`
 	NumLowFeeTxnPerBlock         uint32        `json:"NumLowFeeTxnPerBlock"`
 	LowFeeTxnSizePerBlock        uint32        `json:"LowFeeTxnSizePerBlock"` // in bytes
@@ -214,6 +222,7 @@ type Configuration struct {
 	RegisterIDRegFee             int64         `json:"RegisterIDRegFee"`
 	RegisterIDTxnFee             int64         `json:"RegisterIDTxnFee"`
 	Hostname                     string        `json:"Hostname"`
+	TlsDomain                    string        `json:"TlsDomain"`
 	Transport                    string        `json:"Transport"`
 	NAT                          bool          `json:"NAT"`
 	Mining                       bool          `json:"Mining"`
@@ -226,10 +235,11 @@ type Configuration struct {
 	NumTxnPerBlock               uint32        `json:"NumTxnPerBlock"`
 	TxPoolPerAccountTxCap        uint32        `json:"TxPoolPerAccountTxCap"`
 	TxPoolTotalTxCap             uint32        `json:"TxPoolTotalTxCap"`
-	TxPoolMaxMemorySize          uint32        `json:"TxPoolMaxMemorySize"`   // in megabytes (MB)
-	RPCReadTimeout               time.Duration `json:"RPCReadTimeout"`        // in seconds
-	RPCWriteTimeout              time.Duration `json:"RPCWriteTimeout"`       // in seconds
-	KeepAliveTimeout             time.Duration `json:"KeepAliveTimeout"`      // in seconds
+	TxPoolMaxMemorySize          uint32        `json:"TxPoolMaxMemorySize"` // in megabytes (MB)
+	RPCReadTimeout               time.Duration `json:"RPCReadTimeout"`      // in seconds
+	RPCWriteTimeout              time.Duration `json:"RPCWriteTimeout"`     // in seconds
+	RPCIdleTimeout               time.Duration `json:"RPCIdleTimeout"`      // in seconds
+	RPCKeepAlivesEnabled         bool          `json:"RPCKeepAlivesEnabled"`
 	NATPortMappingTimeout        time.Duration `json:"NATPortMappingTimeout"` // in seconds
 	LogPath                      string        `json:"LogPath"`
 	ChainDBPath                  string        `json:"ChainDBPath"`
@@ -339,78 +349,181 @@ func Init() error {
 }
 
 func (config *Configuration) SetupPortMapping() error {
-	if config.NAT && !SkipNAT {
-		log.Println("Discovering NAT gateway...")
+	if SkipNAT || !config.NAT {
+		log.Printf("Skip automatic port forwading. You need to set up port forwarding and firewall yourself.")
+		return nil
+	}
 
-		var err error
-		nat, err = gonat.DiscoverGateway()
+	log.Println("Discovering NAT gateway...")
+
+	upnp, err := goupnp.Discover()
+	if err == nil {
+		log.Printf("Discovered UPnP gateway")
+
+		gateway = upnp
+
+		err = upnp.Forward(config.NodePort, "NKN Node")
 		if err != nil {
-			log.Printf("No NAT gateway detected, skip automatic port forwading. You need to set up port forwarding and firewall yourself.")
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", config.NodePort, config.NodePort)
+
+		err = upnp.Forward(config.HttpWsPort, "NKN Node")
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", config.HttpWsPort, config.HttpWsPort)
+
+		err = upnp.Forward(config.HttpWssPort, "NKN Node")
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", config.HttpWssPort, config.HttpWssPort)
+
+		err = upnp.Forward(config.HttpJsonPort, "NKN Node")
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", config.HttpJsonPort, config.HttpJsonPort)
+
+		err = upnp.Forward(config.HttpsJsonPort, "NKN Node")
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", config.HttpsJsonPort, config.HttpsJsonPort)
+	} else {
+		log.Printf("No UPnP gateway discovered, trying go-nat...")
+
+		nat, err := gonat.DiscoverGateway()
+		if err != nil {
+			log.Printf("No NAT gateway discovered, skip automatic port forwading. You need to set up port forwarding and firewall yourself.")
 			return nil
 		}
 
 		log.Printf("Found %s gateway", nat.Type())
 
+		gateway = nat
+
 		transport, err := transport.NewTransport(config.Transport)
 		if err != nil {
 			return err
 		}
 
-		externalPort, internalPort, err := nat.AddPortMapping(transport.GetNetwork(), int(config.NodePort), int(config.NodePort), "nkn", config.NATPortMappingTimeout*time.Second)
+		externalPort, internalPort, err := nat.AddPortMapping(transport.GetNetwork(), int(config.NodePort), int(config.NodePort), "NKN Node", config.NATPortMappingTimeout*time.Second)
 		if err != nil {
 			return err
 		}
 		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
 
-		externalPort, internalPort, err = nat.AddPortMapping(transport.GetNetwork(), int(config.HttpWsPort), int(config.HttpWsPort), "nkn", config.NATPortMappingTimeout*time.Second)
+		externalPort, internalPort, err = nat.AddPortMapping(transport.GetNetwork(), int(config.HttpWsPort), int(config.HttpWsPort), "NKN Node", config.NATPortMappingTimeout*time.Second)
 		if err != nil {
 			return err
 		}
 		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
 
-		externalPort, internalPort, err = nat.AddPortMapping(transport.GetNetwork(), int(config.HttpJsonPort), int(config.HttpJsonPort), "nkn", config.NATPortMappingTimeout*time.Second)
+		externalPort, internalPort, err = nat.AddPortMapping(transport.GetNetwork(), int(config.HttpWssPort), int(config.HttpWssPort), "NKN Node", config.NATPortMappingTimeout*time.Second)
 		if err != nil {
 			return err
 		}
 		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
-	} else {
-		log.Printf("Skip automatic port forwading. You need to set up port forwarding and firewall yourself.")
+
+		externalPort, internalPort, err = nat.AddPortMapping(transport.GetNetwork(), int(config.HttpJsonPort), int(config.HttpJsonPort), "NKN Node", config.NATPortMappingTimeout*time.Second)
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
+
+		externalPort, internalPort, err = nat.AddPortMapping(transport.GetNetwork(), int(config.HttpsJsonPort), int(config.HttpsJsonPort), "NKN Node", config.NATPortMappingTimeout*time.Second)
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
 	}
 
 	return nil
 }
 
-func (config *Configuration) CleanPortMapping() error {
-	if config.NAT && !SkipNAT {
-		if nat == nil {
-			return fmt.Errorf("NAT gateway has not been discoverred yet")
-		}
+func (config *Configuration) ClearPortMapping() error {
+	if SkipNAT || !config.NAT {
+		return nil
+	}
 
-		log.Println("Removing added port mapping...")
+	if gateway == nil {
+		return fmt.Errorf("NAT gateway has not been discovered yet")
+	}
 
-		transport, err := transport.NewTransport(config.Transport)
-		if err != nil {
-			return err
-		}
+	log.Println("Removing added port mapping...")
 
-		err = nat.DeletePortMapping(transport.GetNetwork(), int(config.NodePort))
+	switch device := gateway.(type) {
+	case *goupnp.IGD:
+		err := device.Clear(config.NodePort)
 		if err != nil {
 			return err
 		}
 		log.Printf("Removed port mapping at external port %d", config.NodePort)
 
-		err = nat.DeletePortMapping(transport.GetNetwork(), int(config.HttpWsPort))
+		err = device.Clear(config.HttpWsPort)
 		if err != nil {
 			return err
 		}
 		log.Printf("Removed port mapping at external port %d", config.HttpWsPort)
 
-		err = nat.DeletePortMapping(transport.GetNetwork(), int(config.HttpJsonPort))
+		err = device.Clear(config.HttpWssPort)
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.HttpWssPort)
+
+		err = device.Clear(config.HttpJsonPort)
 		if err != nil {
 			return err
 		}
 		log.Printf("Removed port mapping at external port %d", config.HttpJsonPort)
+
+		err = device.Clear(config.HttpsJsonPort)
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.HttpsJsonPort)
+	case gonat.NAT:
+		transport, err := transport.NewTransport(config.Transport)
+		if err != nil {
+			return err
+		}
+
+		err = device.DeletePortMapping(transport.GetNetwork(), int(config.NodePort))
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.NodePort)
+
+		err = device.DeletePortMapping(transport.GetNetwork(), int(config.HttpWsPort))
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.HttpWsPort)
+
+		err = device.DeletePortMapping(transport.GetNetwork(), int(config.HttpWssPort))
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.HttpWssPort)
+
+		err = device.DeletePortMapping(transport.GetNetwork(), int(config.HttpJsonPort))
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.HttpJsonPort)
+
+		err = device.DeletePortMapping(transport.GetNetwork(), int(config.HttpsJsonPort))
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.HttpsJsonPort)
+	default:
+		return fmt.Errorf("Unknown NAT gateway type")
 	}
+
 	return nil
 }
 
@@ -475,6 +588,8 @@ func (config *Configuration) incrementPort() {
 		config.NodePort,
 		config.HttpWsPort,
 		config.HttpJsonPort,
+		config.HttpWssPort,
+		config.HttpsJsonPort,
 	}
 	minPort, maxPort := findMinMaxPort(allPorts)
 	step := maxPort - minPort + 1
@@ -505,7 +620,9 @@ func (config *Configuration) incrementPort() {
 	}
 	config.NodePort += delta
 	config.HttpWsPort += delta
+	config.HttpWssPort += delta
 	config.HttpJsonPort += delta
+	config.HttpsJsonPort += delta
 	if delta > 0 {
 		log.Println("Port in use! All ports are automatically increased by", delta)
 	}

@@ -81,11 +81,26 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 
 	publicKey := account.PublicKey.EncodePoint()
 
+	address, err := url.Parse(nn.GetLocalNode().Node.Addr)
+	if err != nil {
+		return nil, err
+	}
+
+	host := address.Hostname()
+
+	wd := WssDomain{DotToDash(host)}
+	host, err = wd.IpToDomain()
+	if err != nil {
+		return nil, err
+	}
+
 	nodeData := &pb.NodeData{
-		PublicKey:       publicKey,
-		WebsocketPort:   uint32(config.Parameters.HttpWsPort),
-		JsonRpcPort:     uint32(config.Parameters.HttpJsonPort),
-		ProtocolVersion: uint32(config.ProtocolVersion),
+		PublicKey:          publicKey,
+		WebsocketPort:      uint32(config.Parameters.HttpWsPort),
+		JsonRpcPort:        uint32(config.Parameters.HttpJsonPort),
+		ProtocolVersion:    uint32(config.ProtocolVersion),
+		TlsWebsocketDomain: host,
+		TlsWebsocketPort:   uint32(config.Parameters.HttpWssPort),
 	}
 
 	node, err := NewNode(nn.GetLocalNode().Node.Node, nodeData)
@@ -329,6 +344,10 @@ func (localNode *LocalNode) GetWsAddr() string {
 	return fmt.Sprintf("%s:%d", localNode.GetHostname(), localNode.GetWebsocketPort())
 }
 
+func (localNode *LocalNode) GetWssAddr() string {
+	return fmt.Sprintf("%s:%d", localNode.GetTlsWebsocketDomain(), localNode.GetTlsWebsocketPort())
+}
+
 func (localNode *LocalNode) FindSuccessorAddrs(key []byte, numSucc int) ([]string, error) {
 	c, ok := localNode.nnet.Network.(*chord.Chord)
 	if !ok {
@@ -352,7 +371,7 @@ func (localNode *LocalNode) FindSuccessorAddrs(key []byte, numSucc int) ([]strin
 	return addrs, nil
 }
 
-func (localNode *LocalNode) findAddr(key []byte) (string, []byte, []byte, error) {
+func (localNode *LocalNode) findAddr(key []byte, tls bool) (string, []byte, []byte, error) {
 	c, ok := localNode.nnet.Network.(*chord.Chord)
 	if !ok {
 		return "", nil, nil, errors.New("Overlay is not chord")
@@ -362,11 +381,9 @@ func (localNode *LocalNode) findAddr(key []byte) (string, []byte, []byte, error)
 	if err != nil {
 		return "", nil, nil, err
 	}
-
 	if len(preds) == 0 {
 		return "", nil, nil, errors.New("Found no predecessors")
 	}
-
 	pred := preds[0]
 	nodeData := &pb.NodeData{}
 	err = proto.Unmarshal(pred.Data, nodeData)
@@ -374,7 +391,7 @@ func (localNode *LocalNode) findAddr(key []byte) (string, []byte, []byte, error)
 		return "", nil, nil, err
 	}
 
-	address, _ := url.Parse(pred.Addr)
+	address, err := url.Parse(pred.Addr)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -384,11 +401,26 @@ func (localNode *LocalNode) findAddr(key []byte) (string, []byte, []byte, error)
 		return "", nil, nil, errors.New("Hostname is empty")
 	}
 
-	wsAddr := fmt.Sprintf("%s:%d", host, nodeData.WebsocketPort)
+	var port uint16
+	if tls == true {
+		if nodeData.TlsWebsocketDomain != "" {
+			host = nodeData.TlsWebsocketDomain
+			port = uint16(nodeData.TlsWebsocketPort)
+		} else {
+			return "", nil, nil, errors.New("Predecessor node doesn't support WSS protocol")
+		}
+	} else {
+		port = uint16(nodeData.WebsocketPort)
+	}
+	wsAddr := fmt.Sprintf("%s:%d", host, port)
 
 	return wsAddr, nodeData.PublicKey, pred.Id, nil
 }
 
 func (localNode *LocalNode) FindWsAddr(key []byte) (string, []byte, []byte, error) {
-	return localNode.findAddr(key)
+	return localNode.findAddr(key, false)
+}
+
+func (localNode *LocalNode) FindWssAddr(key []byte) (string, []byte, []byte, error) {
+	return localNode.findAddr(key, true)
 }
