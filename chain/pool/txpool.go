@@ -199,8 +199,11 @@ func (tp *TxnPool) DropTxns() {
 	}
 
 	tp.blockValidationState.Lock()
-	tp.CleanBlockValidationState(txnsDropped)
+	err := tp.CleanBlockValidationState(txnsDropped)
 	tp.blockValidationState.Unlock()
+	if err != nil {
+		log.Errorf("CleanBlockValidationState error: %v", err)
+	}
 
 	bytesDropped := int64(0)
 	for _, txn := range txnsDropped {
@@ -295,6 +298,9 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 		return err
 	}
 
+	tp.blockValidationState.Lock()
+	defer tp.blockValidationState.Unlock()
+
 	switch txn.UnsignedTx.Payload.Type {
 	case pb.COINBASE_TYPE:
 		return fmt.Errorf("Invalid txn type %v", txn.UnsignedTx.Payload.Type)
@@ -302,19 +308,14 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 		// sigchain txn should not be added to txn pool
 		return nil
 	case pb.NANO_PAY_TYPE:
-		tp.blockValidationState.Lock()
-		defer tp.blockValidationState.Unlock()
 		if err := tp.blockValidationState.VerifyTransactionWithBlock(txn, 0); err != nil {
 			tp.blockValidationState.Reset()
 			return err
 		}
 		tp.NanoPayTxs.Store(txn.Hash(), txn)
-		tp.blockValidationState.Commit()
 	default:
 		if oldTxn, err := list.GetByNonce(txn.UnsignedTx.Nonce); err == nil {
 			log.Debug("replace old tx")
-			tp.blockValidationState.Lock()
-			defer tp.blockValidationState.Unlock()
 			if err := tp.CleanBlockValidationState([]*transaction.Transaction{oldTxn}); err != nil {
 				return err
 			}
@@ -348,8 +349,6 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 				return errors.New("nonce is not continuous")
 			}
 
-			tp.blockValidationState.Lock()
-			defer tp.blockValidationState.Unlock()
 			if err := tp.blockValidationState.VerifyTransactionWithBlock(txn, 0); err != nil {
 				tp.blockValidationState.Reset()
 				return err
@@ -358,9 +357,9 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 				return err
 			}
 		}
-
-		tp.blockValidationState.Commit()
 	}
+
+	tp.blockValidationState.Commit()
 
 	tp.addTransactionToMap(txn)
 	atomic.AddInt32(&tp.txnCount, 1)
@@ -485,10 +484,14 @@ func (tp *TxnPool) GetAllTransactions() []*transaction.Transaction {
 }
 
 func (tp *TxnPool) GetSubscribers(topic string) []string {
+	tp.blockValidationState.RLock()
+	defer tp.blockValidationState.RUnlock()
 	return tp.blockValidationState.GetSubscribers(topic)
 }
 
 func (tp *TxnPool) GetSubscribersWithMeta(topic string) map[string]string {
+	tp.blockValidationState.RLock()
+	defer tp.blockValidationState.RUnlock()
 	return tp.blockValidationState.GetSubscribersWithMeta(topic)
 }
 
@@ -522,7 +525,7 @@ func (tp *TxnPool) GetAllTransactionLists() map[common.Uint160][]*transaction.Tr
 	return txs
 }
 
-func (tp *TxnPool) CleanSubmittedTransactions(txns []*transaction.Transaction) error {
+func (tp *TxnPool) removeTransactions(txns []*transaction.Transaction) []*transaction.Transaction {
 	txnsRemoved := make([]*transaction.Transaction, 0)
 
 	// clean submitted txs
@@ -571,6 +574,11 @@ func (tp *TxnPool) CleanSubmittedTransactions(txns []*transaction.Transaction) e
 		return true
 	})
 
+	return txnsRemoved
+}
+
+func (tp *TxnPool) CleanSubmittedTransactions(txns []*transaction.Transaction) error {
+	txnsRemoved := tp.removeTransactions(txns)
 	tp.blockValidationState.Lock()
 	defer tp.blockValidationState.Unlock()
 	return tp.CleanBlockValidationState(txnsRemoved)
@@ -589,7 +597,19 @@ func (tp *TxnPool) deleteTransactionFromMap(txn *transaction.Transaction) {
 func (tp *TxnPool) CleanBlockValidationState(txns []*transaction.Transaction) error {
 	if err := tp.blockValidationState.CleanSubmittedTransactions(txns); err != nil {
 		log.Errorf("[CleanBlockValidationState] couldn't clean txn from block validation state: %v", err)
-		return tp.blockValidationState.RefreshBlockValidationState(tp.GetAllTransactions())
+		errMap := tp.blockValidationState.RefreshBlockValidationState(tp.GetAllTransactions())
+		if len(errMap) > 0 {
+			for txnHash, err := range errMap {
+				log.Errorf("RefreshBlockValidationState error for txn %x: %v", txnHash, err)
+			}
+			invalidTxns := make([]*transaction.Transaction, len(errMap))
+			for _, txn := range txns {
+				if _, ok := errMap[txn.Hash()]; ok {
+					invalidTxns = append(invalidTxns, txn)
+				}
+			}
+			tp.removeTransactions(invalidTxns)
+		}
 	}
 
 	return nil
