@@ -31,6 +31,8 @@ func Unpack(payload *pb.Payload) (IPayload, error) {
 		pl = new(pb.SigChainTxn)
 	case pb.REGISTER_NAME_TYPE:
 		pl = new(pb.RegisterName)
+	case pb.TRANSFER_NAME_TYPE:
+		pl = new(pb.TransferName)
 	case pb.DELETE_NAME_TYPE:
 		pl = new(pb.DeleteName)
 	case pb.SUBSCRIBE_TYPE:
@@ -73,9 +75,18 @@ func NewSigChainTxn(sigChain []byte, submitter common.Uint160) IPayload {
 		Submitter: submitter.ToArray(),
 	}
 }
-func NewRegisterName(registrant []byte, name string) IPayload {
+func NewRegisterName(registrant []byte, name string, fee int64) IPayload {
 	return &pb.RegisterName{
+		Registrant:      registrant,
+		Name:            name,
+		RegistrationFee: fee,
+	}
+}
+
+func NewTransferName(registrant []byte, receipt []byte, name string) IPayload {
+	return &pb.TransferName{
 		Registrant: registrant,
+		Recipient:  receipt,
 		Name:       name,
 	}
 }

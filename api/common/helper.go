@@ -50,13 +50,33 @@ func MakeSigChainTransaction(wallet vault.Wallet, sigChain []byte, nonce uint64)
 	return txn, nil
 }
 
-func MakeRegisterNameTransaction(wallet vault.Wallet, name string, nonce uint64, fee Fixed64) (*transaction.Transaction, error) {
+func MakeRegisterNameTransaction(wallet vault.Wallet, name string, nonce uint64, regFee Fixed64, fee Fixed64) (*transaction.Transaction, error) {
 	account, err := wallet.GetDefaultAccount()
 	if err != nil {
 		return nil, err
 	}
 	registrant := account.PubKey().EncodePoint()
-	txn, err := transaction.NewRegisterNameTransaction(registrant, name, nonce, fee)
+	txn, err := transaction.NewRegisterNameTransaction(registrant, name, nonce, regFee, fee)
+	if err != nil {
+		return nil, err
+	}
+
+	// sign transaction contract
+	err = wallet.Sign(txn)
+	if err != nil {
+		return nil, err
+	}
+
+	return txn, nil
+}
+
+func MakeTransferNameTransaction(wallet vault.Wallet, name string, nonce uint64, fee Fixed64, to []byte) (*transaction.Transaction, error) {
+	account, err := wallet.GetDefaultAccount()
+	if err != nil {
+		return nil, err
+	}
+	registrant := account.PubKey().EncodePoint()
+	txn, err := transaction.NewTransferNameTransaction(registrant, to, name, nonce, fee)
 	if err != nil {
 		return nil, err
 	}
