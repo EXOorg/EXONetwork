@@ -82,7 +82,7 @@ func getBlock(s Serverer, params map[string]interface{}) map[string]interface{} 
 			return respPacking(UNKNOWN_HASH, err.Error())
 		}
 	} else if str, ok := params["hash"].(string); ok {
-		hex, err := common.HexStringToBytes(str)
+		hex, err := hex.DecodeString(str)
 		if err != nil {
 			return respPacking(INVALID_PARAMS, err.Error())
 		}
@@ -134,7 +134,7 @@ func GetBlockTransactions(block *block.Block) interface{} {
 	trans := make([]string, len(block.Transactions))
 	for i := 0; i < len(block.Transactions); i++ {
 		h := block.Transactions[i].Hash()
-		trans[i] = common.BytesToHexString(h.ToArray())
+		trans[i] = hex.EncodeToString(h.ToArray())
 	}
 	hash := block.Hash()
 	type BlockTransactions struct {
@@ -143,7 +143,7 @@ func GetBlockTransactions(block *block.Block) interface{} {
 		Transactions []string
 	}
 	b := BlockTransactions{
-		Hash:         common.BytesToHexString(hash.ToArray()),
+		Hash:         hex.EncodeToString(hash.ToArray()),
 		Height:       block.Header.UnsignedHeader.Height,
 		Transactions: trans,
 	}
@@ -264,7 +264,7 @@ func getTransaction(s Serverer, params map[string]interface{}) map[string]interf
 		return respPacking(INVALID_PARAMS, "hash should be a string")
 	}
 
-	hex, err := common.HexStringToBytes(str)
+	hex, err := hex.DecodeString(str)
 	if err != nil {
 		return respPacking(INVALID_PARAMS, err.Error())
 	}
@@ -301,7 +301,7 @@ func sendRawTransaction(s Serverer, params map[string]interface{}) map[string]in
 
 	var hash common.Uint256
 	if str, ok := params["tx"].(string); ok {
-		hex, err := common.HexStringToBytes(str)
+		hex, err := hex.DecodeString(str)
 		if err != nil {
 			return respPacking(INVALID_PARAMS, err.Error())
 		}
@@ -318,7 +318,7 @@ func sendRawTransaction(s Serverer, params map[string]interface{}) map[string]in
 		return respPacking(INVALID_PARAMS, "tx should be a hex string")
 	}
 
-	return respPacking(SUCCESS, common.BytesToHexString(hash.ToArray()))
+	return respPacking(SUCCESS, hex.EncodeToString(hash.ToArray()))
 }
 
 // getNeighbor gets neighbors of this node
@@ -332,7 +332,12 @@ func getNeighbor(s Serverer, params map[string]interface{}) map[string]interface
 // params: {}
 // return: {"resultOrData":<result>|<error data>, "error":<errcode>}
 func getNodeState(s Serverer, params map[string]interface{}) map[string]interface{} {
-	return respPacking(SUCCESS, s.GetNetNode())
+	n := s.GetNetNode()
+	if n == nil {
+		// will be recovered by handler
+		panic(ErrNullID)
+	}
+	return respPacking(SUCCESS, n)
 }
 
 // setDebugInfo sets log level
@@ -361,11 +366,12 @@ func getVersion(s Serverer, params map[string]interface{}) map[string]interface{
 	return respPacking(SUCCESS, config.Version)
 }
 
-func NodeInfo(addr string, pubkey, id []byte) map[string]string {
+func NodeInfo(wsAddr, rpcAddr string, pubkey, id []byte) map[string]string {
 	nodeInfo := make(map[string]string)
-	nodeInfo["addr"] = addr
-	nodeInfo["pubkey"] = common.BytesToHexString(pubkey)
-	nodeInfo["id"] = common.BytesToHexString(id)
+	nodeInfo["addr"] = wsAddr
+	nodeInfo["rpcAddr"] = rpcAddr
+	nodeInfo["pubkey"] = hex.EncodeToString(pubkey)
+	nodeInfo["id"] = hex.EncodeToString(id)
 	return nodeInfo
 }
 
@@ -387,12 +393,12 @@ func getWsAddr(s Serverer, params map[string]interface{}) map[string]interface{}
 		return respPacking(INTERNAL_ERROR, err.Error())
 	}
 
-	addr, pubkey, id, err := s.GetNetNode().FindWsAddr(clientID)
+	wsAddr, rpcAddr, pubkey, id, err := s.GetNetNode().FindWsAddr(clientID)
 	if err != nil {
 		return respPacking(INTERNAL_ERROR, err.Error())
 	}
 
-	return respPacking(SUCCESS, NodeInfo(addr, pubkey, id))
+	return respPacking(SUCCESS, NodeInfo(wsAddr, rpcAddr, pubkey, id))
 }
 
 func getWssAddr(s Serverer, params map[string]interface{}) map[string]interface{} {
@@ -410,12 +416,12 @@ func getWssAddr(s Serverer, params map[string]interface{}) map[string]interface{
 		return respPacking(INTERNAL_ERROR, err.Error())
 	}
 
-	addr, pubkey, id, err := s.GetNetNode().FindWssAddr(clientID)
+	wsAddr, rpcAddr, pubkey, id, err := s.GetNetNode().FindWssAddr(clientID)
 	if err != nil {
 		return respPacking(INTERNAL_ERROR, err.Error())
 	}
 
-	return respPacking(SUCCESS, NodeInfo(addr, pubkey, id))
+	return respPacking(SUCCESS, NodeInfo(wsAddr, rpcAddr, pubkey, id))
 }
 
 // getBalanceByAddr gets balance by address
@@ -463,7 +469,7 @@ func GetBalanceByAssetID(s Serverer, params map[string]interface{}) map[string]i
 		return respPacking(INVALID_PARAMS, "asset id should be a string")
 	}
 
-	hexAssetID, err := common.HexStringToBytes(id)
+	hexAssetID, err := hex.DecodeString(id)
 	if err != nil {
 		return respPacking(INVALID_PARAMS, err.Error())
 	}
@@ -560,7 +566,7 @@ func getId(s Serverer, params map[string]interface{}) map[string]interface{} {
 	}
 
 	ret := map[string]interface{}{
-		"id": common.BytesToHexString(id),
+		"id": hex.EncodeToString(id),
 	}
 
 	return respPacking(SUCCESS, ret)
@@ -756,7 +762,7 @@ func getAsset(s Serverer, params map[string]interface{}) map[string]interface{} 
 		return respPacking(INVALID_PARAMS, "asset ID should be a string")
 	}
 
-	hexAssetID, err := common.HexStringToBytes(str)
+	hexAssetID, err := hex.DecodeString(str)
 	if err != nil {
 		return respPacking(INVALID_PARAMS, err.Error())
 	}
@@ -864,13 +870,13 @@ func findSuccessorAddr(s Serverer, params map[string]interface{}) map[string]int
 
 var InitialAPIHandlers = map[string]APIHandler{
 	"getlatestblockhash":   {Handler: getLatestBlockHash, AccessCtrl: BIT_JSONRPC},
-	"getblock":             {Handler: getBlock, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
+	"getblock":             {Handler: getBlock, AccessCtrl: BIT_JSONRPC},
 	"getblockcount":        {Handler: getBlockCount, AccessCtrl: BIT_JSONRPC},
-	"getlatestblockheight": {Handler: getLatestBlockHeight, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
+	"getlatestblockheight": {Handler: getLatestBlockHeight, AccessCtrl: BIT_JSONRPC},
 	"getblocktxsbyheight":  {Handler: getBlockTxsByHeight, AccessCtrl: BIT_JSONRPC},
-	"getconnectioncount":   {Handler: getConnectionCount, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
+	"getconnectioncount":   {Handler: getConnectionCount, AccessCtrl: BIT_JSONRPC},
 	"getrawmempool":        {Handler: getRawMemPool, AccessCtrl: BIT_JSONRPC},
-	"gettransaction":       {Handler: getTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
+	"gettransaction":       {Handler: getTransaction, AccessCtrl: BIT_JSONRPC},
 	"sendrawtransaction":   {Handler: sendRawTransaction, AccessCtrl: BIT_JSONRPC | BIT_WEBSOCKET},
 	"getwsaddr":            {Handler: getWsAddr, AccessCtrl: BIT_JSONRPC},
 	"getwssaddr":           {Handler: getWssAddr, AccessCtrl: BIT_JSONRPC},

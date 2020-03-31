@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +19,7 @@ import (
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto/ed25519"
 	"github.com/nknorg/nkn/crypto/ed25519/vrf"
-	"github.com/nknorg/nkn/crypto/util"
+	"github.com/nknorg/nkn/util"
 	"github.com/nknorg/portmapper"
 	"github.com/pbnjay/memory"
 )
@@ -34,9 +35,13 @@ const (
 	SigChainBlockDelay           = 1
 	SigChainPropogationTime      = 2
 	GossipSampleChordNeighbor    = 0.1
+	GossipMinChordNeighbor       = 3
 	GossipSampleRandomNeighbor   = 1.0
+	GossipMinRandomNeighbor      = 0
 	VotingSampleChordNeighbor    = 0.5
+	VotingMinChordNeighbor       = 4
 	VotingSampleRandomNeighbor   = 0.0
+	VotingMinRandomNeighbor      = 0
 	HeaderVersion                = 1
 	DBVersion                    = 0x01
 	InitialIssueAddress          = "NKNFCrUMFPkSeDRMG2ME21hD6wBCA2poc347"
@@ -129,7 +134,7 @@ var (
 	MaxGenerateIDTxnHash  = HeightDependentUint256{
 		heights: []uint32{245000, 0},
 		values: []common.Uint256{
-			common.Uint256{
+			{
 				0x00, 0x00, 0x00, 0x07, 0xff, 0xff, 0xff, 0xff,
 				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -142,6 +147,14 @@ var (
 	AllowTxnRegisterName = HeightDependentBool{
 		heights: []uint32{980000, 7500, 0},
 		values:  []bool{true, false, true},
+	}
+	ChargeNanoPayTxnFee = HeightDependentBool{
+		heights: []uint32{1072500, 0},
+		values:  []bool{true, false},
+	}
+	AllowSigChainHashSignature = HeightDependentBool{
+		heights: []uint32{1200000, 0},
+		values:  []bool{false, true},
 	}
 )
 
@@ -174,6 +187,7 @@ var (
 		MiningDebug:                  true,
 		LogLevel:                     1,
 		MaxLogFileSize:               20,
+		MaxLogFileTotalSize:          100,
 		SyncBatchWindowSize:          0,
 		SyncBlockHeadersBatchSize:    128,
 		SyncBlocksBatchSize:          4,
@@ -184,7 +198,6 @@ var (
 		RPCKeepAlivesEnabled:         false,
 		NATPortMappingTimeout:        365 * 86400,
 		NumTxnPerBlock:               256,
-		TlsDomain:                    "{{.DashedIP}}.ipv4.nknlabs.io",
 		TxPoolPerAccountTxCap:        32,
 		TxPoolTotalTxCap:             0,
 		TxPoolMaxMemorySize:          0,
@@ -193,8 +206,10 @@ var (
 		LogPath:                      "Log",
 		ChainDBPath:                  "ChainDB",
 		WalletFile:                   "wallet.json",
+		HttpWssDomain:                "{{.DashedIP}}.ipv4.nknlabs.io",
 		HttpWssCert:                  "certs/STAR.ipv4.nknlabs.io.cert",
 		HttpWssKey:                   "certs/STAR.ipv4.nknlabs.io.key",
+		HttpsJsonDomain:              "{{.DashedIP}}.ipv4.nknlabs.io",
 		HttpsJsonCert:                "certs/STAR.ipv4.nknlabs.io.cert",
 		HttpsJsonKey:                 "certs/STAR.ipv4.nknlabs.io.key",
 		MaxGetIDSeeds:                3,
@@ -209,24 +224,33 @@ var (
 		PasswordFile:                 "",
 		RecentStateCount:             1024,
 		StatePruningMode:             "none",
+		RPCRateLimit:                 1024,
+		RPCRateBurst:                 4096,
+		SyncBlockHeaderRateLimit:     8192,
+		SyncBlockHeaderRateBurst:     32768,
+		SyncBlockRateLimit:           256,
+		SyncBlockRateBurst:           1024,
+		BlockHeaderCacheSize:         1024,
 	}
 )
 
 type Configuration struct {
 	Version                      int           `json:"Version"`
 	SeedList                     []string      `json:"SeedList"`
+	HttpWssDomain                string        `json:"HttpWssDomain"`
 	HttpWssCert                  string        `json:"HttpWssCert"`
 	HttpWssKey                   string        `json:"HttpWssKey"`
 	HttpWsPort                   uint16        `json:"HttpWsPort"`
 	HttpWssPort                  uint16        `json:"HttpWssPort"`
 	HttpJsonPort                 uint16        `json:"HttpJsonPort"`
+	HttpsJsonDomain              string        `json:"HttpsJsonDomain"`
 	HttpsJsonCert                string        `json:"HttpsJsonCert"`
 	HttpsJsonKey                 string        `json:"HttpsJsonKey"`
 	HttpsJsonPort                uint16        `json:"HttpsJsonPort"`
 	NodePort                     uint16        `json:"-"`
 	LogLevel                     int           `json:"LogLevel"`
 	MaxLogFileSize               uint32        `json:"MaxLogSize"`
-	IsTLS                        bool          `json:"IsTLS"`
+	MaxLogFileTotalSize          uint32        `json:"MaxLogFileTotalSize"`
 	GenesisBlockProposer         string        `json:"GenesisBlockProposer"`
 	NumLowFeeTxnPerBlock         uint32        `json:"NumLowFeeTxnPerBlock"`
 	LowFeeTxnSizePerBlock        uint32        `json:"LowFeeTxnSizePerBlock"` // in bytes
@@ -234,7 +258,6 @@ type Configuration struct {
 	RegisterIDRegFee             int64         `json:"RegisterIDRegFee"`
 	RegisterIDTxnFee             int64         `json:"RegisterIDTxnFee"`
 	Hostname                     string        `json:"Hostname"`
-	TlsDomain                    string        `json:"TlsDomain"`
 	Transport                    string        `json:"Transport"`
 	NAT                          bool          `json:"NAT"`
 	Mining                       bool          `json:"Mining"`
@@ -265,6 +288,13 @@ type Configuration struct {
 	PasswordFile                 string        `json:"PasswordFile"`
 	RecentStateCount             uint32        `json:"RecentStateCount"`
 	StatePruningMode             string        `json:"StatePruningMode"`
+	RPCRateLimit                 float64       `json:"RPCRateLimit"` // requests per second
+	RPCRateBurst                 uint32        `json:"RPCRateBurst"`
+	SyncBlockHeaderRateLimit     float64       `json:"SyncBlockHeaderRateLimit"` // headers per second
+	SyncBlockHeaderRateBurst     uint32        `json:"SyncBlockHeaderRateBurst"`
+	SyncBlockRateLimit           float64       `json:"SyncBlockRateLimit"` // blocks per second
+	SyncBlockRateBurst           uint32        `json:"SyncBlockRateBurst"`
+	BlockHeaderCacheSize         uint32        `json:"BlockHeaderCacheSize"`
 }
 
 func Init() error {
@@ -433,7 +463,7 @@ func (config *Configuration) verify() error {
 		return errors.New("no GenesisBlockProposer")
 	}
 
-	pk, err := common.HexStringToBytes(config.GenesisBlockProposer)
+	pk, err := hex.DecodeString(config.GenesisBlockProposer)
 	if err != nil {
 		return fmt.Errorf("parse GenesisBlockProposer error: %v", err)
 	}
@@ -450,6 +480,10 @@ func (config *Configuration) verify() error {
 
 	if config.MaxLogFileSize <= 0 {
 		return fmt.Errorf("MaxLogFileSize should be >= 1 (MB)")
+	}
+
+	if config.MaxLogFileTotalSize <= 0 {
+		return fmt.Errorf("MaxLogFileTotalSize should be >= 1 (MB)")
 	}
 
 	switch config.StatePruningMode {

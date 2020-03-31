@@ -1,6 +1,10 @@
 package dashboard
 
 import (
+	"net/http"
+	"strconv"
+	"time"
+
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
@@ -13,18 +17,15 @@ import (
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
 	"github.com/pborman/uuid"
-	"net/http"
-	"strconv"
-	"time"
 )
 
 var (
 	localNode *node.LocalNode
-	wallet    vault.Wallet
+	wallet    *vault.Wallet
 	id        []byte
 )
 
-func Init(ln *node.LocalNode, w vault.Wallet, d []byte) {
+func Init(ln *node.LocalNode, w *vault.Wallet, d []byte) {
 	if ln != nil {
 		localNode = ln
 		serviceConfig.IsNodeInit = true

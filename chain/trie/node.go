@@ -2,12 +2,13 @@ package trie
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 
-	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
+	"github.com/nknorg/nkn/util/log"
 )
 
 const (
@@ -75,15 +76,15 @@ func (n *fullNode) fString(ind string) string {
 }
 
 func (n *shortNode) fString(ind string) string {
-	return fmt.Sprintf("{%v: %v} ", common.BytesToHexString(n.Key), n.Val.fString(ind+"  "))
+	return fmt.Sprintf("{%v: %v} ", hex.EncodeToString(n.Key), n.Val.fString(ind+"  "))
 
 }
 func (n hashNode) fString(ind string) string {
-	return fmt.Sprintf("<%s>", common.BytesToHexString(n))
+	return fmt.Sprintf("<%s>", hex.EncodeToString(n))
 
 }
 func (n valueNode) fString(ind string) string {
-	return fmt.Sprintf("%s", common.BytesToHexString(n))
+	return fmt.Sprintf("%s", hex.EncodeToString(n))
 
 }
 
@@ -108,7 +109,7 @@ type nodeFlag struct {
 func mustDecodeNode(hash, buf []byte, needFlags bool) node {
 	n, err := decodeNode(hash, buf, needFlags)
 	if err != nil {
-		panic(fmt.Sprintf("node %x, %v", hash, err))
+		log.Fatalf("Trie node %x decode error: %v", hash, err)
 	}
 	return n
 }
@@ -131,18 +132,6 @@ func (n *fullNode) Serialize(w io.Writer) error {
 		if err := serialization.WriteVarUint(w, uint64(idx)); err != nil {
 			return err
 		}
-
-		//if ns == nil {
-		//	panic("=-----hadhaslfd")
-		//	if err := serialization.WriteVarUint(w, uint64(20)); err != nil {
-		//		return err
-		//	}
-		//	u256 := ToHash256(nil)
-		//	if err := serialization.WriteVarBytes(w, u256); err != nil {
-		//		return err
-		//	}
-		//	continue
-		//}
 		if err := ns.Serialize(w); err != nil {
 			return err
 		}
@@ -158,18 +147,6 @@ func (n *shortNode) Serialize(w io.Writer) error {
 	if err := serialization.WriteVarBytes(w, n.Key); err != nil {
 		return err
 	}
-	//if n.Val == nil {
-	//	panic("=-----hadhaslfd")
-	//	if err := serialization.WriteVarUint(w, uint64(20)); err != nil {
-	//		return err
-	//	}
-	//	u256 := ToHash256(nil)
-	//	if err := serialization.WriteVarBytes(w, u256); err != nil {
-	//		return err
-	//	}
-	//	return nil
-	//}
-
 	if err := n.Val.Serialize(w); err != nil {
 		return err
 	}
@@ -263,18 +240,6 @@ func Deserialize(hash []byte, r io.Reader, needFlags bool) (node, error) {
 		}
 
 		return &f, nil
-		//case 20:
-		//	panic("=-----hadhaslfd")
-		//	u256 := ToHash256(nil)
-		//	hash, err := serialization.ReadVarBytes(r)
-		//	if err != nil {
-		//		return nil, err
-		//	}
-		//	if bytes.Equal(hash, u256) {
-		//		return nil, nil
-		//	}
-
-		//	return nil, errors.New("nil error")
 	}
 
 	return nil, errors.New("errors")

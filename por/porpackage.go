@@ -13,24 +13,25 @@ import (
 
 const (
 	// Block proposer of block height X needs to be specified in block X-1, so its
-	// candidate sigchains have to be fully propogated before block X-1 is
+	// candidate sigchains have to be fully propagated before block X-1 is
 	// proposed, i.e. before block X-2 is accepted. In other words, sigchain can
-	// only propogate when block height <= X-3.
+	// only propagate when block height <= X-3.
 	SigChainPropagationHeightOffset = 3
 	// Block proposer of block height X is chosen from sigchain produced during
 	// block X-SigChainPropagationHeightOffset-SigChainPropogationTime because
-	// sigchain can only propogate when block height <=
+	// sigchain can only propagate when block height <=
 	// X-SigChainPropagationHeightOffset, so it has to start propogating when
 	// block height <= X-SigChainPropagationHeightOffset-SigChainPropogationTime.
 	SigChainMiningHeightOffset = config.SigChainPropogationTime + SigChainPropagationHeightOffset
 )
 
 type PorPackage struct {
-	VoteForHeight uint32       `protobuf:"varint,1,opt,name=VoteForHeight,proto3" json:"VoteForHeight,omitempty"`
-	BlockHash     []byte       `protobuf:"bytes,3,opt,name=BlockHash,proto3" json:"BlockHash,omitempty"`
-	TxHash        []byte       `protobuf:"bytes,4,opt,name=TxHash,proto3" json:"TxHash,omitempty"`
-	SigHash       []byte       `protobuf:"bytes,5,opt,name=SigHash,proto3" json:"SigHash,omitempty"`
-	SigChain      *pb.SigChain `protobuf:"bytes,6,opt,name=SigChain" json:"SigChain,omitempty"`
+	Height        uint32
+	VoteForHeight uint32
+	BlockHash     []byte
+	TxHash        []byte
+	SigHash       []byte
+	SigChain      *pb.SigChain
 }
 
 type PorPackages []*PorPackage
@@ -55,8 +56,9 @@ func (c PorPackages) Less(i, j int) bool {
 
 func NewPorPackage(txn *transaction.Transaction, shouldVerify bool) (*PorPackage, error) {
 	if txn.UnsignedTx.Payload.Type != pb.SIG_CHAIN_TXN_TYPE {
-		return nil, errors.New("Transaction type mismatch")
+		return nil, errors.New("Transaction type should be sigchain")
 	}
+
 	payload, err := transaction.Unpack(txn.UnsignedTx.Payload)
 	if err != nil {
 		return nil, err
@@ -94,30 +96,32 @@ func NewPorPackage(txn *transaction.Transaction, shouldVerify bool) (*PorPackage
 		return nil, err
 	}
 
-	txHash := txn.Hash()
-	sigHash, err := sigChain.SignatureHash()
-	if err != nil {
-		return nil, err
-	}
-
 	if shouldVerify {
 		err = VerifyID(sigChain)
 		if err != nil {
 			return nil, err
 		}
 
-		err = sigChain.Verify()
+		err = sigChain.Verify(height)
 		if err != nil {
 			return nil, err
 		}
 	}
 
+	txHash := txn.Hash()
+	sigHash, err := sigChain.SignatureHash()
+	if err != nil {
+		return nil, err
+	}
+
 	pp := &PorPackage{
+		Height:        height,
 		VoteForHeight: height + SigChainMiningHeightOffset + config.SigChainBlockDelay,
 		BlockHash:     sigChain.BlockHash,
 		TxHash:        txHash.ToArray(),
 		SigHash:       sigHash,
 		SigChain:      sigChain,
 	}
+
 	return pp, nil
 }

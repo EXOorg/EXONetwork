@@ -79,10 +79,10 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 		if elc.NeighborVoteCount() > 0 {
 			timerStartOnce.Do(func() {
 				timer.StopTimer(timeoutTimer)
-				electionStartTimer.Reset(electionStartDelay)
+				electionStartTimer.Reset(electionStartDelay - initialVoteDelay)
 				now := time.Now()
-				verifyDeadline = now.Add(proposalVerificationTimeout)
-				initialVoteDeadline = now.Add(initialVoteDelay)
+				verifyDeadline = now.Add(proposalVerificationTimeout - initialVoteDelay)
+				initialVoteDeadline = now
 			})
 			break
 		}
@@ -215,7 +215,7 @@ func (consensus *Consensus) startRequestingProposal() {
 
 		log.Infof("Request block %s from neighbor %v", requestProposal.blockHash.ToHexString(), neighbor.GetID())
 
-		block, err := consensus.requestProposal(neighbor, requestProposal.blockHash, requestProposal.height, requestTransactionType)
+		block, err := consensus.requestProposal(neighbor, requestProposal.blockHash, requestProposal.height, defaultRequestTransactionType)
 		if err != nil {
 			log.Errorf("Request block %s error: %v", requestProposal.blockHash.ToHexString(), err)
 			continue
@@ -270,6 +270,10 @@ func (consensus *Consensus) receiveProposalHash(neighborID string, height uint32
 
 	if _, ok := consensus.proposals.Get(blockHash.ToArray()); ok {
 		return nil
+	}
+
+	if _, ok := consensus.neighborBlacklist.Load(neighborID); ok {
+		return fmt.Errorf("ignore block hash %s from blacklist neighbor %s", blockHash.ToHexString(), neighborID)
 	}
 
 	expectedHeight := consensus.GetExpectedHeight()
@@ -350,6 +354,13 @@ func (consensus *Consensus) requestProposal(neighbor *node.RemoteNode, blockHash
 		}
 	}
 
+	if err = chain.SignatureCheck(b.Header); err != nil {
+		err = fmt.Errorf("Proposal fails to pass signature check: %v", err)
+		consensus.neighborBlacklist.Store(neighbor.GetID(), err)
+		log.Infof("Add neighbor %s to blacklist because: %v", neighbor.GetID(), err)
+		return nil, err
+	}
+
 	var txnsRoot common.Uint256
 	poolTxns := make([]*transaction.Transaction, 0, len(replyMsg.TransactionsHash))
 	missingTxnsHash := make([][]byte, 0, len(replyMsg.TransactionsHash))
@@ -359,6 +370,10 @@ func (consensus *Consensus) requestProposal(neighbor *node.RemoteNode, blockHash
 		txnsHash := make([]common.Uint256, len(b.Transactions))
 		for i, txn := range b.Transactions {
 			txnsHash[i] = txn.Hash()
+		}
+
+		if hasDuplicateHash(txnsHash) {
+			return nil, fmt.Errorf("Block txn list contains duplicate")
 		}
 
 		txnsRoot, err = crypto.ComputeRoot(txnsHash)
@@ -378,6 +393,10 @@ func (consensus *Consensus) requestProposal(neighbor *node.RemoteNode, blockHash
 			if err != nil {
 				return nil, err
 			}
+		}
+
+		if hasDuplicateHash(txnsHash) {
+			return nil, fmt.Errorf("Txn hash list contains duplicate")
 		}
 
 		txnsRoot, err = crypto.ComputeRoot(txnsHash)
@@ -430,6 +449,10 @@ func (consensus *Consensus) requestProposal(neighbor *node.RemoteNode, blockHash
 		txnsHash := make([]common.Uint256, len(replyMsg.TransactionsHash))
 		for i, txn := range mergedTxns {
 			txnsHash[i] = txn.Hash()
+		}
+
+		if hasDuplicateHash(txnsHash) {
+			return nil, fmt.Errorf("Txn list contains duplicate")
 		}
 
 		txnsRoot, err = crypto.ComputeRoot(txnsHash)

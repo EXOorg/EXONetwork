@@ -13,7 +13,6 @@ import (
 	"github.com/nknorg/nkn/chain/db"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
-	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/program"
 	"github.com/nknorg/nkn/transaction"
@@ -263,21 +262,34 @@ func (cs *ChainStore) IsBlockInStore(hash Uint256) bool {
 }
 
 func (cs *ChainStore) persist(b *block.Block) error {
-	cs.st.NewBatch()
+	err := cs.st.NewBatch()
+	if err != nil {
+		return err
+	}
 
 	headerHash := b.Hash()
 
 	//batch put header
 	headerBuffer := bytes.NewBuffer(nil)
-	b.Trim(headerBuffer)
-	if err := cs.st.BatchPut(db.HeaderKey(headerHash), headerBuffer.Bytes()); err != nil {
+	err = b.Trim(headerBuffer)
+	if err != nil {
+		return err
+	}
+
+	err = cs.st.BatchPut(db.HeaderKey(headerHash), headerBuffer.Bytes())
+	if err != nil {
 		return err
 	}
 
 	//batch put headerhash
 	headerHashBuffer := bytes.NewBuffer(nil)
-	headerHash.Serialize(headerHashBuffer)
-	if err := cs.st.BatchPut(db.BlockhashKey(b.Header.UnsignedHeader.Height), headerHashBuffer.Bytes()); err != nil {
+	_, err = headerHash.Serialize(headerHashBuffer)
+	if err != nil {
+		return err
+	}
+
+	err = cs.st.BatchPut(db.BlockhashKey(b.Header.UnsignedHeader.Height), headerHashBuffer.Bytes())
+	if err != nil {
 		return err
 	}
 
@@ -351,7 +363,11 @@ func (cs *ChainStore) persist(b *block.Block) error {
 	}
 
 	//batch put currentblockhash
-	serialization.WriteUint32(headerHashBuffer, b.Header.UnsignedHeader.Height)
+	err = serialization.WriteUint32(headerHashBuffer, b.Header.UnsignedHeader.Height)
+	if err != nil {
+		return err
+	}
+
 	err = cs.st.BatchPut(db.CurrentBlockHashKey(), headerHashBuffer.Bytes())
 	if err != nil {
 		return err
@@ -378,8 +394,8 @@ func (cs *ChainStore) SaveBlock(b *block.Block, fastAdd bool) error {
 	cs.currentBlockHash = b.Hash()
 	cs.mu.Unlock()
 
-	if cs.currentBlockHeight > 3 {
-		cs.headerCache.RemoveCachedHeader(cs.currentBlockHeight - 3)
+	if cs.currentBlockHeight > config.Parameters.BlockHeaderCacheSize {
+		cs.headerCache.RemoveCachedHeader(cs.currentBlockHeight - config.Parameters.BlockHeaderCacheSize)
 	}
 	cs.headerCache.AddHeaderToCache(b.Header)
 
@@ -487,12 +503,7 @@ func (cs *ChainStore) GetNonce(addr Uint160) uint64 {
 }
 
 func (cs *ChainStore) GetID(publicKey []byte) ([]byte, error) {
-	pubKey, err := crypto.NewPubKeyFromBytes(publicKey)
-	if err != nil {
-		return nil, fmt.Errorf("GetID error: %v", err)
-	}
-
-	programHash, err := program.CreateProgramHash(pubKey)
+	programHash, err := program.CreateProgramHash(publicKey)
 	if err != nil {
 		return nil, fmt.Errorf("GetID error: %v", err)
 	}

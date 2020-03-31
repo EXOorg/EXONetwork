@@ -26,60 +26,36 @@ import (
 	"github.com/nknorg/nnet/overlay/chord"
 	"github.com/nknorg/nnet/overlay/routing"
 	nnetpb "github.com/nknorg/nnet/protobuf"
+	"golang.org/x/time/rate"
 )
 
 type LocalNode struct {
 	*Node
+	nbrNodes      // neighbor nodes
+	*pool.TxnPool // transaction pool of local node
+	*hashCache    // txn hash cache
+	*messageHandlerStore
 	account            *vault.Account // local node wallet account
 	nnet               *nnet.NNet     // nnet instance
 	relayer            *RelayService  // relay service
 	quit               chan bool      // block syncing channel
 	requestSigChainTxn *requestTxn
 	receiveTxnMsg      *receiveTxnMsg
-	nbrNodes           // neighbor nodes
-	*pool.TxnPool      // transaction pool of local node
-	*hashCache         // txn hash cache
-	*messageHandlerStore
+	syncHeaderLimiter  *rate.Limiter
+	syncBlockLimiter   *rate.Limiter
 
-	sync.RWMutex
+	mu                sync.RWMutex
 	syncOnce          *sync.Once
 	relayMessageCount uint64    // count how many messages node has relayed since start
 	startTime         time.Time // Time of localNode init
 	proposalSubmitted uint32    // Count of localNode submitted proposal
 }
 
-func (localNode *LocalNode) MarshalJSON() ([]byte, error) {
-	var out map[string]interface{}
-
-	buf, err := json.Marshal(localNode.Node)
-	if err != nil {
-		return nil, err
-	}
-
-	err = json.Unmarshal(buf, &out)
-	if err != nil {
-		return nil, err
-	}
-
-	out["height"] = localNode.GetHeight()
-	out["uptime"] = time.Since(localNode.startTime).Truncate(time.Second).Seconds()
-	out["version"] = config.Version
-	out["relayMessageCount"] = localNode.GetRelayMessageCount()
-	if config.Parameters.MiningDebug {
-		out["proposalSubmitted"] = localNode.GetProposalSubmitted()
-		out["currTimeStamp"] = time.Now().Unix()
-	}
-
-	return json.Marshal(out)
-}
-
-func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
+func NewLocalNode(wallet *vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 	account, err := wallet.GetDefaultAccount()
 	if err != nil {
 		return nil, err
 	}
-
-	publicKey := account.PublicKey.EncodePoint()
 
 	address, err := url.Parse(nn.GetLocalNode().Node.Addr)
 	if err != nil {
@@ -87,20 +63,27 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 	}
 
 	host := address.Hostname()
+	tlsDomain := &TlsDomain{DotToDash(host)}
 
-	wd := WssDomain{DotToDash(host)}
-	host, err = wd.IpToDomain()
+	wssDomain, err := tlsDomain.IpToDomain(config.Parameters.HttpWssDomain)
+	if err != nil {
+		return nil, err
+	}
+
+	httpsDomain, err := tlsDomain.IpToDomain(config.Parameters.HttpsJsonDomain)
 	if err != nil {
 		return nil, err
 	}
 
 	nodeData := &pb.NodeData{
-		PublicKey:          publicKey,
+		PublicKey:          account.PublicKey,
 		WebsocketPort:      uint32(config.Parameters.HttpWsPort),
 		JsonRpcPort:        uint32(config.Parameters.HttpJsonPort),
 		ProtocolVersion:    uint32(config.ProtocolVersion),
-		TlsWebsocketDomain: host,
+		TlsWebsocketDomain: wssDomain,
 		TlsWebsocketPort:   uint32(config.Parameters.HttpWssPort),
+		TlsJsonRpcDomain:   httpsDomain,
+		TlsJsonRpcPort:     uint32(config.Parameters.HttpsJsonPort),
 	}
 
 	node, err := NewNode(nn.GetLocalNode().Node.Node, nodeData)
@@ -117,6 +100,8 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 		hashCache:           newHashCache(),
 		requestSigChainTxn:  newRequestTxn(requestSigChainTxnWorkerPoolSize, nil),
 		receiveTxnMsg:       newReceiveTxnMsg(receiveTxnMsgWorkerPoolSize, nil),
+		syncHeaderLimiter:   rate.NewLimiter(rate.Limit(config.Parameters.SyncBlockHeaderRateLimit), int(config.Parameters.SyncBlockHeaderRateBurst)),
+		syncBlockLimiter:    rate.NewLimiter(rate.Limit(config.Parameters.SyncBlockRateLimit), int(config.Parameters.SyncBlockRateBurst)),
 		messageHandlerStore: newMessageHandlerStore(),
 		nnet:                nn,
 		startTime:           time.Now(),
@@ -188,6 +173,31 @@ func NewLocalNode(wallet vault.Wallet, nn *nnet.NNet) (*LocalNode, error) {
 	nn.MustApplyMiddleware(routing.RemoteMessageRouted{localNode.remoteMessageRouted, 0})
 
 	return localNode, nil
+}
+
+func (localNode *LocalNode) MarshalJSON() ([]byte, error) {
+	var out map[string]interface{}
+
+	buf, err := json.Marshal(localNode.Node)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(buf, &out)
+	if err != nil {
+		return nil, err
+	}
+
+	out["height"] = localNode.GetHeight()
+	out["uptime"] = time.Since(localNode.startTime).Truncate(time.Second).Seconds()
+	out["version"] = config.Version
+	out["relayMessageCount"] = localNode.GetRelayMessageCount()
+	if config.Parameters.MiningDebug {
+		out["proposalSubmitted"] = localNode.GetProposalSubmitted()
+		out["currTimeStamp"] = time.Now().Unix()
+	}
+
+	return json.Marshal(out)
 }
 
 func (localNode *LocalNode) Start() error {
@@ -294,15 +304,15 @@ func (localNode *LocalNode) IncrementProposalSubmitted() {
 }
 
 func (localNode *LocalNode) GetRelayMessageCount() uint64 {
-	localNode.RLock()
-	defer localNode.RUnlock()
+	localNode.mu.RLock()
+	defer localNode.mu.RUnlock()
 	return localNode.relayMessageCount
 }
 
 func (localNode *LocalNode) IncrementRelayMessageCount() {
-	localNode.Lock()
+	localNode.mu.Lock()
 	localNode.relayMessageCount++
-	localNode.Unlock()
+	localNode.mu.Unlock()
 }
 
 func (localNode *LocalNode) GetTxnPool() *pool.TxnPool {
@@ -371,55 +381,63 @@ func (localNode *LocalNode) FindSuccessorAddrs(key []byte, numSucc int) ([]strin
 	return addrs, nil
 }
 
-func (localNode *LocalNode) findAddr(key []byte, tls bool) (string, []byte, []byte, error) {
+func (localNode *LocalNode) findAddrForClient(key []byte, tls bool) (string, string, []byte, []byte, error) {
 	c, ok := localNode.nnet.Network.(*chord.Chord)
 	if !ok {
-		return "", nil, nil, errors.New("Overlay is not chord")
+		return "", "", nil, nil, errors.New("Overlay is not chord")
 	}
 
 	preds, err := c.FindPredecessors(key, 1)
 	if err != nil {
-		return "", nil, nil, err
+		return "", "", nil, nil, err
 	}
 	if len(preds) == 0 {
-		return "", nil, nil, errors.New("Found no predecessors")
+		return "", "", nil, nil, errors.New("Found no predecessors")
 	}
+
 	pred := preds[0]
 	nodeData := &pb.NodeData{}
 	err = proto.Unmarshal(pred.Data, nodeData)
 	if err != nil {
-		return "", nil, nil, err
+		return "", "", nil, nil, err
 	}
 
-	var host string
-	var port uint16
+	var wsHost, rpcHost string
+	var wsPort, rpcPort uint16
+
 	if tls == true {
-		if nodeData.TlsWebsocketDomain != "" {
-			host = nodeData.TlsWebsocketDomain
-			port = uint16(nodeData.TlsWebsocketPort)
-		} else {
-			return "", nil, nil, errors.New("Predecessor node doesn't support WSS protocol")
+		// We only check wss because https rpc is optional
+		if len(nodeData.TlsWebsocketDomain) == 0 || nodeData.TlsWebsocketPort == 0 {
+			return "", "", nil, nil, errors.New("Predecessor node doesn't support WSS protocol")
 		}
+		wsHost = nodeData.TlsWebsocketDomain
+		wsPort = uint16(nodeData.TlsWebsocketPort)
+		rpcHost = nodeData.TlsJsonRpcDomain
+		rpcPort = uint16(nodeData.TlsJsonRpcPort)
 	} else {
 		address, err := url.Parse(pred.Addr)
 		if err != nil {
-			return "", nil, nil, err
+			return "", "", nil, nil, err
 		}
-		host = address.Hostname()
-		if host == "" {
-			return "", nil, nil, errors.New("Hostname is empty")
+		wsHost = address.Hostname()
+		if wsHost == "" {
+			return "", "", nil, nil, errors.New("Hostname is empty")
 		}
-		port = uint16(nodeData.WebsocketPort)
+		wsPort = uint16(nodeData.WebsocketPort)
+		rpcHost = wsHost
+		rpcPort = uint16(nodeData.JsonRpcPort)
 	}
-	wsAddr := fmt.Sprintf("%s:%d", host, port)
 
-	return wsAddr, nodeData.PublicKey, pred.Id, nil
+	wsAddr := fmt.Sprintf("%s:%d", wsHost, wsPort)
+	rpcAddr := fmt.Sprintf("%s:%d", rpcHost, rpcPort)
+
+	return wsAddr, rpcAddr, nodeData.PublicKey, pred.Id, nil
 }
 
-func (localNode *LocalNode) FindWsAddr(key []byte) (string, []byte, []byte, error) {
-	return localNode.findAddr(key, false)
+func (localNode *LocalNode) FindWsAddr(key []byte) (string, string, []byte, []byte, error) {
+	return localNode.findAddrForClient(key, false)
 }
 
-func (localNode *LocalNode) FindWssAddr(key []byte) (string, []byte, []byte, error) {
-	return localNode.findAddr(key, true)
+func (localNode *LocalNode) FindWssAddr(key []byte) (string, string, []byte, []byte, error) {
+	return localNode.findAddrForClient(key, true)
 }

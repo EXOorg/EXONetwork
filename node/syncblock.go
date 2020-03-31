@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-
 	"github.com/nknorg/consequential"
 	"github.com/nknorg/nkn/block"
 	"github.com/nknorg/nkn/chain"
@@ -144,6 +143,10 @@ func (localNode *LocalNode) getBlockHeadersMessageHandler(remoteMessage *RemoteM
 		return replyBuf, false, nil
 	}
 
+	if !localNode.syncHeaderLimiter.AllowN(time.Now(), int(endHeight-startHeight)) {
+		return replyBuf, false, nil
+	}
+
 	if endHeight > chain.DefaultLedger.Store.GetHeaderHeight() {
 		return replyBuf, false, nil
 	}
@@ -190,6 +193,10 @@ func (localNode *LocalNode) getBlocksMessageHandler(remoteMessage *RemoteMessage
 	}
 
 	if endHeight-startHeight > maxSyncBlocksBatchSize {
+		return replyBuf, false, nil
+	}
+
+	if !localNode.syncBlockLimiter.AllowN(time.Now(), int(endHeight-startHeight)) {
 		return replyBuf, false, nil
 	}
 
@@ -308,9 +315,9 @@ func (localNode *LocalNode) StartSyncing(stopHash common.Uint256, stopHeight uin
 	var err error
 	started := false
 
-	localNode.RLock()
+	localNode.mu.RLock()
 	syncOnce := localNode.syncOnce
-	localNode.RUnlock()
+	localNode.mu.RUnlock()
 
 	syncOnce.Do(func() {
 		started = true
@@ -331,7 +338,7 @@ func (localNode *LocalNode) StartSyncing(stopHash common.Uint256, stopHeight uin
 		var rollbacked bool
 		rollbacked, err = localNode.maybeRollback(neighbors)
 		if err != nil {
-			panic(fmt.Errorf("Rollback error: %v", err))
+			log.Fatalf("Rollback error: %v", err)
 		}
 		if rollbacked {
 			currentHeight = chain.DefaultLedger.Store.GetHeight()
@@ -372,8 +379,8 @@ func (localNode *LocalNode) StartSyncing(stopHash common.Uint256, stopHeight uin
 
 // ResetSyncing resets syncOnce and allows for future block syncing
 func (localNode *LocalNode) ResetSyncing() {
-	localNode.Lock()
-	defer localNode.Unlock()
+	localNode.mu.Lock()
+	defer localNode.mu.Unlock()
 	localNode.syncOnce = new(sync.Once)
 }
 

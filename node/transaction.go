@@ -11,10 +11,10 @@ import (
 	"github.com/nknorg/nkn/chain"
 	"github.com/nknorg/nkn/chain/pool"
 	"github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/crypto/util"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/por"
 	"github.com/nknorg/nkn/transaction"
+	"github.com/nknorg/nkn/util"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	nnetnode "github.com/nknorg/nnet/node"
@@ -504,6 +504,11 @@ func (localNode *LocalNode) requestSignatureChainTransaction(neighbor *RemoteNod
 	}
 
 	txn := &transaction.Transaction{Transaction: replyMsg.Transaction}
+
+	err = txn.VerifySignature()
+	if err != nil {
+		return nil, err
+	}
 
 	porPkg, err := por.NewPorPackage(txn, false)
 	if err != nil {
