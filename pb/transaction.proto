@@ -58,20 +58,13 @@ message Coinbase {
 }
 
 message SigChainTxn {
-	bytes sig_chain    = 1;
+	bytes sigChain     = 1;
 	bytes submitter    = 2;
 }
 
 message RegisterName {
-	bytes  registrant      = 1;
-	string name            = 2;
-	int64 registration_fee = 3;
-}
-
-message TransferName {
-	string name            = 1;
-	bytes registrant       = 2;
-	bytes recipient        = 3;
+	bytes  registrant = 1;
+	string name       = 2;
 }
 
 message DeleteName {
@@ -83,15 +76,9 @@ message Subscribe {
 	bytes subscriber   = 1;
 	string identifier  = 2;
 	string topic       = 3;
-	uint32 bucket      = 4 [deprecated = true];
+	uint32 bucket      = 4;
 	uint32 duration    = 5;
 	string meta        = 6;
-}
-
-message Unsubscribe {
-	bytes subscriber   = 1;
-	string identifier  = 2;
-	string topic       = 3;
 }
 
 message TransferAsset {

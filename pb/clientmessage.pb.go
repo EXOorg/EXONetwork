@@ -48,39 +48,18 @@ var ClientMessageType_value = map[string]int32{
 }
 
 func (ClientMessageType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_clientmessage_f54769dd684aff8a, []int{0}
-}
-
-type CompressionType int32
-
-const (
-	COMPRESSION_NONE CompressionType = 0
-	COMPRESSION_ZLIB CompressionType = 1
-)
-
-var CompressionType_name = map[int32]string{
-	0: "COMPRESSION_NONE",
-	1: "COMPRESSION_ZLIB",
-}
-var CompressionType_value = map[string]int32{
-	"COMPRESSION_NONE": 0,
-	"COMPRESSION_ZLIB": 1,
-}
-
-func (CompressionType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_clientmessage_f54769dd684aff8a, []int{1}
+	return fileDescriptor_clientmessage_c021a6273ba926f1, []int{0}
 }
 
 type ClientMessage struct {
-	MessageType     ClientMessageType `protobuf:"varint,1,opt,name=message_type,json=messageType,proto3,enum=pb.ClientMessageType" json:"message_type,omitempty"`
-	Message         []byte            `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	CompressionType CompressionType   `protobuf:"varint,3,opt,name=compression_type,json=compressionType,proto3,enum=pb.CompressionType" json:"compression_type,omitempty"`
+	MessageType ClientMessageType `protobuf:"varint,1,opt,name=message_type,json=messageType,proto3,enum=pb.ClientMessageType" json:"message_type,omitempty"`
+	Message     []byte            `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 }
 
 func (m *ClientMessage) Reset()      { *m = ClientMessage{} }
 func (*ClientMessage) ProtoMessage() {}
 func (*ClientMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_clientmessage_f54769dd684aff8a, []int{0}
+	return fileDescriptor_clientmessage_c021a6273ba926f1, []int{0}
 }
 func (m *ClientMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -123,13 +102,6 @@ func (m *ClientMessage) GetMessage() []byte {
 	return nil
 }
 
-func (m *ClientMessage) GetCompressionType() CompressionType {
-	if m != nil {
-		return m.CompressionType
-	}
-	return COMPRESSION_NONE
-}
-
 type OutboundMessage struct {
 	Dest              string   `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
 	Payload           []byte   `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
@@ -138,13 +110,12 @@ type OutboundMessage struct {
 	Nonce             uint32   `protobuf:"varint,5,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	BlockHash         []byte   `protobuf:"bytes,6,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
 	Signatures        [][]byte `protobuf:"bytes,7,rep,name=signatures" json:"signatures,omitempty"`
-	Payloads          [][]byte `protobuf:"bytes,8,rep,name=payloads" json:"payloads,omitempty"`
 }
 
 func (m *OutboundMessage) Reset()      { *m = OutboundMessage{} }
 func (*OutboundMessage) ProtoMessage() {}
 func (*OutboundMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_clientmessage_f54769dd684aff8a, []int{1}
+	return fileDescriptor_clientmessage_c021a6273ba926f1, []int{1}
 }
 func (m *OutboundMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -222,23 +193,16 @@ func (m *OutboundMessage) GetSignatures() [][]byte {
 	return nil
 }
 
-func (m *OutboundMessage) GetPayloads() [][]byte {
-	if m != nil {
-		return m.Payloads
-	}
-	return nil
-}
-
 type InboundMessage struct {
-	Src      string `protobuf:"bytes,1,opt,name=src,proto3" json:"src,omitempty"`
-	Payload  []byte `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
-	PrevHash []byte `protobuf:"bytes,3,opt,name=prev_hash,json=prevHash,proto3" json:"prev_hash,omitempty"`
+	Src           string `protobuf:"bytes,1,opt,name=src,proto3" json:"src,omitempty"`
+	Payload       []byte `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
+	PrevSignature []byte `protobuf:"bytes,3,opt,name=prev_signature,json=prevSignature,proto3" json:"prev_signature,omitempty"`
 }
 
 func (m *InboundMessage) Reset()      { *m = InboundMessage{} }
 func (*InboundMessage) ProtoMessage() {}
 func (*InboundMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_clientmessage_f54769dd684aff8a, []int{2}
+	return fileDescriptor_clientmessage_c021a6273ba926f1, []int{2}
 }
 func (m *InboundMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -281,22 +245,22 @@ func (m *InboundMessage) GetPayload() []byte {
 	return nil
 }
 
-func (m *InboundMessage) GetPrevHash() []byte {
+func (m *InboundMessage) GetPrevSignature() []byte {
 	if m != nil {
-		return m.PrevHash
+		return m.PrevSignature
 	}
 	return nil
 }
 
 type Receipt struct {
-	PrevHash  []byte `protobuf:"bytes,1,opt,name=prev_hash,json=prevHash,proto3" json:"prev_hash,omitempty"`
-	Signature []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	PrevSignature []byte `protobuf:"bytes,1,opt,name=prev_signature,json=prevSignature,proto3" json:"prev_signature,omitempty"`
+	Signature     []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
 }
 
 func (m *Receipt) Reset()      { *m = Receipt{} }
 func (*Receipt) ProtoMessage() {}
 func (*Receipt) Descriptor() ([]byte, []int) {
-	return fileDescriptor_clientmessage_f54769dd684aff8a, []int{3}
+	return fileDescriptor_clientmessage_c021a6273ba926f1, []int{3}
 }
 func (m *Receipt) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -325,9 +289,9 @@ func (m *Receipt) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Receipt proto.InternalMessageInfo
 
-func (m *Receipt) GetPrevHash() []byte {
+func (m *Receipt) GetPrevSignature() []byte {
 	if m != nil {
-		return m.PrevHash
+		return m.PrevSignature
 	}
 	return nil
 }
@@ -345,17 +309,9 @@ func init() {
 	proto.RegisterType((*InboundMessage)(nil), "pb.InboundMessage")
 	proto.RegisterType((*Receipt)(nil), "pb.Receipt")
 	proto.RegisterEnum("pb.ClientMessageType", ClientMessageType_name, ClientMessageType_value)
-	proto.RegisterEnum("pb.CompressionType", CompressionType_name, CompressionType_value)
 }
 func (x ClientMessageType) String() string {
 	s, ok := ClientMessageType_name[int32(x)]
-	if ok {
-		return s
-	}
-	return strconv.Itoa(int(x))
-}
-func (x CompressionType) String() string {
-	s, ok := CompressionType_name[int32(x)]
 	if ok {
 		return s
 	}
@@ -384,9 +340,6 @@ func (this *ClientMessage) Equal(that interface{}) bool {
 		return false
 	}
 	if !bytes.Equal(this.Message, that1.Message) {
-		return false
-	}
-	if this.CompressionType != that1.CompressionType {
 		return false
 	}
 	return true
@@ -441,14 +394,6 @@ func (this *OutboundMessage) Equal(that interface{}) bool {
 			return false
 		}
 	}
-	if len(this.Payloads) != len(that1.Payloads) {
-		return false
-	}
-	for i := range this.Payloads {
-		if !bytes.Equal(this.Payloads[i], that1.Payloads[i]) {
-			return false
-		}
-	}
 	return true
 }
 func (this *InboundMessage) Equal(that interface{}) bool {
@@ -476,7 +421,7 @@ func (this *InboundMessage) Equal(that interface{}) bool {
 	if !bytes.Equal(this.Payload, that1.Payload) {
 		return false
 	}
-	if !bytes.Equal(this.PrevHash, that1.PrevHash) {
+	if !bytes.Equal(this.PrevSignature, that1.PrevSignature) {
 		return false
 	}
 	return true
@@ -500,7 +445,7 @@ func (this *Receipt) Equal(that interface{}) bool {
 	} else if this == nil {
 		return false
 	}
-	if !bytes.Equal(this.PrevHash, that1.PrevHash) {
+	if !bytes.Equal(this.PrevSignature, that1.PrevSignature) {
 		return false
 	}
 	if !bytes.Equal(this.Signature, that1.Signature) {
@@ -512,11 +457,10 @@ func (this *ClientMessage) GoString() string {
 	if this == nil {
 		return "nil"
 	}
-	s := make([]string, 0, 7)
+	s := make([]string, 0, 6)
 	s = append(s, "&pb.ClientMessage{")
 	s = append(s, "MessageType: "+fmt.Sprintf("%#v", this.MessageType)+",\n")
 	s = append(s, "Message: "+fmt.Sprintf("%#v", this.Message)+",\n")
-	s = append(s, "CompressionType: "+fmt.Sprintf("%#v", this.CompressionType)+",\n")
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -524,7 +468,7 @@ func (this *OutboundMessage) GoString() string {
 	if this == nil {
 		return "nil"
 	}
-	s := make([]string, 0, 12)
+	s := make([]string, 0, 11)
 	s = append(s, "&pb.OutboundMessage{")
 	s = append(s, "Dest: "+fmt.Sprintf("%#v", this.Dest)+",\n")
 	s = append(s, "Payload: "+fmt.Sprintf("%#v", this.Payload)+",\n")
@@ -533,7 +477,6 @@ func (this *OutboundMessage) GoString() string {
 	s = append(s, "Nonce: "+fmt.Sprintf("%#v", this.Nonce)+",\n")
 	s = append(s, "BlockHash: "+fmt.Sprintf("%#v", this.BlockHash)+",\n")
 	s = append(s, "Signatures: "+fmt.Sprintf("%#v", this.Signatures)+",\n")
-	s = append(s, "Payloads: "+fmt.Sprintf("%#v", this.Payloads)+",\n")
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -545,7 +488,7 @@ func (this *InboundMessage) GoString() string {
 	s = append(s, "&pb.InboundMessage{")
 	s = append(s, "Src: "+fmt.Sprintf("%#v", this.Src)+",\n")
 	s = append(s, "Payload: "+fmt.Sprintf("%#v", this.Payload)+",\n")
-	s = append(s, "PrevHash: "+fmt.Sprintf("%#v", this.PrevHash)+",\n")
+	s = append(s, "PrevSignature: "+fmt.Sprintf("%#v", this.PrevSignature)+",\n")
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -555,7 +498,7 @@ func (this *Receipt) GoString() string {
 	}
 	s := make([]string, 0, 6)
 	s = append(s, "&pb.Receipt{")
-	s = append(s, "PrevHash: "+fmt.Sprintf("%#v", this.PrevHash)+",\n")
+	s = append(s, "PrevSignature: "+fmt.Sprintf("%#v", this.PrevSignature)+",\n")
 	s = append(s, "Signature: "+fmt.Sprintf("%#v", this.Signature)+",\n")
 	s = append(s, "}")
 	return strings.Join(s, "")
@@ -593,11 +536,6 @@ func (m *ClientMessage) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintClientmessage(dAtA, i, uint64(len(m.Message)))
 		i += copy(dAtA[i:], m.Message)
-	}
-	if m.CompressionType != 0 {
-		dAtA[i] = 0x18
-		i++
-		i = encodeVarintClientmessage(dAtA, i, uint64(m.CompressionType))
 	}
 	return i, nil
 }
@@ -668,14 +606,6 @@ func (m *OutboundMessage) MarshalTo(dAtA []byte) (int, error) {
 			i += copy(dAtA[i:], b)
 		}
 	}
-	if len(m.Payloads) > 0 {
-		for _, b := range m.Payloads {
-			dAtA[i] = 0x42
-			i++
-			i = encodeVarintClientmessage(dAtA, i, uint64(len(b)))
-			i += copy(dAtA[i:], b)
-		}
-	}
 	return i, nil
 }
 
@@ -706,11 +636,11 @@ func (m *InboundMessage) MarshalTo(dAtA []byte) (int, error) {
 		i = encodeVarintClientmessage(dAtA, i, uint64(len(m.Payload)))
 		i += copy(dAtA[i:], m.Payload)
 	}
-	if len(m.PrevHash) > 0 {
+	if len(m.PrevSignature) > 0 {
 		dAtA[i] = 0x1a
 		i++
-		i = encodeVarintClientmessage(dAtA, i, uint64(len(m.PrevHash)))
-		i += copy(dAtA[i:], m.PrevHash)
+		i = encodeVarintClientmessage(dAtA, i, uint64(len(m.PrevSignature)))
+		i += copy(dAtA[i:], m.PrevSignature)
 	}
 	return i, nil
 }
@@ -730,11 +660,11 @@ func (m *Receipt) MarshalTo(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.PrevHash) > 0 {
+	if len(m.PrevSignature) > 0 {
 		dAtA[i] = 0xa
 		i++
-		i = encodeVarintClientmessage(dAtA, i, uint64(len(m.PrevHash)))
-		i += copy(dAtA[i:], m.PrevHash)
+		i = encodeVarintClientmessage(dAtA, i, uint64(len(m.PrevSignature)))
+		i += copy(dAtA[i:], m.PrevSignature)
 	}
 	if len(m.Signature) > 0 {
 		dAtA[i] = 0x12
@@ -762,7 +692,6 @@ func NewPopulatedClientMessage(r randyClientmessage, easy bool) *ClientMessage {
 	for i := 0; i < v1; i++ {
 		this.Message[i] = byte(r.Intn(256))
 	}
-	this.CompressionType = CompressionType([]int32{0, 1}[r.Intn(2)])
 	if !easy && r.Intn(10) != 0 {
 	}
 	return this
@@ -797,15 +726,6 @@ func NewPopulatedOutboundMessage(r randyClientmessage, easy bool) *OutboundMessa
 			this.Signatures[i][j] = byte(r.Intn(256))
 		}
 	}
-	v7 := r.Intn(10)
-	this.Payloads = make([][]byte, v7)
-	for i := 0; i < v7; i++ {
-		v8 := r.Intn(100)
-		this.Payloads[i] = make([]byte, v8)
-		for j := 0; j < v8; j++ {
-			this.Payloads[i][j] = byte(r.Intn(256))
-		}
-	}
 	if !easy && r.Intn(10) != 0 {
 	}
 	return this
@@ -814,15 +734,15 @@ func NewPopulatedOutboundMessage(r randyClientmessage, easy bool) *OutboundMessa
 func NewPopulatedInboundMessage(r randyClientmessage, easy bool) *InboundMessage {
 	this := &InboundMessage{}
 	this.Src = string(randStringClientmessage(r))
-	v9 := r.Intn(100)
-	this.Payload = make([]byte, v9)
-	for i := 0; i < v9; i++ {
+	v7 := r.Intn(100)
+	this.Payload = make([]byte, v7)
+	for i := 0; i < v7; i++ {
 		this.Payload[i] = byte(r.Intn(256))
 	}
-	v10 := r.Intn(100)
-	this.PrevHash = make([]byte, v10)
-	for i := 0; i < v10; i++ {
-		this.PrevHash[i] = byte(r.Intn(256))
+	v8 := r.Intn(100)
+	this.PrevSignature = make([]byte, v8)
+	for i := 0; i < v8; i++ {
+		this.PrevSignature[i] = byte(r.Intn(256))
 	}
 	if !easy && r.Intn(10) != 0 {
 	}
@@ -831,14 +751,14 @@ func NewPopulatedInboundMessage(r randyClientmessage, easy bool) *InboundMessage
 
 func NewPopulatedReceipt(r randyClientmessage, easy bool) *Receipt {
 	this := &Receipt{}
-	v11 := r.Intn(100)
-	this.PrevHash = make([]byte, v11)
-	for i := 0; i < v11; i++ {
-		this.PrevHash[i] = byte(r.Intn(256))
+	v9 := r.Intn(100)
+	this.PrevSignature = make([]byte, v9)
+	for i := 0; i < v9; i++ {
+		this.PrevSignature[i] = byte(r.Intn(256))
 	}
-	v12 := r.Intn(100)
-	this.Signature = make([]byte, v12)
-	for i := 0; i < v12; i++ {
+	v10 := r.Intn(100)
+	this.Signature = make([]byte, v10)
+	for i := 0; i < v10; i++ {
 		this.Signature[i] = byte(r.Intn(256))
 	}
 	if !easy && r.Intn(10) != 0 {
@@ -865,9 +785,9 @@ func randUTF8RuneClientmessage(r randyClientmessage) rune {
 	return rune(ru + 61)
 }
 func randStringClientmessage(r randyClientmessage) string {
-	v13 := r.Intn(100)
-	tmps := make([]rune, v13)
-	for i := 0; i < v13; i++ {
+	v11 := r.Intn(100)
+	tmps := make([]rune, v11)
+	for i := 0; i < v11; i++ {
 		tmps[i] = randUTF8RuneClientmessage(r)
 	}
 	return string(tmps)
@@ -889,11 +809,11 @@ func randFieldClientmessage(dAtA []byte, r randyClientmessage, fieldNumber int, 
 	switch wire {
 	case 0:
 		dAtA = encodeVarintPopulateClientmessage(dAtA, uint64(key))
-		v14 := r.Int63()
+		v12 := r.Int63()
 		if r.Intn(2) == 0 {
-			v14 *= -1
+			v12 *= -1
 		}
-		dAtA = encodeVarintPopulateClientmessage(dAtA, uint64(v14))
+		dAtA = encodeVarintPopulateClientmessage(dAtA, uint64(v12))
 	case 1:
 		dAtA = encodeVarintPopulateClientmessage(dAtA, uint64(key))
 		dAtA = append(dAtA, byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)))
@@ -930,9 +850,6 @@ func (m *ClientMessage) Size() (n int) {
 	l = len(m.Message)
 	if l > 0 {
 		n += 1 + l + sovClientmessage(uint64(l))
-	}
-	if m.CompressionType != 0 {
-		n += 1 + sovClientmessage(uint64(m.CompressionType))
 	}
 	return n
 }
@@ -973,12 +890,6 @@ func (m *OutboundMessage) Size() (n int) {
 			n += 1 + l + sovClientmessage(uint64(l))
 		}
 	}
-	if len(m.Payloads) > 0 {
-		for _, b := range m.Payloads {
-			l = len(b)
-			n += 1 + l + sovClientmessage(uint64(l))
-		}
-	}
 	return n
 }
 
@@ -996,7 +907,7 @@ func (m *InboundMessage) Size() (n int) {
 	if l > 0 {
 		n += 1 + l + sovClientmessage(uint64(l))
 	}
-	l = len(m.PrevHash)
+	l = len(m.PrevSignature)
 	if l > 0 {
 		n += 1 + l + sovClientmessage(uint64(l))
 	}
@@ -1009,7 +920,7 @@ func (m *Receipt) Size() (n int) {
 	}
 	var l int
 	_ = l
-	l = len(m.PrevHash)
+	l = len(m.PrevSignature)
 	if l > 0 {
 		n += 1 + l + sovClientmessage(uint64(l))
 	}
@@ -1040,7 +951,6 @@ func (this *ClientMessage) String() string {
 	s := strings.Join([]string{`&ClientMessage{`,
 		`MessageType:` + fmt.Sprintf("%v", this.MessageType) + `,`,
 		`Message:` + fmt.Sprintf("%v", this.Message) + `,`,
-		`CompressionType:` + fmt.Sprintf("%v", this.CompressionType) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -1057,7 +967,6 @@ func (this *OutboundMessage) String() string {
 		`Nonce:` + fmt.Sprintf("%v", this.Nonce) + `,`,
 		`BlockHash:` + fmt.Sprintf("%v", this.BlockHash) + `,`,
 		`Signatures:` + fmt.Sprintf("%v", this.Signatures) + `,`,
-		`Payloads:` + fmt.Sprintf("%v", this.Payloads) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -1069,7 +978,7 @@ func (this *InboundMessage) String() string {
 	s := strings.Join([]string{`&InboundMessage{`,
 		`Src:` + fmt.Sprintf("%v", this.Src) + `,`,
 		`Payload:` + fmt.Sprintf("%v", this.Payload) + `,`,
-		`PrevHash:` + fmt.Sprintf("%v", this.PrevHash) + `,`,
+		`PrevSignature:` + fmt.Sprintf("%v", this.PrevSignature) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -1079,7 +988,7 @@ func (this *Receipt) String() string {
 		return "nil"
 	}
 	s := strings.Join([]string{`&Receipt{`,
-		`PrevHash:` + fmt.Sprintf("%v", this.PrevHash) + `,`,
+		`PrevSignature:` + fmt.Sprintf("%v", this.PrevSignature) + `,`,
 		`Signature:` + fmt.Sprintf("%v", this.Signature) + `,`,
 		`}`,
 	}, "")
@@ -1172,25 +1081,6 @@ func (m *ClientMessage) Unmarshal(dAtA []byte) error {
 				m.Message = []byte{}
 			}
 			iNdEx = postIndex
-		case 3:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CompressionType", wireType)
-			}
-			m.CompressionType = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowClientmessage
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.CompressionType |= (CompressionType(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipClientmessage(dAtA[iNdEx:])
@@ -1428,35 +1318,6 @@ func (m *OutboundMessage) Unmarshal(dAtA []byte) error {
 			m.Signatures = append(m.Signatures, make([]byte, postIndex-iNdEx))
 			copy(m.Signatures[len(m.Signatures)-1], dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 8:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Payloads", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowClientmessage
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= (int(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthClientmessage
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Payloads = append(m.Payloads, make([]byte, postIndex-iNdEx))
-			copy(m.Payloads[len(m.Payloads)-1], dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipClientmessage(dAtA[iNdEx:])
@@ -1569,7 +1430,7 @@ func (m *InboundMessage) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PrevHash", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field PrevSignature", wireType)
 			}
 			var byteLen int
 			for shift := uint(0); ; shift += 7 {
@@ -1593,9 +1454,9 @@ func (m *InboundMessage) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.PrevHash = append(m.PrevHash[:0], dAtA[iNdEx:postIndex]...)
-			if m.PrevHash == nil {
-				m.PrevHash = []byte{}
+			m.PrevSignature = append(m.PrevSignature[:0], dAtA[iNdEx:postIndex]...)
+			if m.PrevSignature == nil {
+				m.PrevSignature = []byte{}
 			}
 			iNdEx = postIndex
 		default:
@@ -1650,7 +1511,7 @@ func (m *Receipt) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PrevHash", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field PrevSignature", wireType)
 			}
 			var byteLen int
 			for shift := uint(0); ; shift += 7 {
@@ -1674,9 +1535,9 @@ func (m *Receipt) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.PrevHash = append(m.PrevHash[:0], dAtA[iNdEx:postIndex]...)
-			if m.PrevHash == nil {
-				m.PrevHash = []byte{}
+			m.PrevSignature = append(m.PrevSignature[:0], dAtA[iNdEx:postIndex]...)
+			if m.PrevSignature == nil {
+				m.PrevSignature = []byte{}
 			}
 			iNdEx = postIndex
 		case 2:
@@ -1837,43 +1698,39 @@ var (
 )
 
 func init() {
-	proto.RegisterFile("pb/clientmessage.proto", fileDescriptor_clientmessage_f54769dd684aff8a)
+	proto.RegisterFile("pb/clientmessage.proto", fileDescriptor_clientmessage_c021a6273ba926f1)
 }
 
-var fileDescriptor_clientmessage_f54769dd684aff8a = []byte{
-	// 538 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x93, 0x31, 0x6f, 0xd3, 0x4e,
-	0x18, 0xc6, 0x7d, 0x71, 0xdb, 0x24, 0x6f, 0xd3, 0xc6, 0xbd, 0xf4, 0xff, 0x97, 0x55, 0xe0, 0x14,
-	0x65, 0x8a, 0x2a, 0x91, 0x48, 0xb0, 0x30, 0x00, 0x12, 0x49, 0x23, 0x1a, 0x41, 0xe2, 0xca, 0x49,
-	0x07, 0x58, 0x2c, 0xdb, 0x39, 0x1c, 0x8b, 0xd8, 0x67, 0xe5, 0x6c, 0xd4, 0x6c, 0x7c, 0x04, 0xbe,
-	0x03, 0x0b, 0x1f, 0x81, 0x8f, 0xc0, 0x98, 0xb1, 0x23, 0x71, 0x16, 0xc6, 0x4e, 0x88, 0x11, 0xf9,
-	0xec, 0x34, 0xb8, 0x48, 0x6c, 0xf7, 0x3c, 0xcf, 0xeb, 0xdf, 0x3d, 0xaf, 0x74, 0x86, 0xff, 0x03,
-	0xab, 0x6d, 0xcf, 0x5c, 0xea, 0x87, 0x1e, 0xe5, 0xdc, 0x74, 0x68, 0x2b, 0x98, 0xb3, 0x90, 0xe1,
-	0x42, 0x60, 0x9d, 0x3c, 0x74, 0xdc, 0x70, 0x1a, 0x59, 0x2d, 0x9b, 0x79, 0x6d, 0x87, 0x39, 0xac,
-	0x2d, 0x22, 0x2b, 0x7a, 0x27, 0x94, 0x10, 0xe2, 0x94, 0x7e, 0xd2, 0xf8, 0x8c, 0xe0, 0xa0, 0x2b,
-	0x50, 0x83, 0x14, 0x85, 0x9f, 0x40, 0x25, 0xa3, 0x1a, 0xe1, 0x22, 0xa0, 0x2a, 0xaa, 0xa3, 0xe6,
-	0xe1, 0xa3, 0xff, 0x5a, 0x81, 0xd5, 0xca, 0x0d, 0x8e, 0x17, 0x01, 0xd5, 0xf7, 0xbd, 0xad, 0xc0,
-	0x2a, 0x14, 0x33, 0xa9, 0x16, 0xea, 0xa8, 0x59, 0xd1, 0x37, 0x12, 0x3f, 0x07, 0xc5, 0x66, 0x5e,
-	0x30, 0xa7, 0x9c, 0xbb, 0xcc, 0x4f, 0xb9, 0xb2, 0xe0, 0xd6, 0x04, 0x77, 0x9b, 0x09, 0x6a, 0xd5,
-	0xce, 0x1b, 0x8d, 0x9f, 0x08, 0xaa, 0x5a, 0x14, 0x5a, 0x2c, 0xf2, 0x27, 0x9b, 0x9e, 0x18, 0x76,
-	0x26, 0x94, 0x87, 0xa2, 0x5f, 0x59, 0x17, 0xe7, 0xa4, 0x41, 0x60, 0x2e, 0x66, 0xcc, 0x9c, 0x6c,
-	0x1a, 0x64, 0x12, 0x1f, 0xc3, 0x6e, 0x32, 0xc1, 0x55, 0xb9, 0x2e, 0x37, 0xcb, 0x7a, 0x2a, 0x70,
-	0x0b, 0x6a, 0x9e, 0x79, 0x65, 0x4c, 0xd9, 0x6c, 0xe2, 0xfa, 0x8e, 0xc1, 0xa9, 0xcd, 0xfc, 0x09,
-	0x57, 0x77, 0xea, 0xa8, 0x79, 0xa0, 0x1f, 0x79, 0xe6, 0xd5, 0x79, 0x9a, 0x8c, 0xd2, 0x20, 0xa1,
-	0xf8, 0xcc, 0xb7, 0xa9, 0xba, 0x2b, 0x26, 0x52, 0x81, 0x1f, 0x00, 0x58, 0x33, 0x66, 0xbf, 0x37,
-	0xa6, 0x26, 0x9f, 0xaa, 0x7b, 0xe2, 0xe2, 0xb2, 0x70, 0xce, 0x4d, 0x3e, 0xc5, 0x04, 0x80, 0xbb,
-	0x8e, 0x6f, 0x86, 0xd1, 0x9c, 0x72, 0xb5, 0x58, 0x97, 0x9b, 0x15, 0xfd, 0x0f, 0x07, 0x9f, 0x40,
-	0x29, 0x6b, 0xc9, 0xd5, 0x92, 0x48, 0x6f, 0x75, 0xe3, 0x0d, 0x1c, 0xf6, 0xfd, 0xdc, 0xda, 0x0a,
-	0xc8, 0x7c, 0x6e, 0x67, 0x5b, 0x27, 0xc7, 0x7f, 0x2c, 0x7d, 0x0f, 0xca, 0xc1, 0x9c, 0x7e, 0x48,
-	0x7b, 0xc9, 0x22, 0x2b, 0x25, 0x46, 0x52, 0xab, 0x71, 0x06, 0x45, 0x9d, 0xda, 0xd4, 0x0d, 0xc2,
-	0xfc, 0x1c, 0xca, 0xcf, 0xe1, 0xfb, 0x50, 0xbe, 0x2d, 0x9b, 0x5d, 0xb0, 0x35, 0x4e, 0x5f, 0xc1,
-	0xd1, 0x5f, 0xaf, 0x02, 0x1f, 0x83, 0xa2, 0x5d, 0x8e, 0x3b, 0xda, 0xe5, 0xf0, 0xcc, 0x18, 0xf4,
-	0x46, 0xa3, 0x17, 0x2f, 0x7b, 0x8a, 0x84, 0x6b, 0x50, 0xed, 0x0f, 0xf3, 0x26, 0xc2, 0xfb, 0x50,
-	0xd4, 0x7b, 0xdd, 0x5e, 0xff, 0x62, 0xac, 0x14, 0x4e, 0x9f, 0x41, 0xf5, 0xce, 0x53, 0x48, 0x50,
-	0x5d, 0x6d, 0x70, 0xa1, 0xf7, 0x46, 0xa3, 0xbe, 0x36, 0x34, 0x86, 0xda, 0x30, 0x41, 0xdd, 0x71,
-	0xdf, 0xbe, 0xee, 0x77, 0x14, 0xd4, 0x79, 0xba, 0x5c, 0x11, 0xe9, 0x7a, 0x45, 0xa4, 0x9b, 0x15,
-	0x41, 0xbf, 0x56, 0x04, 0x7d, 0x8c, 0x09, 0xfa, 0x12, 0x13, 0xf4, 0x35, 0x26, 0xe8, 0x5b, 0x4c,
-	0xd0, 0x32, 0x26, 0xe8, 0x7b, 0x4c, 0xd0, 0x8f, 0x98, 0x48, 0x37, 0x31, 0x41, 0x9f, 0xd6, 0x44,
-	0x5a, 0xae, 0x89, 0x74, 0xbd, 0x26, 0x92, 0xb5, 0x27, 0x7e, 0x88, 0xc7, 0xbf, 0x03, 0x00, 0x00,
-	0xff, 0xff, 0x90, 0xe1, 0x26, 0x87, 0x5d, 0x03, 0x00, 0x00,
+var fileDescriptor_clientmessage_c021a6273ba926f1 = []byte{
+	// 468 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x92, 0xc1, 0x6e, 0xd3, 0x40,
+	0x10, 0x86, 0xbd, 0x71, 0xdb, 0x28, 0xd3, 0x24, 0x4d, 0xb7, 0x05, 0x59, 0x08, 0x56, 0x56, 0x24,
+	0x24, 0x0b, 0x09, 0x47, 0x82, 0x0b, 0x07, 0x2e, 0xb4, 0x44, 0x34, 0x42, 0x4d, 0x90, 0x93, 0x9e,
+	0x2d, 0x7b, 0xbd, 0xd8, 0x16, 0xb1, 0x77, 0x95, 0xb5, 0x51, 0x73, 0xe3, 0x11, 0x78, 0x0c, 0x1e,
+	0x81, 0x47, 0xe0, 0x98, 0x63, 0xc5, 0x89, 0x38, 0x17, 0x8e, 0x3d, 0x72, 0x44, 0x5e, 0x27, 0x84,
+	0x88, 0x8a, 0xdb, 0xfc, 0xff, 0xfc, 0xf3, 0x8d, 0x46, 0xbb, 0x70, 0x5f, 0xf8, 0x3d, 0x3a, 0x8d,
+	0x59, 0x9a, 0x25, 0x4c, 0x4a, 0x2f, 0x64, 0xb6, 0x98, 0xf1, 0x8c, 0xe3, 0x9a, 0xf0, 0x1f, 0x3c,
+	0x0d, 0xe3, 0x2c, 0xca, 0x7d, 0x9b, 0xf2, 0xa4, 0x17, 0xf2, 0x90, 0xf7, 0x54, 0xcb, 0xcf, 0xdf,
+	0x2b, 0xa5, 0x84, 0xaa, 0xaa, 0x91, 0x2e, 0x85, 0xd6, 0xb9, 0x22, 0x5d, 0x56, 0x24, 0xfc, 0x02,
+	0x9a, 0x6b, 0xa8, 0x9b, 0xcd, 0x05, 0x33, 0x90, 0x89, 0xac, 0xf6, 0xb3, 0x7b, 0xb6, 0xf0, 0xed,
+	0x9d, 0xe0, 0x64, 0x2e, 0x98, 0x73, 0x98, 0x6c, 0x05, 0x36, 0xa0, 0xbe, 0x96, 0x46, 0xcd, 0x44,
+	0x56, 0xd3, 0xd9, 0xc8, 0xee, 0x77, 0x04, 0x47, 0xa3, 0x3c, 0xf3, 0x79, 0x9e, 0x06, 0x9b, 0x3d,
+	0x18, 0xf6, 0x02, 0x26, 0x33, 0xc5, 0x6f, 0x38, 0xaa, 0x2e, 0x09, 0xc2, 0x9b, 0x4f, 0xb9, 0x17,
+	0x6c, 0x08, 0x6b, 0x89, 0x4f, 0x61, 0xbf, 0x4c, 0x48, 0x43, 0x37, 0x75, 0xab, 0xe1, 0x54, 0x02,
+	0xdb, 0x70, 0x92, 0x78, 0xd7, 0x6e, 0xc4, 0xa7, 0x41, 0x9c, 0x86, 0xae, 0x64, 0x94, 0xa7, 0x81,
+	0x34, 0xf6, 0x4c, 0x64, 0xb5, 0x9c, 0xe3, 0xc4, 0xbb, 0xbe, 0xa8, 0x3a, 0xe3, 0xaa, 0x51, 0x52,
+	0x52, 0x9e, 0x52, 0x66, 0xec, 0xab, 0x44, 0x25, 0xf0, 0x23, 0x00, 0x7f, 0xca, 0xe9, 0x07, 0x37,
+	0xf2, 0x64, 0x64, 0x1c, 0xa8, 0xc5, 0x0d, 0xe5, 0x5c, 0x78, 0x32, 0xc2, 0x04, 0x40, 0xc6, 0x61,
+	0xea, 0x65, 0xf9, 0x8c, 0x49, 0xa3, 0x6e, 0xea, 0x56, 0xd3, 0xf9, 0xcb, 0xe9, 0x52, 0x68, 0x0f,
+	0xd2, 0x9d, 0xd3, 0x3a, 0xa0, 0xcb, 0x19, 0x5d, 0x5f, 0x56, 0x96, 0xff, 0x39, 0xec, 0x31, 0xb4,
+	0xc5, 0x8c, 0x7d, 0x74, 0xff, 0x00, 0x0d, 0x5d, 0x05, 0x5a, 0xa5, 0x3b, 0xde, 0x98, 0xdd, 0x21,
+	0xd4, 0x1d, 0x46, 0x59, 0x2c, 0xb2, 0x3b, 0x26, 0xd0, 0x1d, 0x13, 0xf8, 0x21, 0x34, 0xb6, 0x89,
+	0x6a, 0xe9, 0xd6, 0x78, 0xf2, 0x16, 0x8e, 0xff, 0x79, 0x4d, 0x7c, 0x0a, 0x9d, 0xd1, 0xd5, 0xe4,
+	0x6c, 0x74, 0x35, 0x7c, 0xed, 0x5e, 0xf6, 0xc7, 0xe3, 0x57, 0x6f, 0xfa, 0x1d, 0x0d, 0x9f, 0xc0,
+	0xd1, 0x60, 0xb8, 0x6b, 0x22, 0x7c, 0x08, 0x75, 0xa7, 0x7f, 0xde, 0x1f, 0xbc, 0x9b, 0x74, 0x6a,
+	0x67, 0x2f, 0x17, 0x4b, 0xa2, 0xdd, 0x2c, 0x89, 0x76, 0xbb, 0x24, 0xe8, 0xd7, 0x92, 0xa0, 0x4f,
+	0x05, 0x41, 0x5f, 0x0a, 0x82, 0xbe, 0x16, 0x04, 0x7d, 0x2b, 0x08, 0x5a, 0x14, 0x04, 0xfd, 0x28,
+	0x08, 0xfa, 0x59, 0x10, 0xed, 0xb6, 0x20, 0xe8, 0xf3, 0x8a, 0x68, 0x8b, 0x15, 0xd1, 0x6e, 0x56,
+	0x44, 0xf3, 0x0f, 0xd4, 0x47, 0x7c, 0xfe, 0x3b, 0x00, 0x00, 0xff, 0xff, 0x1d, 0xef, 0xdc, 0x73,
+	0xd5, 0x02, 0x00, 0x00,
 }

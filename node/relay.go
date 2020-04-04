@@ -19,12 +19,12 @@ import (
 
 type RelayService struct {
 	sync.Mutex
-	wallet    *vault.Wallet
+	wallet    vault.Wallet
 	localNode *LocalNode
 	porServer *por.PorServer
 }
 
-func NewRelayService(wallet *vault.Wallet, localNode *LocalNode) *RelayService {
+func NewRelayService(wallet vault.Wallet, localNode *LocalNode) *RelayService {
 	service := &RelayService{
 		wallet:    wallet,
 		localNode: localNode,
@@ -36,16 +36,14 @@ func NewRelayService(wallet *vault.Wallet, localNode *LocalNode) *RelayService {
 func (rs *RelayService) Start() error {
 	event.Queue.Subscribe(event.NewBlockProduced, rs.populateVRFCache)
 	event.Queue.Subscribe(event.NewBlockProduced, rs.flushSigChain)
-	event.Queue.Subscribe(event.PinSigChain, rs.startPinSigChain)
 	event.Queue.Subscribe(event.BacktrackSigChain, rs.backtrackDestSigChain)
 	rs.localNode.AddMessageHandler(pb.RELAY, rs.relayMessageHandler)
-	rs.localNode.AddMessageHandler(pb.PIN_SIGNATURE_CHAIN, rs.pinSigChainMessageHandler)
 	rs.localNode.AddMessageHandler(pb.BACKTRACK_SIGNATURE_CHAIN, rs.backtrackSigChainMessageHandler)
 	return nil
 }
 
 // NewRelayMessage creates a RELAY message
-func NewRelayMessage(srcIdentifier string, srcPubkey, destID, payload, blockHash, lastHash []byte, maxHoldingSeconds uint32) (*pb.UnsignedMessage, error) {
+func NewRelayMessage(srcIdentifier string, srcPubkey, destID, payload, blockHash, signature []byte, maxHoldingSeconds uint32) (*pb.UnsignedMessage, error) {
 	msgBody := &pb.Relay{
 		SrcIdentifier:     srcIdentifier,
 		SrcPubkey:         srcPubkey,
@@ -53,7 +51,7 @@ func NewRelayMessage(srcIdentifier string, srcPubkey, destID, payload, blockHash
 		Payload:           payload,
 		MaxHoldingSeconds: maxHoldingSeconds,
 		BlockHash:         blockHash,
-		LastHash:          lastHash,
+		LastSignature:     signature,
 		SigChainLen:       1,
 	}
 
@@ -64,45 +62,6 @@ func NewRelayMessage(srcIdentifier string, srcPubkey, destID, payload, blockHash
 
 	msg := &pb.UnsignedMessage{
 		MessageType: pb.RELAY,
-		Message:     buf,
-	}
-
-	return msg, nil
-}
-
-// NewPinSigChainMessage creates a PIN_SIGNATURE_CHAIN message
-func NewPinSigChainMessage(hash []byte) (*pb.UnsignedMessage, error) {
-	msgBody := &pb.PinSignatureChain{
-		Hash: hash,
-	}
-
-	buf, err := proto.Marshal(msgBody)
-	if err != nil {
-		return nil, err
-	}
-
-	msg := &pb.UnsignedMessage{
-		MessageType: pb.PIN_SIGNATURE_CHAIN,
-		Message:     buf,
-	}
-
-	return msg, nil
-}
-
-// NewBacktrackSigChainMessage creates a BACKTRACK_SIGNATURE_CHAIN message
-func NewBacktrackSigChainMessage(sigChainElems []*pb.SigChainElem, hash []byte) (*pb.UnsignedMessage, error) {
-	msgBody := &pb.BacktrackSignatureChain{
-		SigChainElems: sigChainElems,
-		Hash:          hash,
-	}
-
-	buf, err := proto.Marshal(msgBody)
-	if err != nil {
-		return nil, err
-	}
-
-	msg := &pb.UnsignedMessage{
-		MessageType: pb.BACKTRACK_SIGNATURE_CHAIN,
 		Message:     buf,
 	}
 
@@ -122,20 +81,24 @@ func (rs *RelayService) relayMessageHandler(remoteMessage *RemoteMessage) ([]byt
 	return nil, false, nil
 }
 
-// pinSigChainMessageHandler handles a PIN_SIGNATURE_CHAIN message
-func (rs *RelayService) pinSigChainMessageHandler(remoteMessage *RemoteMessage) ([]byte, bool, error) {
-	msgBody := &pb.PinSignatureChain{}
-	err := proto.Unmarshal(remoteMessage.Message, msgBody)
-	if err != nil {
-		return nil, false, err
+// NewBacktrackSigChainMessage creates a BACKTRACK_SIGNATURE_CHAIN message
+func NewBacktrackSigChainMessage(sigChainElems []*pb.SigChainElem, prevSignature []byte) (*pb.UnsignedMessage, error) {
+	msgBody := &pb.BacktrackSignatureChain{
+		SigChainElems: sigChainElems,
+		PrevSignature: prevSignature,
 	}
 
-	err = rs.pinSigChain(msgBody.Hash, remoteMessage.Sender.PublicKey)
+	buf, err := proto.Marshal(msgBody)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
-	return nil, false, nil
+	msg := &pb.UnsignedMessage{
+		MessageType: pb.BACKTRACK_SIGNATURE_CHAIN,
+		Message:     buf,
+	}
+
+	return msg, nil
 }
 
 // backtrackSigChainMessageHandler handles a BACKTRACK_SIGNATURE_CHAIN message
@@ -146,7 +109,7 @@ func (rs *RelayService) backtrackSigChainMessageHandler(remoteMessage *RemoteMes
 		return nil, false, err
 	}
 
-	err = rs.backtrackSigChain(msgBody.SigChainElems, msgBody.Hash, remoteMessage.Sender.PublicKey)
+	err = rs.backtrackSigChain(msgBody.SigChainElems, msgBody.PrevSignature, remoteMessage.Sender.PublicKey)
 	if err != nil {
 		return nil, false, err
 	}
@@ -154,52 +117,15 @@ func (rs *RelayService) backtrackSigChainMessageHandler(remoteMessage *RemoteMes
 	return nil, false, nil
 }
 
-func (rs *RelayService) pinSigChain(hash, senderPubkey []byte) error {
-	prevHash, prevNodeID, err := rs.porServer.PinSigChain(hash, senderPubkey)
+func (rs *RelayService) backtrackSigChain(sigChainElems []*pb.SigChainElem, signature, senderPubkey []byte) error {
+	sigChainElems, prevSignature, prevNodeID, err := rs.porServer.BacktrackSigChain(sigChainElems, signature, senderPubkey)
 	if err != nil {
 		return err
 	}
 
 	if prevNodeID == nil {
-		err = rs.porServer.PinSrcSigChain(prevHash)
-		if err != nil {
-			return err
-		}
-	} else {
-		nextHop := rs.localNode.GetNbrNode(chordIDToNodeID(prevNodeID))
-		if nextHop == nil {
-			return fmt.Errorf("cannot find next hop with id %x", prevNodeID)
-		}
-
-		nextMsg, err := NewPinSigChainMessage(prevHash)
-		if err != nil {
-			return err
-		}
-
-		buf, err := rs.localNode.SerializeMessage(nextMsg, false)
-		if err != nil {
-			return err
-		}
-
-		err = nextHop.SendBytesAsync(buf)
-		if err != nil {
-			return err
-		}
-	}
-
-	rs.porServer.PinSigChainSuccess(hash)
-
-	return nil
-}
-
-func (rs *RelayService) backtrackSigChain(sigChainElems []*pb.SigChainElem, hash, senderPubkey []byte) error {
-	sigChainElems, prevHash, prevNodeID, err := rs.porServer.BacktrackSigChain(sigChainElems, hash, senderPubkey)
-	if err != nil {
-		return err
-	}
-
-	if prevNodeID == nil {
-		sigChain, err := rs.porServer.PopSrcSigChainFromCache(prevHash)
+		var sigChain *pb.SigChain
+		sigChain, err = rs.porServer.GetSrcSigChainFromCache(prevSignature)
 		if err != nil {
 			return err
 		}
@@ -210,29 +136,29 @@ func (rs *RelayService) backtrackSigChain(sigChainElems []*pb.SigChainElem, hash
 		if err != nil {
 			return err
 		}
-	} else {
-		nextHop := rs.localNode.GetNbrNode(chordIDToNodeID(prevNodeID))
-		if nextHop == nil {
-			return fmt.Errorf("cannot find next hop with id %x", prevNodeID)
-		}
 
-		nextMsg, err := NewBacktrackSigChainMessage(sigChainElems, prevHash)
-		if err != nil {
-			return err
-		}
-
-		buf, err := rs.localNode.SerializeMessage(nextMsg, false)
-		if err != nil {
-			return err
-		}
-
-		err = nextHop.SendBytesAsync(buf)
-		if err != nil {
-			return err
-		}
+		return nil
 	}
 
-	rs.porServer.BacktrackSigChainSuccess(hash)
+	nextHop := rs.localNode.GetNbrNode(chordIDToNodeID(prevNodeID))
+	if nextHop == nil {
+		return fmt.Errorf("cannot find next hop with id %x", prevNodeID)
+	}
+
+	nextMsg, err := NewBacktrackSigChainMessage(sigChainElems, prevSignature)
+	if err != nil {
+		return err
+	}
+
+	buf, err := rs.localNode.SerializeMessage(nextMsg, false)
+	if err != nil {
+		return err
+	}
+
+	err = nextHop.SendBytesAsync(buf)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -248,14 +174,12 @@ func (rs *RelayService) broadcastSigChain(sigChain *pb.SigChain) error {
 		return err
 	}
 
-	currentHeight := chain.DefaultLedger.Store.GetHeight()
-
-	err = chain.VerifyTransaction(txn, currentHeight+1)
+	err = chain.VerifyTransaction(txn)
 	if err != nil {
 		return err
 	}
 
-	porPkg, err := por.GetPorServer().AddSigChainFromTx(txn, currentHeight)
+	porPkg, err := por.GetPorServer().AddSigChainFromTx(txn, chain.DefaultLedger.Store.GetHeight())
 	if err != nil {
 		return err
 	}
@@ -271,19 +195,6 @@ func (rs *RelayService) broadcastSigChain(sigChain *pb.SigChain) error {
 	return nil
 }
 
-func (rs *RelayService) startPinSigChain(v interface{}) {
-	sigChainInfo, ok := v.(*por.PinSigChainInfo)
-	if !ok {
-		log.Error("Decode pin sigchain info failed")
-		return
-	}
-
-	err := rs.pinSigChain(sigChainInfo.PrevHash, nil)
-	if err != nil {
-		log.Errorf("Pin sigchain error: %v", err)
-	}
-}
-
 func (rs *RelayService) backtrackDestSigChain(v interface{}) {
 	sigChainInfo, ok := v.(*por.BacktrackSigChainInfo)
 	if !ok {
@@ -291,17 +202,20 @@ func (rs *RelayService) backtrackDestSigChain(v interface{}) {
 		return
 	}
 
-	sigChainElems := []*pb.SigChainElem{sigChainInfo.DestSigChainElem}
-	err := rs.backtrackSigChain(sigChainElems, sigChainInfo.PrevHash, nil)
+	err := rs.backtrackSigChain(
+		[]*pb.SigChainElem{sigChainInfo.DestSigChainElem},
+		sigChainInfo.PrevSignature,
+		nil,
+	)
 	if err != nil {
 		log.Errorf("Backtrack sigchain error: %v", err)
 	}
 }
 
-func (rs *RelayService) updateRelayMessage(relayMessage *pb.Relay, nextHop, prevHop *RemoteNode) error {
+func (rs *RelayService) signRelayMessage(relayMessage *pb.Relay, nextHop, prevHop *RemoteNode) error {
 	var nextPubkey []byte
 	if nextHop != nil {
-		nextPubkey = nextHop.GetPubKey()
+		nextPubkey = nextHop.GetPubKey().EncodePoint()
 	}
 
 	mining := config.Parameters.Mining && rs.localNode.GetSyncState() == pb.PERSIST_FINISHED
@@ -311,7 +225,7 @@ func (rs *RelayService) updateRelayMessage(relayMessage *pb.Relay, nextHop, prev
 		prevNodeID = prevHop.Id
 	}
 
-	return rs.porServer.UpdateRelayMessage(relayMessage, nextPubkey, prevNodeID, mining)
+	return rs.porServer.Sign(relayMessage, nextPubkey, prevNodeID, mining)
 }
 
 func (localNode *LocalNode) startRelayer() {
@@ -362,7 +276,7 @@ func (localNode *LocalNode) SendRelayMessage(srcAddr, destAddr string, payload, 
 	return nil
 }
 
-func MakeSigChainTransaction(wallet *vault.Wallet, sigChain []byte) (*transaction.Transaction, error) {
+func MakeSigChainTransaction(wallet vault.Wallet, sigChain []byte) (*transaction.Transaction, error) {
 	account, err := wallet.GetDefaultAccount()
 	if err != nil {
 		return nil, err

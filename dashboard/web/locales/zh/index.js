@@ -2,8 +2,6 @@ import Menu from "./menu"
 import Node from "./node"
 import Settings from "./settings"
 import Neighbor from './neighbor'
-import Config from './config'
-import Tooltip from './tooltip'
 
 export default {
   language: '简体中文',
@@ -11,8 +9,6 @@ export default {
   node: Node,
   settings: Settings,
   neighbor: Neighbor,
-  config: Config,
-  tooltip: Tooltip,
 
   LOADING: '加载中',
   SEARCH: '搜索',
@@ -24,7 +20,6 @@ export default {
   START: '开始',
   STOP: '停止',
   SUBMIT: '提交',
-  RESET: '重置',
 
   BENEFICIARY: '受益人',
   BALANCE: '余额',
@@ -35,12 +30,6 @@ export default {
   PASSWORD_ERROR: '无效的密码.',
   PASSWORD_REQUIRED: '密码不能为空.',
   PASSWORD_HINT: '请输入钱包密码.',
-  FIELD_REQUIRED: '该字段不能为空.',
-  NUMBER_FIELD_ERROR: '该字段必须是数字',
-  POSITIVE_NUMBER_FIELD_ERROR: '该字段不能为负数',
-  NUMBER_MIN_ERROR: '该字段必须大于 {min}',
-  NUMBER_MAX_ERROR: '该字段必须小于 {max}',
-  NUMBER_DP_ERROR: '小数位数不能超过 {dp} 位',
 
   PASSWORD_CONFIRM: '确认密码',
   PASSWORD_CONFIRM_ERROR: '两次密码不一致.',
@@ -55,7 +44,6 @@ export default {
   WALLET_UPLOAD: '上传钱包',
 
   NO_DATA: '没有数据',
-  PER_PAGE_TEXT: '每页数量',
 
   footer: {
     TITLE: 'NKN：新一代互联网的网络基础设施',
@@ -66,9 +54,8 @@ export default {
     TITLE: '节点状态',
     NODE_STATUS: '节点状态',
     NODE_VERSION: '节点版本',
-    ID: 'ID',
     RELAY_MESSAGE_COUNT: '节点转发消息数量',
-    HEIGHT: 'NKN节点区块高度',
+    HEIGHT: 'NKN区块高度',
     BENEFICIARY_ADDR: '受益人地址'
   },
   current_wallet_status: {

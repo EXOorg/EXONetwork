@@ -3,9 +3,7 @@ package trie
 import (
 	"bytes"
 	"errors"
-
 	"github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/util/log"
 )
 
 type Iterator struct {
@@ -106,8 +104,7 @@ func (it *nodeIterator) LeafKey() []byte {
 			return hexToKeyBytes(it.path)
 		}
 	}
-	log.Fatal("Node iterator not at leaf")
-	return nil
+	panic("not at leaf")
 }
 
 func (it *nodeIterator) LeafBlob() []byte {
@@ -116,8 +113,7 @@ func (it *nodeIterator) LeafBlob() []byte {
 			return []byte(node)
 		}
 	}
-	log.Fatal("Node iterator not at leaf")
-	return nil
+	panic("not at leaf")
 }
 
 func (it *nodeIterator) Path() []byte {
@@ -209,7 +205,7 @@ func (it *nodeIterator) peek(descend bool) (*nodeIteratorState, *int, []byte, er
 
 func (st *nodeIteratorState) resolve(tr *Trie) error {
 	if hashNode, ok := st.node.(hashNode); ok {
-		resolved, err := tr.resolveHash(hashNode, false)
+		resolved, err := tr.resolveHash(hashNode)
 		if err != nil {
 			return err
 		}

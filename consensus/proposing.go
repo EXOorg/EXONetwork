@@ -79,7 +79,9 @@ func (consensus *Consensus) isBlockProposer(height uint32, timestamp int64) bool
 		return false
 	}
 
-	if !bytes.Equal(consensus.account.PublicKey, nextPublicKey) {
+	publickKey := consensus.account.PublicKey.EncodePoint()
+
+	if !bytes.Equal(publickKey, nextPublicKey) {
 		return false
 	}
 

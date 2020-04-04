@@ -20,12 +20,9 @@ import (
 )
 
 const (
-	// TODO: reduce sigChainElemCacheExpiration and srcSigChainCacheExpiration in next version when most nodes support pin sigchain
 	sigChainElemCacheExpiration          = 10 * config.ConsensusTimeout
-	sigChainElemCachePinnedExpiration    = 10 * config.ConsensusTimeout
 	sigChainElemCacheCleanupInterval     = config.ConsensusDuration
 	srcSigChainCacheExpiration           = 10 * config.ConsensusTimeout
-	srcSigChainCachePinnedExpiration     = 10 * config.ConsensusTimeout
 	srcSigChainCacheCleanupInterval      = config.ConsensusDuration
 	destSigChainElemCacheExpiration      = 10 * config.ConsensusTimeout
 	destSigChainElemCacheCleanupInterval = config.ConsensusDuration
@@ -56,7 +53,6 @@ type PorServer struct {
 	destSigChainElemCache common.Cache
 }
 
-// Store interface is used to avoid cyclic dependency
 var Store interface {
 	GetHeightByBlockHash(hash common.Uint256) (uint32, error)
 	GetID(publicKey []byte) ([]byte, error)
@@ -68,34 +64,22 @@ type vrfResult struct {
 }
 
 type sigChainElemInfo struct {
-	nextPubkey  []byte
-	prevNodeID  []byte
-	prevHash    []byte
-	blockHash   []byte
-	mining      bool
-	pinned      bool
-	backtracked bool
-	sigAlgo     pb.SigAlgo
-}
-
-type srcSigChain struct {
-	sigChain *pb.SigChain
-	pinned   bool
+	nextPubkey    []byte
+	prevNodeID    []byte
+	prevSignature []byte
+	mining        bool
+	blockHash     []byte
 }
 
 type destSigChainElem struct {
-	sigHash      []byte
-	sigChainElem *pb.SigChainElem
-	prevHash     []byte
-}
-
-type PinSigChainInfo struct {
-	PrevHash []byte
+	sigHash       []byte
+	sigChainElem  *pb.SigChainElem
+	prevSignature []byte
 }
 
 type BacktrackSigChainInfo struct {
 	DestSigChainElem *pb.SigChainElem
-	PrevHash         []byte
+	PrevSignature    []byte
 }
 
 var porServer *PorServer
@@ -130,7 +114,8 @@ func InitPorServer(account *vault.Account, id []byte) error {
 
 func GetPorServer() *PorServer {
 	if porServer == nil {
-		log.Fatal("PorServer not initialized")
+		log.Error("PorServer not initialized")
+		panic("PorServer not initialized")
 	}
 	return porServer
 }
@@ -157,49 +142,36 @@ func (ps *PorServer) GetOrComputeVrf(data []byte) ([]byte, []byte, error) {
 	return vrf, proof, nil
 }
 
-func (ps *PorServer) UpdateRelayMessage(relayMessage *pb.Relay, nextPubkey, prevNodeID []byte, mining bool) error {
+func (ps *PorServer) Sign(relayMessage *pb.Relay, nextPubkey, prevNodeID []byte, mining bool) error {
 	vrf, _, err := ps.GetOrComputeVrf(relayMessage.BlockHash)
 	if err != nil {
+		log.Error("Get or compute VRF error:", err)
 		return err
 	}
 
-	blockHash, err := common.Uint256ParseFromBytes(relayMessage.BlockHash)
+	signature, err := pb.ComputeSignature(vrf, relayMessage.LastSignature, ps.id, nextPubkey, mining)
 	if err != nil {
+		log.Error("Computing signature error:", err)
 		return err
 	}
 
-	sigAlgo := pb.HASH
-	if height, err := Store.GetHeightByBlockHash(blockHash); err == nil {
-		if !config.AllowSigChainHashSignature.GetValueAtHeight(height) {
-			sigAlgo = pb.SIGNATURE
-		}
-	}
-
-	sce := pb.NewSigChainElem(ps.id, nextPubkey, nil, vrf, nil, mining, sigAlgo)
-	hash, err := sce.Hash(relayMessage.LastHash)
-	if err != nil {
-		return err
-	}
-
-	ps.sigChainElemCache.Add(hash, &sigChainElemInfo{
-		nextPubkey:  nextPubkey,
-		prevNodeID:  prevNodeID,
-		prevHash:    relayMessage.LastHash,
-		blockHash:   relayMessage.BlockHash,
-		mining:      mining,
-		backtracked: false,
-		sigAlgo:     sigAlgo,
+	ps.sigChainElemCache.Add(signature, &sigChainElemInfo{
+		nextPubkey:    nextPubkey,
+		prevNodeID:    prevNodeID,
+		prevSignature: relayMessage.LastSignature,
+		mining:        mining,
+		blockHash:     relayMessage.BlockHash,
 	})
 
-	relayMessage.LastHash = hash
+	relayMessage.LastSignature = signature
 	relayMessage.SigChainLen++
 
 	return nil
 }
 
 func (ps *PorServer) CreateSigChainForClient(nonce, dataSize uint32, blockHash []byte, srcID, srcPubkey, destID, destPubkey, signature []byte, sigAlgo pb.SigAlgo) (*pb.SigChain, error) {
-	pubKey := ps.account.PubKey()
-	sigChain, err := pb.NewSigChain(
+	pubKey := ps.account.PubKey().EncodePoint()
+	sigChain, err := pb.NewSigChainWithSignature(
 		nonce,
 		dataSize,
 		blockHash,
@@ -213,10 +185,15 @@ func (ps *PorServer) CreateSigChainForClient(nonce, dataSize uint32, blockHash [
 		false,
 	)
 	if err != nil {
+		log.Error("New signature chain with signature error:", err)
 		return nil, err
 	}
-	ps.srcSigChainCache.Add(signature, &srcSigChain{sigChain: sigChain})
+	ps.srcSigChainCache.Add(signature, sigChain)
 	return sigChain, nil
+}
+
+func (ps *PorServer) GetSignature(sc *pb.SigChain) ([]byte, error) {
+	return sc.GetSignature()
 }
 
 func (ps *PorServer) LenOfSigChain(sc *pb.SigChain) int {
@@ -334,7 +311,7 @@ func (ps *PorServer) AddSigChainFromTx(txn *transaction.Transaction, currentHeig
 		return nil, err
 	}
 
-	err = porPkg.SigChain.Verify(porPkg.Height)
+	err = porPkg.SigChain.Verify()
 	if err != nil {
 		return nil, err
 	}
@@ -364,13 +341,13 @@ func (ps *PorServer) AddSigChainFromTx(txn *transaction.Transaction, currentHeig
 	return porPkg, nil
 }
 
-func (ps *PorServer) ShouldSignDestSigChainElem(blockHash, lastHash []byte, sigChainLen int) bool {
+func (ps *PorServer) ShouldSignDestSigChainElem(blockHash, lastSignature []byte, sigChainLen int) bool {
 	if _, ok := ps.finalizedBlockCache.Get(blockHash); ok {
 		return false
 	}
 	if v, ok := ps.destSigChainElemCache.Get(blockHash); ok {
 		if currentDestSigChainElem, ok := v.(*destSigChainElem); ok {
-			sigHash := pb.ComputeSignatureHash(lastHash, sigChainLen)
+			sigHash := pb.ComputeSignatureHash(lastSignature, sigChainLen)
 			if bytes.Compare(sigHash, currentDestSigChainElem.sigHash) >= 0 {
 				return false
 			}
@@ -379,108 +356,35 @@ func (ps *PorServer) ShouldSignDestSigChainElem(blockHash, lastHash []byte, sigC
 	return true
 }
 
-func (ps *PorServer) AddDestSigChainElem(blockHash, lastHash []byte, sigChainLen int, destElem *pb.SigChainElem) (bool, error) {
+func (ps *PorServer) AddDestSigChainElem(blockHash, lastSignature []byte, sigChainLen int, destElem *pb.SigChainElem) (bool, error) {
 	ps.Lock()
 	defer ps.Unlock()
 
-	if !ps.ShouldSignDestSigChainElem(blockHash, lastHash, sigChainLen) {
+	if !ps.ShouldSignDestSigChainElem(blockHash, lastSignature, sigChainLen) {
 		return false, nil
 	}
 
 	err := ps.destSigChainElemCache.Set(blockHash, &destSigChainElem{
-		sigHash:      pb.ComputeSignatureHash(lastHash, sigChainLen),
-		sigChainElem: destElem,
-		prevHash:     lastHash,
+		sigHash:       pb.ComputeSignatureHash(lastSignature, sigChainLen),
+		sigChainElem:  destElem,
+		prevSignature: lastSignature,
 	})
 	if err != nil {
 		return false, err
 	}
 
-	event.Queue.Notify(event.PinSigChain, &PinSigChainInfo{
-		PrevHash: lastHash,
-	})
-
 	return true, nil
 }
 
-// PinSigChain extends the cache expiration of a key
-func (ps *PorServer) PinSigChain(hash, senderPubkey []byte) ([]byte, []byte, error) {
-	v, ok := ps.sigChainElemCache.Get(hash)
+func (ps *PorServer) BacktrackSigChain(elems []*pb.SigChainElem, signature, senderPubkey []byte) ([]*pb.SigChainElem, []byte, []byte, error) {
+	v, ok := ps.sigChainElemCache.Get(signature)
 	if !ok {
-		return nil, nil, fmt.Errorf("sigchain element with hash %x not found", hash)
+		return nil, nil, nil, fmt.Errorf("sigchain element with signature %x not found", signature)
 	}
 
 	scei, ok := v.(*sigChainElemInfo)
 	if !ok {
-		return nil, nil, errors.New("failed to decode cached sigchain element info")
-	}
-
-	if scei.pinned {
-		return nil, nil, errors.New("sigchain has already been pinned")
-	}
-
-	if senderPubkey != nil && !bytes.Equal(senderPubkey, scei.nextPubkey) {
-		return nil, nil, fmt.Errorf("sender pubkey %x is different from expected value %x", senderPubkey, scei.nextPubkey)
-	}
-
-	err := ps.sigChainElemCache.SetWithExpiration(hash, scei, sigChainElemCachePinnedExpiration)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return scei.prevHash, scei.prevNodeID, nil
-}
-
-// PinSigChainSuccess marks a sigchain as pinned to avoid it being pinned
-// multiple times.
-func (ps *PorServer) PinSigChainSuccess(hash []byte) {
-	if v, ok := ps.sigChainElemCache.Get(hash); ok {
-		if scei, ok := v.(*sigChainElemInfo); ok {
-			scei.pinned = true
-		}
-	}
-}
-
-// PinSrcSigChain marks a src sigchain as pinned to avoid it being pinned
-// multiple times.
-func (ps *PorServer) PinSrcSigChain(signature []byte) error {
-	v, ok := ps.srcSigChainCache.Get(signature)
-	if !ok {
-		return fmt.Errorf("src sigchain with signature %x not found", signature)
-	}
-
-	ssc, ok := v.(*srcSigChain)
-	if !ok {
-		return fmt.Errorf("failed to decode cached src sigchain %x", signature)
-	}
-
-	if ssc.pinned {
-		return errors.New("src sigchain has already been pinned")
-	}
-
-	ssc.pinned = true
-
-	err := ps.srcSigChainCache.SetWithExpiration(signature, ssc, srcSigChainCachePinnedExpiration)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (ps *PorServer) BacktrackSigChain(elems []*pb.SigChainElem, hash, senderPubkey []byte) ([]*pb.SigChainElem, []byte, []byte, error) {
-	v, ok := ps.sigChainElemCache.Get(hash)
-	if !ok {
-		return nil, nil, nil, fmt.Errorf("sigchain element with hash %x not found", hash)
-	}
-
-	scei, ok := v.(*sigChainElemInfo)
-	if !ok {
-		return nil, nil, nil, errors.New("failed to decode cached sigchain element info")
-	}
-
-	if scei.backtracked {
-		return nil, nil, nil, errors.New("sigchain has already been backtracked")
+		return nil, nil, nil, fmt.Errorf("failed to decode cached sigchain element info")
 	}
 
 	if senderPubkey != nil && !bytes.Equal(senderPubkey, scei.nextPubkey) {
@@ -496,53 +400,25 @@ func (ps *PorServer) BacktrackSigChain(elems []*pb.SigChainElem, hash, senderPub
 		return nil, nil, nil, fmt.Errorf("get or compute VRF error: %v", err)
 	}
 
-	var signature []byte
-	switch scei.sigAlgo {
-	case pb.SIGNATURE:
-		signature, err = crypto.Sign(ps.account.PrivKey(), hash)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("sign error: %v", err)
-		}
-	case pb.HASH:
-		signature = hash
-	default:
-		return nil, nil, nil, fmt.Errorf("unknown sigAlgo: %v", scei.sigAlgo)
-	}
+	sce := pb.NewSigChainElem(ps.id, scei.nextPubkey, signature, vrf, proof, scei.mining)
 
-	sce := pb.NewSigChainElem(ps.id, scei.nextPubkey, signature, vrf, proof, scei.mining, scei.sigAlgo)
 	elems = append([]*pb.SigChainElem{sce}, elems...)
 
-	return elems, scei.prevHash, scei.prevNodeID, nil
+	return elems, scei.prevSignature, scei.prevNodeID, nil
 }
 
-// BacktrackSigChainSuccess marks a sigchain as backtracked to avoid it being
-// backtracked multiple times.
-func (ps *PorServer) BacktrackSigChainSuccess(hash []byte) {
-	if v, ok := ps.sigChainElemCache.Get(hash); ok {
-		if scei, ok := v.(*sigChainElemInfo); ok {
-			scei.backtracked = true
-		}
-	}
-}
-
-// PopSrcSigChainFromCache returns src sigchain and removes it from cache.
-func (ps *PorServer) PopSrcSigChainFromCache(signature []byte) (*pb.SigChain, error) {
+func (ps *PorServer) GetSrcSigChainFromCache(signature []byte) (*pb.SigChain, error) {
 	v, ok := ps.srcSigChainCache.Get(signature)
 	if !ok {
 		return nil, fmt.Errorf("src sigchain with signature %x not found", signature)
 	}
 
-	ssc, ok := v.(*srcSigChain)
+	sigChain, ok := v.(*pb.SigChain)
 	if !ok {
-		return nil, fmt.Errorf("failed to decode cached src sigchain %x", signature)
+		return nil, fmt.Errorf("failed to decode cached src sigchain from")
 	}
 
-	err := ps.srcSigChainCache.Delete(signature)
-	if err != nil {
-		return nil, err
-	}
-
-	return ssc.sigChain, nil
+	return sigChain, nil
 }
 
 func (ps *PorServer) FlushSigChain(blockHash []byte) {
@@ -557,7 +433,7 @@ func (ps *PorServer) FlushSigChain(blockHash []byte) {
 			log.Infof("Start backtracking sigchain with sighash %x", sce.sigHash)
 			event.Queue.Notify(event.BacktrackSigChain, &BacktrackSigChainInfo{
 				DestSigChainElem: sce.sigChainElem,
-				PrevHash:         sce.prevHash,
+				PrevSignature:    sce.prevSignature,
 			})
 		}
 	}

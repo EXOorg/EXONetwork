@@ -17,30 +17,26 @@
                     <v-data-table
                             :headers="headers"
                             :items="neighbors"
-                            :sort-by="['addr']"
-                            :sort-desc="[false]"
                             :search="search"
+                            prev-icon="chevron_left"
+                            next-icon="chevron_right"
+                            sort-icon="arrow_upward"
                             :no-data-text="$t('NO_DATA')"
-                            :footer-props="{
-                              itemsPerPageText: this.$t('PER_PAGE_TEXT')
-                            }"
+                            :pagination.sync="pagination"
+                            rows-per-page-text=""
+                            :rows-per-page-items="[0]"
                     >
                         <template slot="headerCell" slot-scope="{ header }">
-                            <span class="subheading font-weight-light" v-text="header.text" />
+                            <span class="subheading font-weight-light" v-text="header.text"/>
                         </template>
-                        <template v-slot:body="{items}">
-                            <tbody>
-                            <tr v-for="item in items" :key="item.id">
-                                <td>{{ item.id }}</td>
-                                <td>{{ item.addr }}</td>
-                                <td>{{ getStatus(item.syncState) }}</td>
-                                <td>{{ getBound(item.isOutbound) }}</td>
-                                <td>{{ item.roundTripTime }}</td>
-                            </tr>
-                            </tbody>
-
+                        <template v-slot:items="props">
+                            <td>{{ props.item.id }}</td>
+                            <td>{{ props.item.addr }}</td>
+                            <td>{{ getStatus(props.item.syncState) }}</td>
+                            <td>{{ getBound(props.item.isOutbound) }}</td>
+                            <td>{{ props.item.roundTripTime }}</td>
                         </template>
-                        <template v-slot:page-text="props">
+                        <template v-slot:pageText="props">
                             {{ props.pageStart }} - {{ props.pageStop }} of {{ props.itemsLength }}
                         </template>
                     </v-data-table>
@@ -70,10 +66,10 @@
         },
         headers: [
           {text: this.$t('neighbor.header.ID'), value: 'id', align: 'left', sortable: false},
-          {width: '260px',text: this.$t('neighbor.header.IP'), value: 'addr', align: 'left', sortable: true},
-          {width: '240px', text: this.$t('neighbor.header.STATE'), value: 'syncState', align: 'left', sortable: true},
-          {width: '120px',text: this.$t('neighbor.header.BOUND'), value: 'isOutbound', align: 'left', sortable: true},
-          {width: '100px',text: this.$t('neighbor.header.PING'), value: 'roundTripTime', align: 'left', sortable: true}
+          {text: this.$t('neighbor.header.IP'), value: 'addr', align: 'left', sortable: false},
+          {text: this.$t('neighbor.header.STATE'), value: 'syncState', align: 'left', sortable: false},
+          {text: this.$t('neighbor.header.BOUND'), value: 'isOutbound', align: 'left', sortable: false},
+          {text: this.$t('neighbor.header.PING'), value: 'roundTripTime', align: 'left', sortable: false}
         ],
       }
     },

@@ -6,7 +6,7 @@
 @import "material-dashboard/typography";
 
 html,body {
-  overflow: auto;
+  min-width: 980px;overflow-x: auto;
 }
 
 .border-right{border-right-width: 1px;border-right-style: solid;}
@@ -47,10 +47,3 @@ html,body {
 .theme--light.v-stepper{background-color: transparent;}
 .v-stepper{box-shadow:none;}
 .v-stepper__header{box-shadow:none;}
-.theme--light.v-card .v-card__text{
-  color: #000 !important;
-}
-.theme--light.v-data-table thead tr th{
-  vertical-align: center !important;
-  .v-icon{ margin-bottom: 4px;}
-}

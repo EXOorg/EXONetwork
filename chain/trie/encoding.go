@@ -1,10 +1,6 @@
 package trie
 
-import (
-	"crypto/sha256"
-
-	"github.com/nknorg/nkn/util/log"
-)
+import "crypto/sha256"
 
 func hexToCompact(hex []byte) []byte {
 	terminator := byte(0)
@@ -55,7 +51,7 @@ func hexToKeyBytes(hex []byte) []byte {
 		hex = hex[:len(hex)-1]
 	}
 	if len(hex)&1 != 0 {
-		log.Fatalf("Can't convert hex key of odd length %d", len(hex))
+		panic("can't convert hex key of odd length")
 	}
 	key := make([]byte, len(hex)/2)
 	decodeNibbles(hex, key)

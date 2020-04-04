@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nknorg/nkn/api/common"
+	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/util/log"
 )
@@ -113,7 +114,7 @@ func GetMyExtIP(remote string, ip []byte) (string, error) {
 
 func GetID(remote string, publicKey []byte) ([]byte, error) {
 	resp, err := Call(remote, "getid", 0, map[string]interface{}{
-		"publickey": hex.EncodeToString(publicKey),
+		"publickey": BytesToHexString(publicKey),
 	})
 	if err != nil {
 		return nil, err
@@ -140,7 +141,7 @@ func GetID(remote string, publicKey []byte) ([]byte, error) {
 		return nil, fmt.Errorf("GetID(%s) resp error: %v", remote, string(resp))
 	}
 
-	idSlice, err := hex.DecodeString(ret.Result.Id)
+	idSlice, err := HexStringToBytes(ret.Result.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -184,34 +185,34 @@ func CreateID(remote string, genIdTxn string) (string, error) {
 	return ret.Result, nil
 }
 
-func GetNonceByAddr(remote string, addr string) (uint64, uint32, error) {
+func GetNonceByAddr(remote string, addr string) (uint64, error) {
 	params := map[string]interface{}{
 		"address": addr,
 	}
 
 	resp, err := Call(remote, "getnoncebyaddr", 0, params)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	log.Infof("GetNonceByAddr got resp: %v from %s\n", string(resp), remote)
 
 	var ret struct {
 		Result struct {
-			Nonce         uint64
-			NonceInTxPool uint64
-			CurrentHeight uint32
+			nonce         uint64
+			nonceInTxPool uint64
+			currentHeight uint32
 		} `json:"result"`
 		Err map[string]interface{} `json:"error"`
 	}
 
 	if err := json.Unmarshal(resp, &ret); err != nil {
 		log.Error(err)
-		return 0, 0, err
+		return 0, err
 	}
 	if len(ret.Err) != 0 { // resp.error NOT empty
-		return 0, 0, fmt.Errorf("GetNonceByAddr(%s) resp error: %v", remote, string(resp))
+		return 0, fmt.Errorf("GetNonceByAddr(%s) resp error: %v", remote, string(resp))
 	}
 
-	return ret.Result.NonceInTxPool, ret.Result.CurrentHeight, nil
+	return ret.Result.nonceInTxPool, nil
 }

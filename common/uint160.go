@@ -32,7 +32,7 @@ func (u *Uint160) CompareTo(o Uint160) int {
 	x := u.ToArray()
 	y := o.ToArray()
 
-	for i := 0; i < len(x); i++ {
+	for i := len(x) - 1; i >= 0; i-- {
 		if x[i] > y[i] {
 			return 1
 		}
@@ -162,8 +162,4 @@ func BigToUint160(b *big.Int) Uint160 {
 
 func (u *Uint160) Big() *big.Int {
 	return new(big.Int).SetBytes(u.ToArray()[:])
-}
-
-func (u *Uint160) ToHexString() string {
-	return fmt.Sprintf("%x", u[:])
 }

@@ -1,10 +1,6 @@
 package dashboard
 
 import (
-	"net/http"
-	"strconv"
-	"time"
-
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
@@ -17,27 +13,20 @@ import (
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
 	"github.com/pborman/uuid"
+	"net/http"
+	"strconv"
+	"time"
 )
 
 var (
 	localNode *node.LocalNode
-	wallet    *vault.Wallet
-	id        []byte
+	wallet    vault.Wallet
 )
 
-func Init(ln *node.LocalNode, w *vault.Wallet, d []byte) {
-	if ln != nil {
-		localNode = ln
-		serviceConfig.IsNodeInit = true
-	}
-	if w != nil {
-		wallet = w
-		serviceConfig.IsWalletInit = true
-	}
-	if len(d) > 0 {
-		id = d
-		serviceConfig.IsIdInit = true
-	}
+func Init(ln *node.LocalNode, w vault.Wallet) {
+	localNode = ln
+	wallet = w
+	serviceConfig.IsInit = true
 }
 
 func Start() {
@@ -63,7 +52,7 @@ func Start() {
 
 	store := cookie.NewStore(securecookie.GenerateRandomKey(16), securecookie.GenerateRandomKey(16))
 	store.Options(sessions.Options{
-		MaxAge:   60, //30s
+		MaxAge:   30, //30s
 		Path:     "/",
 		HttpOnly: false,
 	})
@@ -71,14 +60,9 @@ func Start() {
 
 	app.Use(func(context *gin.Context) {
 		// init config
-		if serviceConfig.IsNodeInit {
+		if serviceConfig.IsInit {
 			context.Set("localNode", localNode)
-		}
-		if serviceConfig.IsWalletInit {
 			context.Set("wallet", wallet)
-		}
-		if serviceConfig.IsIdInit {
-			context.Set("id", id)
 		}
 	})
 
@@ -107,19 +91,9 @@ func Start() {
 
 	app.Use(func(context *gin.Context) {
 		session := sessions.Default(context)
-
-		now := time.Now().Unix()
-		if serviceConfig.TokenExp == 0 || serviceConfig.TokenExp+serviceConfig.TokenExpSec < now {
-			token := uuid.NewUUID().String()
-			serviceConfig.Token = token
-			serviceConfig.TokenExp = now + serviceConfig.TokenExpSec
-
-			session.Set("token", token)
-			session.Save()
-		}
-
-		if session.Get("token") == nil {
-			session.Set("token", serviceConfig.Token)
+		token := session.Get("token")
+		if token == nil {
+			session.Set("token", uuid.NewUUID().String())
 			session.Save()
 		}
 
@@ -136,10 +110,6 @@ func Start() {
 		if err != nil && !context.Writer.Written() {
 			context.JSON(http.StatusInternalServerError, err.Error())
 		}
-	})
-
-	app.GET("/", func(context *gin.Context) {
-		context.Redirect(301, "/web")
 	})
 
 	app.Use(routes.Routes(app))

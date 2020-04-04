@@ -2,7 +2,6 @@ package transaction
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
+	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/program"
 	"github.com/nknorg/nkn/signature"
@@ -125,42 +125,44 @@ func (tx *Transaction) GetProgramHashes() ([]Uint160, error) {
 		sender := payload.(*pb.Coinbase).Sender
 		hashes = append(hashes, BytesToUint160(sender))
 	case pb.REGISTER_NAME_TYPE:
-		publicKey := payload.(*pb.RegisterName).Registrant
-		programhash, err := program.CreateProgramHash(publicKey)
+		pubkey := payload.(*pb.RegisterName).Registrant
+		publicKey, err := crypto.NewPubKeyFromBytes(pubkey)
 		if err != nil {
 			return nil, err
 		}
-		hashes = append(hashes, programhash)
-	case pb.TRANSFER_NAME_TYPE:
-		publicKey := payload.(*pb.TransferName).Registrant
 		programhash, err := program.CreateProgramHash(publicKey)
 		if err != nil {
 			return nil, err
 		}
 		hashes = append(hashes, programhash)
 	case pb.DELETE_NAME_TYPE:
-		publicKey := payload.(*pb.DeleteName).Registrant
+		pubkey := payload.(*pb.DeleteName).Registrant
+		publicKey, err := crypto.NewPubKeyFromBytes(pubkey)
+		if err != nil {
+			return nil, err
+		}
 		programhash, err := program.CreateProgramHash(publicKey)
 		if err != nil {
 			return nil, err
 		}
 		hashes = append(hashes, programhash)
 	case pb.SUBSCRIBE_TYPE:
-		publicKey := payload.(*pb.Subscribe).Subscriber
-		programhash, err := program.CreateProgramHash(publicKey)
+		pubkey := payload.(*pb.Subscribe).Subscriber
+		publicKey, err := crypto.NewPubKeyFromBytes(pubkey)
 		if err != nil {
 			return nil, err
 		}
-		hashes = append(hashes, programhash)
-	case pb.UNSUBSCRIBE_TYPE:
-		publicKey := payload.(*pb.Unsubscribe).Subscriber
 		programhash, err := program.CreateProgramHash(publicKey)
 		if err != nil {
 			return nil, err
 		}
 		hashes = append(hashes, programhash)
 	case pb.GENERATE_ID_TYPE:
-		publicKey := payload.(*pb.GenerateID).PublicKey
+		pubkey := payload.(*pb.GenerateID).PublicKey
+		publicKey, err := crypto.NewPubKeyFromBytes(pubkey)
+		if err != nil {
+			return nil, err
+		}
 		programhash, err := program.CreateProgramHash(publicKey)
 		if err != nil {
 			return nil, err
@@ -169,6 +171,7 @@ func (tx *Transaction) GetProgramHashes() ([]Uint160, error) {
 	case pb.NANO_PAY_TYPE:
 		sender := payload.(*pb.NanoPay).Sender
 		hashes = append(hashes, BytesToUint160(sender))
+
 	case pb.ISSUE_ASSET_TYPE:
 		sender := payload.(*pb.IssueAsset).Sender
 		hashes = append(hashes, BytesToUint160(sender))
@@ -270,18 +273,18 @@ func (tx *Transaction) GetInfo() ([]byte, error) {
 	tx.Hash()
 	info := &txnInfo{
 		TxType:      tx.UnsignedTx.Payload.GetType().String(),
-		PayloadData: hex.EncodeToString(tx.UnsignedTx.Payload.GetData()),
+		PayloadData: BytesToHexString(tx.UnsignedTx.Payload.GetData()),
 		Nonce:       tx.UnsignedTx.Nonce,
 		Fee:         tx.UnsignedTx.Fee,
-		Attributes:  hex.EncodeToString(tx.UnsignedTx.Attributes),
+		Attributes:  BytesToHexString(tx.UnsignedTx.Attributes),
 		Programs:    make([]programInfo, 0),
 		Hash:        tx.hash.ToHexString(),
 	}
 
 	for _, v := range tx.Programs {
 		pgInfo := &programInfo{}
-		pgInfo.Code = hex.EncodeToString(v.Code)
-		pgInfo.Parameter = hex.EncodeToString(v.Parameter)
+		pgInfo.Code = BytesToHexString(v.Code)
+		pgInfo.Parameter = BytesToHexString(v.Parameter)
 		info.Programs = append(info.Programs, *pgInfo)
 	}
 

@@ -1,7 +1,6 @@
 package id
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -51,26 +50,7 @@ func generateIDAction(c *cli.Context) error {
 	var resp []byte
 	switch {
 	case c.Bool("genid"):
-		account, err := myWallet.GetDefaultAccount()
-		if err != nil {
-			return err
-		}
-
-		walletAddr, err := account.ProgramHash.ToAddress()
-		if err != nil {
-			return err
-		}
-
-		remoteNonce, height, err := client.GetNonceByAddr(Address(), walletAddr)
-		if err != nil {
-			return err
-		}
-
-		if nonce == 0 {
-			nonce = remoteNonce
-		}
-
-		txn, _ := MakeGenerateIDTransaction(context.Background(), myWallet, regFee, nonce, txnFee, config.MaxGenerateIDTxnHash.GetValueAtHeight(height+1))
+		txn, _ := MakeGenerateIDTransaction(myWallet, regFee, nonce, txnFee)
 		buff, _ := txn.Marshal()
 		resp, err = client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": hex.EncodeToString(buff)})
 	default:

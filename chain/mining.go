@@ -6,11 +6,11 @@ import (
 	"github.com/nknorg/nkn/block"
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto"
+	"github.com/nknorg/nkn/crypto/util"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/por"
 	"github.com/nknorg/nkn/signature"
 	"github.com/nknorg/nkn/transaction"
-	"github.com/nknorg/nkn/util"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
@@ -92,7 +92,7 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			break
 		default:
 		}
 
@@ -105,17 +105,17 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 			break
 		}
 
-		if txn.UnsignedTx.Fee < config.Parameters.MinTxnFee && isLowFeeTxnFull(lowFeeTxCount+1, lowFeeTxSize+txn.GetSize()) {
+		if txn.UnsignedTx.Fee < int64(config.Parameters.MinTxnFee) && isLowFeeTxnFull(lowFeeTxCount+1, lowFeeTxSize+txn.GetSize()) {
 			log.Info("Low fee transaction full in block")
 			break
 		}
 
-		if err := VerifyTransaction(txn, height); err != nil {
+		if err := VerifyTransaction(txn); err != nil {
 			log.Warningf("invalid transaction: %v", err)
 			txnCollection.Pop()
 			continue
 		}
-		if err := VerifyTransactionWithLedger(txn, height); err != nil {
+		if err := VerifyTransactionWithLedger(txn); err != nil {
 			log.Warningf("invalid transaction: %v", err)
 			txnCollection.Pop()
 			continue
@@ -143,8 +143,6 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 			lowFeeTxSize += txn.GetSize()
 		}
 	}
-
-	bvs.Close()
 
 	txnRoot, err := crypto.ComputeRoot(txnHashList)
 	if err != nil {
@@ -174,7 +172,7 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 				TransactionsRoot: txnRoot.ToArray(),
 				WinnerHash:       winnerHash.ToArray(),
 				WinnerType:       winnerType,
-				SignerPk:         bm.account.PublicKey,
+				SignerPk:         bm.account.PublicKey.EncodePoint(),
 				SignerId:         chordID,
 			},
 			Signature: nil,
@@ -186,7 +184,7 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 		Transactions: txnList,
 	}
 
-	curStateHash, err := DefaultLedger.Store.GenerateStateRoot(ctx, block, true, false)
+	curStateHash, err := DefaultLedger.Store.GenerateStateRoot(block, true, false)
 	if err != nil {
 		return nil, err
 	}

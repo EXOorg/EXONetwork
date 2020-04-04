@@ -53,9 +53,7 @@ func (consensus *Consensus) canVerifyHeight(height uint32) bool {
 // proposal for electionStartDelay duration.
 func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) {
 	var timerStartOnce sync.Once
-	var verifyDeadline time.Time
-	var initialVoteDeadline time.Time
-	initialVote := common.EmptyUint256
+	var deadline time.Time
 	electionStartTimer := time.NewTimer(math.MaxInt64)
 	electionStartTimer.Stop()
 	timeoutTimer := time.NewTimer(electionStartDelay)
@@ -79,10 +77,8 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 		if elc.NeighborVoteCount() > 0 {
 			timerStartOnce.Do(func() {
 				timer.StopTimer(timeoutTimer)
-				electionStartTimer.Reset(electionStartDelay - initialVoteDelay)
-				now := time.Now()
-				verifyDeadline = now.Add(proposalVerificationTimeout - initialVoteDelay)
-				initialVoteDeadline = now
+				electionStartTimer.Reset(electionStartDelay)
+				deadline = time.Now().Add(proposalVerificationTimeout)
 			})
 			break
 		}
@@ -101,7 +97,7 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 			blockHash := proposal.Hash()
 
 			if !consensus.canVerifyHeight(consensusHeight) {
-				err = consensus.iHaveBlockProposal(consensusHeight, blockHash)
+				err = consensus.iHaveProposal(consensusHeight, blockHash)
 				if err != nil {
 					log.Errorf("Send I have block message error: %v", err)
 				}
@@ -111,9 +107,7 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 			timerStartOnce.Do(func() {
 				timer.StopTimer(timeoutTimer)
 				electionStartTimer.Reset(electionStartDelay)
-				now := time.Now()
-				verifyDeadline = now.Add(proposalVerificationTimeout)
-				initialVoteDeadline = now.Add(initialVoteDelay)
+				deadline = time.Now().Add(proposalVerificationTimeout)
 			})
 
 			acceptProposal := true
@@ -124,7 +118,7 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 				continue
 			}
 
-			err = consensus.iHaveBlockProposal(consensusHeight, blockHash)
+			err = consensus.iHaveProposal(consensusHeight, blockHash)
 			if err != nil {
 				log.Errorf("Send I have block message error: %v", err)
 			}
@@ -134,44 +128,36 @@ func (consensus *Consensus) waitAndHandleProposal() (*election.Election, error) 
 				acceptProposal = false
 			}
 
-			verifyCtx, cancelVerify := context.WithDeadline(context.Background(), verifyDeadline)
-			defer cancelVerify()
+			ctx, cancel := context.WithDeadline(context.Background(), deadline)
+			defer cancel()
 
 			if acceptProposal {
 				if err = chain.TimestampCheck(proposal.Header, true); err != nil {
 					log.Warningf("Proposal fails to pass soft timestamp check: %v", err)
 					acceptProposal = false
-				} else if err = chain.HeaderCheck(proposal); err != nil {
+				} else if err = chain.HeaderCheck(proposal.Header); err != nil {
 					log.Warningf("Proposal fails to pass header check: %v", err)
 					acceptProposal = false
 				} else if err = chain.NextBlockProposerCheck(proposal.Header); err != nil {
 					log.Warningf("Proposal fails to pass next block proposal check: %v", err)
 					acceptProposal = false
-				} else if err = chain.TransactionCheck(verifyCtx, proposal); err != nil {
+				} else if err = chain.TransactionCheck(ctx, proposal); err != nil {
 					log.Warningf("Proposal fails to pass transaction check: %v", err)
 					acceptProposal = false
 				}
 			}
 
+			initialVote := common.EmptyUint256
 			if acceptProposal {
 				initialVote = blockHash
 			}
 
 			elc.SetInitialVote(initialVote)
 
-			initialVoteCtx, cancelInitialVote := context.WithDeadline(context.Background(), initialVoteDeadline)
-			defer cancelInitialVote()
-
-			go func(ctx context.Context, vote common.Uint256) {
-				<-ctx.Done()
-				if vote != initialVote {
-					return
-				}
-				err := consensus.vote(consensusHeight, vote)
-				if err != nil {
-					log.Errorf("Send initial vote error: %v", err)
-				}
-			}(initialVoteCtx, initialVote)
+			err = consensus.vote(consensusHeight, initialVote)
+			if err != nil {
+				log.Errorf("Send initial vote error: %v", err)
+			}
 
 			select {
 			case <-electionStartTimer.C:
@@ -215,7 +201,7 @@ func (consensus *Consensus) startRequestingProposal() {
 
 		log.Infof("Request block %s from neighbor %v", requestProposal.blockHash.ToHexString(), neighbor.GetID())
 
-		block, err := consensus.requestProposal(neighbor, requestProposal.blockHash, requestProposal.height, defaultRequestTransactionType)
+		block, err := consensus.requestProposal(neighbor, requestProposal.blockHash, requestProposal.height, requestTransactionType)
 		if err != nil {
 			log.Errorf("Request block %s error: %v", requestProposal.blockHash.ToHexString(), err)
 			continue
@@ -270,10 +256,6 @@ func (consensus *Consensus) receiveProposalHash(neighborID string, height uint32
 
 	if _, ok := consensus.proposals.Get(blockHash.ToArray()); ok {
 		return nil
-	}
-
-	if _, ok := consensus.neighborBlacklist.Load(neighborID); ok {
-		return fmt.Errorf("ignore block hash %s from blacklist neighbor %s", blockHash.ToHexString(), neighborID)
 	}
 
 	expectedHeight := consensus.GetExpectedHeight()
@@ -354,13 +336,6 @@ func (consensus *Consensus) requestProposal(neighbor *node.RemoteNode, blockHash
 		}
 	}
 
-	if err = chain.SignatureCheck(b.Header); err != nil {
-		err = fmt.Errorf("Proposal fails to pass signature check: %v", err)
-		consensus.neighborBlacklist.Store(neighbor.GetID(), err)
-		log.Infof("Add neighbor %s to blacklist because: %v", neighbor.GetID(), err)
-		return nil, err
-	}
-
 	var txnsRoot common.Uint256
 	poolTxns := make([]*transaction.Transaction, 0, len(replyMsg.TransactionsHash))
 	missingTxnsHash := make([][]byte, 0, len(replyMsg.TransactionsHash))
@@ -370,10 +345,6 @@ func (consensus *Consensus) requestProposal(neighbor *node.RemoteNode, blockHash
 		txnsHash := make([]common.Uint256, len(b.Transactions))
 		for i, txn := range b.Transactions {
 			txnsHash[i] = txn.Hash()
-		}
-
-		if hasDuplicateHash(txnsHash) {
-			return nil, fmt.Errorf("Block txn list contains duplicate")
 		}
 
 		txnsRoot, err = crypto.ComputeRoot(txnsHash)
@@ -393,10 +364,6 @@ func (consensus *Consensus) requestProposal(neighbor *node.RemoteNode, blockHash
 			if err != nil {
 				return nil, err
 			}
-		}
-
-		if hasDuplicateHash(txnsHash) {
-			return nil, fmt.Errorf("Txn hash list contains duplicate")
 		}
 
 		txnsRoot, err = crypto.ComputeRoot(txnsHash)
@@ -449,10 +416,6 @@ func (consensus *Consensus) requestProposal(neighbor *node.RemoteNode, blockHash
 		txnsHash := make([]common.Uint256, len(replyMsg.TransactionsHash))
 		for i, txn := range mergedTxns {
 			txnsHash[i] = txn.Hash()
-		}
-
-		if hasDuplicateHash(txnsHash) {
-			return nil, fmt.Errorf("Txn list contains duplicate")
 		}
 
 		txnsRoot, err = crypto.ComputeRoot(txnsHash)
@@ -580,9 +543,9 @@ func (consensus *Consensus) requestProposalTransactions(neighbor *node.RemoteNod
 	return txns, nil
 }
 
-// iHaveBlockProposal sends I_HAVE_BLOCK_PROPOSAL message to neighbors informing
-// them node has a block proposal
-func (consensus *Consensus) iHaveBlockProposal(height uint32, blockHash common.Uint256) error {
+// iHaveProposal sends I_HAVE_PROPOSAL message to neighbors informing them node
+// has a block proposal
+func (consensus *Consensus) iHaveProposal(height uint32, blockHash common.Uint256) error {
 	msg, err := NewIHaveBlockProposalMessage(height, blockHash)
 	if err != nil {
 		return err
@@ -593,7 +556,7 @@ func (consensus *Consensus) iHaveBlockProposal(height uint32, blockHash common.U
 		return err
 	}
 
-	for _, neighbor := range consensus.localNode.GetGossipNeighbors(nil) {
+	for _, neighbor := range consensus.localNode.GetNeighbors(nil) {
 		err = neighbor.SendBytesAsync(buf)
 		if err != nil {
 			log.Errorf("Send vote to neighbor %v error: %v", neighbor, err)

@@ -2,29 +2,30 @@ package config
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	gonat "github.com/nknorg/go-nat"
 	portscanner "github.com/nknorg/go-portscanner"
 	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/crypto/ed25519"
 	"github.com/nknorg/nkn/crypto/ed25519/vrf"
-	"github.com/nknorg/nkn/util"
-	"github.com/nknorg/portmapper"
+	"github.com/nknorg/nkn/crypto/util"
+	"github.com/nknorg/nnet/transport"
 	"github.com/pbnjay/memory"
 )
 
 const (
+	MaxUint                      = ^uint(0)
+	MaxInt                       = int(MaxUint >> 1)
 	MaxNumTxnPerBlock            = 4096
 	MaxBlockSize                 = 1 * 1024 * 1024 // in bytes
 	ConsensusDuration            = 20 * time.Second
@@ -34,14 +35,6 @@ const (
 	MaxRollbackBlocks            = 180
 	SigChainBlockDelay           = 1
 	SigChainPropogationTime      = 2
-	GossipSampleChordNeighbor    = 0.1
-	GossipMinChordNeighbor       = 3
-	GossipSampleRandomNeighbor   = 1.0
-	GossipMinRandomNeighbor      = 0
-	VotingSampleChordNeighbor    = 0.5
-	VotingMinChordNeighbor       = 4
-	VotingSampleRandomNeighbor   = 0.0
-	VotingMinRandomNeighbor      = 0
 	HeaderVersion                = 1
 	DBVersion                    = 0x01
 	InitialIssueAddress          = "NKNFCrUMFPkSeDRMG2ME21hD6wBCA2poc347"
@@ -70,23 +63,15 @@ const (
 	GASAssetName                 = "New Network Coin"
 	GASAssetSymbol               = "nnc"
 	GASAssetPrecision            = uint32(8)
-	DumpMemInterval              = 30 * time.Second
-	MaxClientMessageSize         = 4 * 1024 * 1024
-	MinNameRegistrationFee       = 10 * common.StorageFactor
-	DefaultNameDuration          = 365 * 24 * 60 * 60 / int(ConsensusDuration/time.Second)
 )
 
 const (
-	defaultConfigFile             = "config.json"
-	defaultSyncMaxMemoryPercent   = 25
-	defaultSyncBatchWindowSize    = 64
-	defaultTxPoolMaxMemoryPercent = 0.4
-	defaultTxPoolMaxMemorySize    = 32
+	defaultConfigFile          = "config.json"
+	defaultSyncMemoryPercent   = 10
+	defaultSyncBatchWindowSize = 64
 )
 
 var (
-	Debug            = false
-	PprofPort        = "127.0.0.1:8080"
 	ShortHashSalt    = util.RandomBytes(32)
 	GenesisTimestamp = time.Date(2019, time.June, 29, 13, 10, 13, 0, time.UTC).Unix()
 	GenesisBeacon    = make([]byte, RandomBeaconLength)
@@ -102,66 +87,20 @@ var (
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 	}
-	AllowSubscribeTopicRegex = HeightDependentString{
-		heights: []uint32{980000, 0},
-		values:  []string{"(^[A-Za-z0-9][A-Za-z0-9-_.+]{2,254}$)", "(^[A-Za-z][A-Za-z0-9-_.+]{2,254}$)"},
-	}
-	AllowNameRegex = HeightDependentString{
-		heights: []uint32{980000, 0},
-		values:  []string{"(^[A-Za-z0-9][A-Za-z0-9-_+]{5,62}$)", "(^[A-Za-z][A-Za-z0-9-_.+]{2,254}$)"},
-	}
-	LegacyNameService = HeightDependentBool{
-		heights: []uint32{980000, 0},
-		values:  []bool{false, true},
-	}
-	MaxSubscribeIdentifierLen = HeightDependentInt32{
+	MaxTxnSubIdentifierList = HeightDependentInt{ // ChangePoin for txn payload Subscribe.Identifier
 		heights: []uint32{133400, 0},
-		values:  []int32{64, math.MaxInt32},
+		values:  []int{64, MaxInt},
 	}
-	MaxSubscribeMetaLen = HeightDependentInt32{
+	MaxTxnSubMetaList = HeightDependentInt{ // ChangePoin for txn payload Subscribe.Meta
 		heights: []uint32{133400, 0},
-		values:  []int32{1024, math.MaxInt32},
-	}
-	MaxSubscribeBucket = HeightDependentInt32{
-		heights: []uint32{245000, 0},
-		values:  []int32{0, 1000},
-	}
-	MaxSubscribeDuration = HeightDependentInt32{
-		heights: []uint32{245000, 0},
-		values:  []int32{400000, 65535},
-	}
-	MaxSubscriptionsCount = 100000
-	MaxGenerateIDTxnHash  = HeightDependentUint256{
-		heights: []uint32{245000, 0},
-		values: []common.Uint256{
-			{
-				0x00, 0x00, 0x00, 0x07, 0xff, 0xff, 0xff, 0xff,
-				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-			},
-			common.MaxUint256,
-		},
-	}
-	MaxTxnAttributesLen  = 100
-	AllowTxnRegisterName = HeightDependentBool{
-		heights: []uint32{980000, 7500, 0},
-		values:  []bool{true, false, true},
-	}
-	ChargeNanoPayTxnFee = HeightDependentBool{
-		heights: []uint32{1072500, 0},
-		values:  []bool{true, false},
-	}
-	AllowSigChainHashSignature = HeightDependentBool{
-		heights: []uint32{1200000, 0},
-		values:  []bool{false, true},
+		values:  []int{1024, MaxInt},
 	}
 )
 
 var (
 	Version                      string
 	SkipNAT                      bool
-	gateway                      *portmapper.PortMapper
+	nat                          gonat.NAT
 	ConfigFile                   string
 	LogPath                      string
 	ChainDBPath                  string
@@ -173,90 +112,69 @@ var (
 	WebGuiListenAddress          string
 	WebGuiCreateWallet           bool
 	PasswordFile                 string
-	StatePruningMode             string
 	Parameters                   = &Configuration{
 		Version:                      1,
 		Transport:                    "tcp",
 		NodePort:                     30001,
 		HttpWsPort:                   30002,
-		HttpWssPort:                  30004,
 		HttpJsonPort:                 30003,
-		HttpsJsonPort:                30005,
 		NAT:                          true,
 		Mining:                       true,
 		MiningDebug:                  true,
 		LogLevel:                     1,
 		MaxLogFileSize:               20,
-		MaxLogFileTotalSize:          100,
 		SyncBatchWindowSize:          0,
 		SyncBlockHeadersBatchSize:    128,
 		SyncBlocksBatchSize:          4,
 		SyncBlocksMaxMemorySize:      0,
 		RPCReadTimeout:               5,
 		RPCWriteTimeout:              10,
-		RPCIdleTimeout:               0,
-		RPCKeepAlivesEnabled:         false,
+		KeepAliveTimeout:             15,
 		NATPortMappingTimeout:        365 * 86400,
 		NumTxnPerBlock:               256,
 		TxPoolPerAccountTxCap:        32,
 		TxPoolTotalTxCap:             0,
-		TxPoolMaxMemorySize:          0,
-		RegisterIDRegFee:             0,
-		RegisterIDTxnFee:             0,
+		TxPoolMaxMemorySize:          32,
+		RegisterIDRegFee:          0,
+		RegisterIDTxnFee:                0,
 		LogPath:                      "Log",
 		ChainDBPath:                  "ChainDB",
 		WalletFile:                   "wallet.json",
-		HttpWssDomain:                "{{.DashedIP}}.ipv4.nknlabs.io",
-		HttpWssCert:                  "certs/STAR.ipv4.nknlabs.io.cert",
-		HttpWssKey:                   "certs/STAR.ipv4.nknlabs.io.key",
-		HttpsJsonDomain:              "{{.DashedIP}}.ipv4.nknlabs.io",
-		HttpsJsonCert:                "certs/STAR.ipv4.nknlabs.io.cert",
-		HttpsJsonKey:                 "certs/STAR.ipv4.nknlabs.io.key",
 		MaxGetIDSeeds:                3,
 		DBFilesCacheCapacity:         100,
 		NumLowFeeTxnPerBlock:         0,
-		LowFeeTxnSizePerBlock:        2048,
+		LowFeeTxnSizePerBlock:     4096,
 		MinTxnFee:                    10000000,
 		AllowEmptyBeneficiaryAddress: false,
 		WebGuiListenAddress:          "127.0.0.1",
 		WebGuiPort:                   30000,
 		WebGuiCreateWallet:           false,
 		PasswordFile:                 "",
-		RecentStateCount:             1024,
-		StatePruningMode:             "none",
-		RPCRateLimit:                 1024,
-		RPCRateBurst:                 4096,
-		SyncBlockHeaderRateLimit:     8192,
-		SyncBlockHeaderRateBurst:     32768,
-		SyncBlockRateLimit:           256,
-		SyncBlockRateBurst:           1024,
-		BlockHeaderCacheSize:         1024,
 	}
 )
 
 type Configuration struct {
 	Version                      int           `json:"Version"`
 	SeedList                     []string      `json:"SeedList"`
-	HttpWssDomain                string        `json:"HttpWssDomain"`
-	HttpWssCert                  string        `json:"HttpWssCert"`
-	HttpWssKey                   string        `json:"HttpWssKey"`
+	RestCertPath                 string        `json:"RestCertPath"`
+	RestKeyPath                  string        `json:"RestKeyPath"`
+	RPCCert                      string        `json:"RPCCert"`
+	RPCKey                       string        `json:"RPCKey"`
 	HttpWsPort                   uint16        `json:"HttpWsPort"`
-	HttpWssPort                  uint16        `json:"HttpWssPort"`
 	HttpJsonPort                 uint16        `json:"HttpJsonPort"`
-	HttpsJsonDomain              string        `json:"HttpsJsonDomain"`
-	HttpsJsonCert                string        `json:"HttpsJsonCert"`
-	HttpsJsonKey                 string        `json:"HttpsJsonKey"`
-	HttpsJsonPort                uint16        `json:"HttpsJsonPort"`
 	NodePort                     uint16        `json:"-"`
 	LogLevel                     int           `json:"LogLevel"`
 	MaxLogFileSize               uint32        `json:"MaxLogSize"`
-	MaxLogFileTotalSize          uint32        `json:"MaxLogFileTotalSize"`
+	IsTLS                        bool          `json:"IsTLS"`
+	CertPath                     string        `json:"CertPath"`
+	KeyPath                      string        `json:"KeyPath"`
+	CAPath                       string        `json:"CAPath"`
 	GenesisBlockProposer         string        `json:"GenesisBlockProposer"`
 	NumLowFeeTxnPerBlock         uint32        `json:"NumLowFeeTxnPerBlock"`
-	LowFeeTxnSizePerBlock        uint32        `json:"LowFeeTxnSizePerBlock"` // in bytes
+	LowFeeTxnSizePerBlock     uint32        `json:"LowFeeTxnSizePerBlock"` // in bytes
 	MinTxnFee                    int64         `json:"MinTxnFee"`
-	RegisterIDRegFee             int64         `json:"RegisterIDRegFee"`
-	RegisterIDTxnFee             int64         `json:"RegisterIDTxnFee"`
+	RegisterIDRegFee                int64         `json:"RegisterIDRegFee"`
+	RegisterIDTxnFee          int64         `json:"RegisterIDTxnFee"`
 	Hostname                     string        `json:"Hostname"`
 	Transport                    string        `json:"Transport"`
 	NAT                          bool          `json:"NAT"`
@@ -270,11 +188,10 @@ type Configuration struct {
 	NumTxnPerBlock               uint32        `json:"NumTxnPerBlock"`
 	TxPoolPerAccountTxCap        uint32        `json:"TxPoolPerAccountTxCap"`
 	TxPoolTotalTxCap             uint32        `json:"TxPoolTotalTxCap"`
-	TxPoolMaxMemorySize          uint32        `json:"TxPoolMaxMemorySize"` // in megabytes (MB)
-	RPCReadTimeout               time.Duration `json:"RPCReadTimeout"`      // in seconds
-	RPCWriteTimeout              time.Duration `json:"RPCWriteTimeout"`     // in seconds
-	RPCIdleTimeout               time.Duration `json:"RPCIdleTimeout"`      // in seconds
-	RPCKeepAlivesEnabled         bool          `json:"RPCKeepAlivesEnabled"`
+	TxPoolMaxMemorySize          uint32        `json:"TxPoolMaxMemorySize"`   // in megabytes (MB)
+	RPCReadTimeout               time.Duration `json:"RPCReadTimeout"`        // in seconds
+	RPCWriteTimeout              time.Duration `json:"RPCWriteTimeout"`       // in seconds
+	KeepAliveTimeout             time.Duration `json:"KeepAliveTimeout"`      // in seconds
 	NATPortMappingTimeout        time.Duration `json:"NATPortMappingTimeout"` // in seconds
 	LogPath                      string        `json:"LogPath"`
 	ChainDBPath                  string        `json:"ChainDBPath"`
@@ -286,15 +203,6 @@ type Configuration struct {
 	WebGuiPort                   uint16        `json:"WebGuiPort"`
 	WebGuiCreateWallet           bool          `json:"WebGuiCreateWallet"`
 	PasswordFile                 string        `json:"PasswordFile"`
-	RecentStateCount             uint32        `json:"RecentStateCount"`
-	StatePruningMode             string        `json:"StatePruningMode"`
-	RPCRateLimit                 float64       `json:"RPCRateLimit"` // requests per second
-	RPCRateBurst                 uint32        `json:"RPCRateBurst"`
-	SyncBlockHeaderRateLimit     float64       `json:"SyncBlockHeaderRateLimit"` // headers per second
-	SyncBlockHeaderRateBurst     uint32        `json:"SyncBlockHeaderRateBurst"`
-	SyncBlockRateLimit           float64       `json:"SyncBlockRateLimit"` // blocks per second
-	SyncBlockRateBurst           uint32        `json:"SyncBlockRateBurst"`
-	BlockHeaderCacheSize         uint32        `json:"BlockHeaderCacheSize"`
 }
 
 func Init() error {
@@ -352,29 +260,17 @@ func Init() error {
 		Parameters.PasswordFile = PasswordFile
 	}
 
-	if len(StatePruningMode) > 0 {
-		Parameters.StatePruningMode = StatePruningMode
-	}
-
 	if Parameters.SyncBatchWindowSize == 0 {
 		syncBlocksMaxMemorySize := uint64(Parameters.SyncBlocksMaxMemorySize) * 1024 * 1024
 		if syncBlocksMaxMemorySize == 0 {
-			syncBlocksMaxMemorySize = uint64(float64(memory.TotalMemory()) * defaultSyncMaxMemoryPercent / 100.0)
+			syncBlocksMaxMemorySize = memory.TotalMemory() * defaultSyncMemoryPercent / 100
 		}
 
 		Parameters.SyncBatchWindowSize = uint32(syncBlocksMaxMemorySize/MaxBlockSize) / Parameters.SyncBlocksBatchSize
 		if Parameters.SyncBatchWindowSize == 0 {
 			Parameters.SyncBatchWindowSize = defaultSyncBatchWindowSize
 		}
-		log.Printf("Set SyncBatchWindowSize to %v", Parameters.SyncBatchWindowSize)
-	}
-
-	if Parameters.TxPoolMaxMemorySize == 0 {
-		Parameters.TxPoolMaxMemorySize = uint32(float64(memory.TotalMemory()) / 1024 / 1024 * defaultTxPoolMaxMemoryPercent / 100.0)
-		if Parameters.TxPoolMaxMemorySize == 0 {
-			Parameters.TxPoolMaxMemorySize = defaultTxPoolMaxMemorySize
-		}
-		log.Printf("Set TxPoolMaxMemorySize to %v", Parameters.TxPoolMaxMemorySize)
+		log.Printf("Set SyncBatchWindowSize to %vMB", Parameters.SyncBatchWindowSize)
 	}
 
 	err = Parameters.verify()
@@ -383,71 +279,87 @@ func Init() error {
 	}
 
 	if err := Parameters.SetupPortMapping(); err != nil {
-		log.Printf("Error setting up port mapping: %v. If this problem persists, you can use --no-nat flag to bypass automatic port forwarding and set it up yourself.", err)
+		log.Printf("Error adding port mapping. If this problem persists, you can use --no-nat flag to bypass automatic port forwarding and set it up yourself.")
+		return err
 	}
 
 	return nil
 }
 
 func (config *Configuration) SetupPortMapping() error {
-	if SkipNAT || !config.NAT {
+	if config.NAT && !SkipNAT {
+		log.Println("Discovering NAT gateway...")
+
+		var err error
+		nat, err = gonat.DiscoverGateway()
+		if err != nil {
+			log.Printf("No NAT gateway detected, skip automatic port forwading. You need to set up port forwarding and firewall yourself.")
+			return nil
+		}
+
+		log.Printf("Found %s gateway", nat.Type())
+
+		transport, err := transport.NewTransport(config.Transport)
+		if err != nil {
+			return err
+		}
+
+		externalPort, internalPort, err := nat.AddPortMapping(transport.GetNetwork(), int(config.NodePort), int(config.NodePort), "nkn", config.NATPortMappingTimeout*time.Second)
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
+
+		externalPort, internalPort, err = nat.AddPortMapping(transport.GetNetwork(), int(config.HttpWsPort), int(config.HttpWsPort), "nkn", config.NATPortMappingTimeout*time.Second)
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
+
+		externalPort, internalPort, err = nat.AddPortMapping(transport.GetNetwork(), int(config.HttpJsonPort), int(config.HttpJsonPort), "nkn", config.NATPortMappingTimeout*time.Second)
+		if err != nil {
+			return err
+		}
+		log.Printf("Mapped external port %d to internal port %d", externalPort, internalPort)
+	} else {
 		log.Printf("Skip automatic port forwading. You need to set up port forwarding and firewall yourself.")
-		return nil
 	}
-
-	log.Println("Discovering NAT gateway...")
-
-	var err error
-	gateway, err = portmapper.Discover()
-	if err == portmapper.NoGatewayFound {
-		log.Printf("No NAT gateway discovered, skip automatic port forwading. You need to set up port forwarding and firewall yourself.")
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	err = gateway.Add(config.NodePort, "NKN Node")
-	if err != nil {
-		return err
-	}
-	log.Printf("Mapped external port %d to internal port %d", config.NodePort, config.NodePort)
-
-	err = gateway.Add(config.HttpWsPort, "NKN Node")
-	if err != nil {
-		return err
-	}
-	log.Printf("Mapped external port %d to internal port %d", config.HttpWsPort, config.HttpWsPort)
-
-	err = gateway.Add(config.HttpWssPort, "NKN Node")
-	if err != nil {
-		return err
-	}
-	log.Printf("Mapped external port %d to internal port %d", config.HttpWssPort, config.HttpWssPort)
-
-	err = gateway.Add(config.HttpJsonPort, "NKN Node")
-	if err != nil {
-		return err
-	}
-	log.Printf("Mapped external port %d to internal port %d", config.HttpJsonPort, config.HttpJsonPort)
-
-	err = gateway.Add(config.HttpsJsonPort, "NKN Node")
-	if err != nil {
-		return err
-	}
-	log.Printf("Mapped external port %d to internal port %d", config.HttpsJsonPort, config.HttpsJsonPort)
 
 	return nil
 }
 
-func (config *Configuration) ClearPortMapping() error {
-	if gateway == nil {
-		return nil
+func (config *Configuration) CleanPortMapping() error {
+	if config.NAT && !SkipNAT {
+		if nat == nil {
+			return fmt.Errorf("NAT gateway has not been discoverred yet")
+		}
+
+		log.Println("Removing added port mapping...")
+
+		transport, err := transport.NewTransport(config.Transport)
+		if err != nil {
+			return err
+		}
+
+		err = nat.DeletePortMapping(transport.GetNetwork(), int(config.NodePort))
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.NodePort)
+
+		err = nat.DeletePortMapping(transport.GetNetwork(), int(config.HttpWsPort))
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.HttpWsPort)
+
+		err = nat.DeletePortMapping(transport.GetNetwork(), int(config.HttpJsonPort))
+		if err != nil {
+			return err
+		}
+		log.Printf("Removed port mapping at external port %d", config.HttpJsonPort)
 	}
-
-	log.Println("Removing added port mapping...")
-
-	return gateway.DeleteAll()
+	return nil
 }
 
 func (config *Configuration) verify() error {
@@ -463,7 +375,7 @@ func (config *Configuration) verify() error {
 		return errors.New("no GenesisBlockProposer")
 	}
 
-	pk, err := hex.DecodeString(config.GenesisBlockProposer)
+	pk, err := common.HexStringToBytes(config.GenesisBlockProposer)
 	if err != nil {
 		return fmt.Errorf("parse GenesisBlockProposer error: %v", err)
 	}
@@ -480,17 +392,6 @@ func (config *Configuration) verify() error {
 
 	if config.MaxLogFileSize <= 0 {
 		return fmt.Errorf("MaxLogFileSize should be >= 1 (MB)")
-	}
-
-	if config.MaxLogFileTotalSize <= 0 {
-		return fmt.Errorf("MaxLogFileTotalSize should be >= 1 (MB)")
-	}
-
-	switch config.StatePruningMode {
-	case "lowmem":
-	case "none":
-	default:
-		return fmt.Errorf("unknown state pruning mode %v", config.StatePruningMode)
 	}
 
 	return nil
@@ -515,8 +416,6 @@ func (config *Configuration) incrementPort() {
 		config.NodePort,
 		config.HttpWsPort,
 		config.HttpJsonPort,
-		config.HttpWssPort,
-		config.HttpsJsonPort,
 	}
 	minPort, maxPort := findMinMaxPort(allPorts)
 	step := maxPort - minPort + 1
@@ -547,9 +446,7 @@ func (config *Configuration) incrementPort() {
 	}
 	config.NodePort += delta
 	config.HttpWsPort += delta
-	config.HttpWssPort += delta
 	config.HttpJsonPort += delta
-	config.HttpsJsonPort += delta
 	if delta > 0 {
 		log.Println("Port in use! All ports are automatically increased by", delta)
 	}

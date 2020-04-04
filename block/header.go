@@ -2,7 +2,6 @@ package block
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
+	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/program"
 	"github.com/nknorg/nkn/signature"
@@ -65,7 +65,12 @@ func (h *Header) DeserializeUnsigned(r io.Reader) error {
 func (h *Header) GetProgramHashes() ([]Uint160, error) {
 	programHashes := []Uint160{}
 
-	programHash, err := program.CreateProgramHash(h.UnsignedHeader.SignerPk)
+	pubKey, err := crypto.NewPubKeyFromBytes(h.UnsignedHeader.SignerPk)
+	if err != nil {
+		return nil, fmt.Errorf("[Header], Get publick key failed: %v", err)
+	}
+
+	programHash, err := program.CreateProgramHash(pubKey)
 	if err != nil {
 		return nil, fmt.Errorf("[Header], GetProgramHashes failed: %v", err)
 	}
@@ -123,17 +128,17 @@ func (h *Header) GetInfo() ([]byte, error) {
 	hash := h.Hash()
 	info := &headerInfo{
 		Version:          h.UnsignedHeader.Version,
-		PrevBlockHash:    hex.EncodeToString(h.UnsignedHeader.PrevBlockHash),
-		TransactionsRoot: hex.EncodeToString(h.UnsignedHeader.TransactionsRoot),
-		StateRoot:        hex.EncodeToString(h.UnsignedHeader.StateRoot),
+		PrevBlockHash:    BytesToHexString(h.UnsignedHeader.PrevBlockHash),
+		TransactionsRoot: BytesToHexString(h.UnsignedHeader.TransactionsRoot),
+		StateRoot:        BytesToHexString(h.UnsignedHeader.StateRoot),
 		Timestamp:        h.UnsignedHeader.Timestamp,
 		Height:           h.UnsignedHeader.Height,
-		RandomBeacon:     hex.EncodeToString(h.UnsignedHeader.RandomBeacon),
-		WinnerHash:       hex.EncodeToString(h.UnsignedHeader.WinnerHash),
+		RandomBeacon:     BytesToHexString(h.UnsignedHeader.RandomBeacon),
+		WinnerHash:       BytesToHexString(h.UnsignedHeader.WinnerHash),
 		WinnerType:       h.UnsignedHeader.WinnerType.String(),
-		SignerPk:         hex.EncodeToString(h.UnsignedHeader.SignerPk),
-		SignerId:         hex.EncodeToString(h.UnsignedHeader.SignerId),
-		Signature:        hex.EncodeToString(h.Signature),
+		SignerPk:         BytesToHexString(h.UnsignedHeader.SignerPk),
+		SignerId:         BytesToHexString(h.UnsignedHeader.SignerId),
+		Signature:        BytesToHexString(h.Signature),
 		Hash:             hash.ToHexString(),
 	}
 

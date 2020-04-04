@@ -22,6 +22,9 @@ func NewMessageBuffer() *MessageBuffer {
 
 // AddMessage adds a message to message buffer
 func (messageBuffer *MessageBuffer) AddMessage(clientID []byte, msg *pb.Relay) {
+	if msg.MaxHoldingSeconds == 0 {
+		return
+	}
 	clientIDStr := hex.EncodeToString(clientID)
 	messageBuffer.Lock()
 	defer messageBuffer.Unlock()

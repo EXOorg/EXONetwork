@@ -1,10 +1,10 @@
 package node
 
 import (
-	"math/rand"
 	"sync"
 	"time"
 
+	cryptoUtil "github.com/nknorg/nkn/crypto/util"
 	"github.com/nknorg/nkn/util"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
@@ -91,7 +91,7 @@ func (localNode *LocalNode) startConnectingToRandomNeighbors() {
 
 	c, ok := localNode.nnet.Network.(*chord.Chord)
 	if !ok {
-		log.Fatal("Overlay is not chord")
+		panic("Overlay is not chord")
 	}
 
 	for {
@@ -105,7 +105,7 @@ func (localNode *LocalNode) startConnectingToRandomNeighbors() {
 			localNode.randomNeighbors = localNode.randomNeighbors[1:]
 		}
 
-		randID := util.RandomBytes(config.NodeIDBytes)
+		randID := cryptoUtil.RandomBytes(config.NodeIDBytes)
 
 		succs, err := c.FindSuccessors(randID, 1)
 		if err != nil {
@@ -128,90 +128,4 @@ func (localNode *LocalNode) startConnectingToRandomNeighbors() {
 
 		log.Infof("Connect to random neighbor %x@%s", succs[0].Id, succs[0].Addr)
 	}
-}
-
-func (localNode *LocalNode) splitNeighbors(filter func(*RemoteNode) bool) ([]*RemoteNode, []*RemoteNode) {
-	c, ok := localNode.nnet.Network.(*chord.Chord)
-	if !ok {
-		log.Fatal("Overlay is not chord")
-	}
-
-	allNeighbors := localNode.GetNeighbors(filter)
-	chordNeighborIDs := make(map[string]struct{}, len(allNeighbors))
-
-	for _, succ := range c.Successors() {
-		chordNeighborIDs[string(succ.Id)] = struct{}{}
-	}
-
-	for _, pred := range c.Predecessors() {
-		chordNeighborIDs[string(pred.Id)] = struct{}{}
-	}
-
-	for _, fingers := range c.FingerTable() {
-		for _, finger := range fingers {
-			chordNeighborIDs[string(finger.Id)] = struct{}{}
-		}
-	}
-
-	chordNeighbors := make([]*RemoteNode, 0, len(allNeighbors))
-	randomNeighbors := make([]*RemoteNode, 0, len(allNeighbors))
-
-	for _, neighbor := range allNeighbors {
-		if neighbor.Id == nil {
-			continue
-		}
-
-		if _, ok := chordNeighborIDs[string(neighbor.Id)]; ok {
-			chordNeighbors = append(chordNeighbors, neighbor)
-			continue
-		}
-
-		if fingerIdx, _ := c.FingerTableIdxInRemoteNode(neighbor.Id); fingerIdx >= 0 {
-			chordNeighbors = append(chordNeighbors, neighbor)
-			continue
-		}
-
-		randomNeighbors = append(randomNeighbors, neighbor)
-	}
-
-	return chordNeighbors, randomNeighbors
-}
-
-func (localNode *LocalNode) getSampledNeighbors(filter func(*RemoteNode) bool, chordNeighborSampleRate float64, chordNeighborMinSample int, randomNeighborSampleRate float64, randomNeighborMinSample int) []*RemoteNode {
-	var sampledNeighbors []*RemoteNode
-	chordNeighbors, randomNeighbors := localNode.splitNeighbors(filter)
-
-	numChordSamples := int(chordNeighborSampleRate * float64(len(chordNeighbors)))
-	if numChordSamples < chordNeighborMinSample {
-		numChordSamples = chordNeighborMinSample
-	}
-	if numChordSamples > len(chordNeighbors) {
-		numChordSamples = len(chordNeighbors)
-	}
-	if numChordSamples > 0 {
-		rand.Shuffle(len(chordNeighbors), func(i, j int) { chordNeighbors[i], chordNeighbors[j] = chordNeighbors[j], chordNeighbors[i] })
-		sampledNeighbors = append(sampledNeighbors, chordNeighbors[:numChordSamples]...)
-	}
-
-	numRandomSamples := int(randomNeighborSampleRate * float64(len(randomNeighbors)))
-	if numRandomSamples < randomNeighborMinSample {
-		numRandomSamples = randomNeighborMinSample
-	}
-	if numRandomSamples > len(randomNeighbors) {
-		numRandomSamples = len(randomNeighbors)
-	}
-	if numRandomSamples > 0 {
-		rand.Shuffle(len(randomNeighbors), func(i, j int) { randomNeighbors[i], randomNeighbors[j] = randomNeighbors[j], randomNeighbors[i] })
-		sampledNeighbors = append(sampledNeighbors, randomNeighbors[:numRandomSamples]...)
-	}
-
-	return sampledNeighbors
-}
-
-func (localNode *LocalNode) GetGossipNeighbors(filter func(*RemoteNode) bool) []*RemoteNode {
-	return localNode.getSampledNeighbors(filter, config.GossipSampleChordNeighbor, config.GossipMinChordNeighbor, config.GossipSampleRandomNeighbor, config.GossipMinRandomNeighbor)
-}
-
-func (localNode *LocalNode) GetVotingNeighbors(filter func(*RemoteNode) bool) []*RemoteNode {
-	return localNode.getSampledNeighbors(filter, config.VotingSampleChordNeighbor, config.VotingMinChordNeighbor, config.VotingSampleRandomNeighbor, config.VotingMinRandomNeighbor)
 }

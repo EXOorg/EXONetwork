@@ -11,10 +11,10 @@ import (
 	"github.com/nknorg/nkn/chain"
 	"github.com/nknorg/nkn/chain/pool"
 	"github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/crypto/util"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/por"
 	"github.com/nknorg/nkn/transaction"
-	"github.com/nknorg/nkn/util"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
 	nnetnode "github.com/nknorg/nnet/node"
@@ -180,9 +180,7 @@ func (localNode *LocalNode) startRequestingSigChainTxn() {
 					continue
 				}
 
-				currentHeight := chain.DefaultLedger.Store.GetHeight()
-
-				if !por.GetPorServer().ShouldAddSigChainToCache(currentHeight, info.height, info.hash) {
+				if !por.GetPorServer().ShouldAddSigChainToCache(chain.DefaultLedger.Store.GetHeight(), info.height, info.hash) {
 					continue
 				}
 
@@ -199,7 +197,7 @@ func (localNode *LocalNode) startRequestingSigChainTxn() {
 
 				requestedHashCache.Set(info.hash, struct{}{})
 
-				err = chain.VerifyTransaction(txn, currentHeight+1)
+				err = chain.VerifyTransaction(txn)
 				if err != nil {
 					log.Warningf("Verify sigchain txn error: %v", err)
 					continue
@@ -358,10 +356,11 @@ func (localNode *LocalNode) handleTransactionsMessage(txnMsg *pb.Transactions) (
 		}
 
 		err := localNode.AppendTxnPool(txn)
-		if err == pool.ErrDuplicatedTx || err == pool.ErrRejectLowPriority {
+		if err == pool.ErrDuplicatedTx {
 			return false, nil
 		}
 		if err != nil {
+			log.Warningf("Verify transaction failed when append to txn pool: %v", err)
 			return false, err
 		}
 	}
@@ -505,11 +504,6 @@ func (localNode *LocalNode) requestSignatureChainTransaction(neighbor *RemoteNod
 
 	txn := &transaction.Transaction{Transaction: replyMsg.Transaction}
 
-	err = txn.VerifySignature()
-	if err != nil {
-		return nil, err
-	}
-
 	porPkg, err := por.NewPorPackage(txn, false)
 	if err != nil {
 		return nil, fmt.Errorf("create por package from txn error: %v", err)
@@ -524,8 +518,6 @@ func (localNode *LocalNode) requestSignatureChainTransaction(neighbor *RemoteNod
 
 func (localNode *LocalNode) cleanupTransactions(v interface{}) {
 	if block, ok := v.(*block.Block); ok {
-		if err := localNode.TxnPool.CleanSubmittedTransactions(block.Transactions); err != nil {
-			log.Errorf("CleanSubmittedTransactions error: %v", err)
-		}
+		localNode.TxnPool.CleanSubmittedTransactions(block.Transactions)
 	}
 }

@@ -8,6 +8,7 @@ import (
 
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
+	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/pb"
 )
 
@@ -20,7 +21,7 @@ const (
 
 type ProgramContext struct {
 
-	//the program code,which will be run on VM or specific environment
+	//the program code,which will be run on VM or specific envrionment
 	Code []byte
 
 	//the ProgramContext Parameter type list
@@ -99,13 +100,14 @@ func ByteToProgramContextParameterType(b []byte) []ProgramContextParameterType {
 	return c
 }
 
-//create a single signature program context for owner
-func CreateSignatureProgramContext(ownerPubKey []byte) (*ProgramContext, error) {
+//create a Single Singature program context for owner
+func CreateSignatureProgramContext(ownerPubKey *crypto.PubKey) (*ProgramContext, error) {
+	temp := ownerPubKey.EncodePoint()
 	code, err := CreateSignatureProgramCode(ownerPubKey)
 	if err != nil {
 		return nil, fmt.Errorf("[ProgramContext],CreateSignatureProgramContext failed: %v", err)
 	}
-	hash, err := ToCodeHash(ownerPubKey)
+	hash, err := ToCodeHash(temp)
 	if err != nil {
 		return nil, fmt.Errorf("[ProgramContext],CreateSignatureProgramContext failed: %v", err)
 	}
@@ -122,17 +124,19 @@ func CreateSignatureProgramContext(ownerPubKey []byte) (*ProgramContext, error) 
 }
 
 //CODE: len(publickey) + publickey + CHECKSIG
-func CreateSignatureProgramCode(pubKey []byte) ([]byte, error) {
+func CreateSignatureProgramCode(pubkey *crypto.PubKey) ([]byte, error) {
+	encodedPublicKey := pubkey.EncodePoint()
+
 	code := bytes.NewBuffer(nil)
-	code.WriteByte(byte(len(pubKey)))
-	code.Write(pubKey)
-	code.WriteByte(CHECKSIG)
+	code.WriteByte(byte(len(encodedPublicKey)))
+	code.Write(encodedPublicKey)
+	code.WriteByte(byte(CHECKSIG))
 
 	return code.Bytes(), nil
 }
 
-func CreateProgramHash(pubKey []byte) (Uint160, error) {
-	code, err := CreateSignatureProgramCode(pubKey)
+func CreateProgramHash(pubkey *crypto.PubKey) (Uint160, error) {
+	code, err := CreateSignatureProgramCode(pubkey)
 	if err != nil {
 		return Uint160{}, errors.New("CreateSignatureProgramCode failed")
 	}

@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"sync"
 
-	"github.com/nknorg/nkn/chain/db"
 	"github.com/nknorg/nkn/common"
-	"github.com/nknorg/nkn/util/log"
 )
 
 type hasher struct {
@@ -85,13 +83,14 @@ func (h *hasher) hasChildren(original node, db Database) (node, node, error) {
 	}
 }
 
-func (h *hasher) store(n node, st Database, force bool) (node, error) {
+func (h *hasher) store(n node, db Database, force bool) (node, error) {
 	if _, isHash := n.(hashNode); n == nil || isHash {
 		return n, nil
 	}
 	h.tmp.Reset()
+	//if err := rlp.Encode(h.tmp, n); err != nil {
 	if err := n.Serialize(h.tmp); err != nil {
-		log.Fatalf("Trie node enocde error: %v", err)
+		panic("enocde error:" + err.Error())
 	}
 
 	if h.tmp.Len() < 32 && !force {
@@ -102,8 +101,8 @@ func (h *hasher) store(n node, st Database, force bool) (node, error) {
 		u256 := hash256(h.tmp.Bytes())
 		hs = hashNode(u256[:])
 	}
-	if st != nil {
-		return hs, st.BatchPut(db.TrieNodeKey([]byte(hs)), h.tmp.Bytes())
+	if db != nil {
+		return hs, db.BatchPut(append(secureKeyPrefix, []byte(hs)...), h.tmp.Bytes())
 	}
 	return hs, nil
 }

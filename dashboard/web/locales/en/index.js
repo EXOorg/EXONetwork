@@ -2,8 +2,6 @@ import Menu from './menu'
 import Node from './node'
 import Settings from './settings'
 import Neighbor from './neighbor'
-import Config from './config'
-import Tooltip from './tooltip'
 
 export default {
   language: 'English',
@@ -11,8 +9,6 @@ export default {
   node: Node,
   settings: Settings,
   neighbor: Neighbor,
-  config: Config,
-  tooltip: Tooltip,
 
   LOADING: 'loading',
   SEARCH: 'Search',
@@ -24,7 +20,6 @@ export default {
   START: 'Start',
   STOP: 'Stop',
   SUBMIT: 'Submit',
-  RESET: 'Reset',
 
   BENEFICIARY: 'Beneficiary',
   BALANCE: 'Balance',
@@ -35,12 +30,6 @@ export default {
   PASSWORD_ERROR: 'Invalid password.',
   PASSWORD_REQUIRED: 'Password is required.',
   PASSWORD_HINT: 'Please enter wallet password.',
-  FIELD_REQUIRED: 'This field is required.',
-  NUMBER_FIELD_ERROR: 'This field must be a number.',
-  POSITIVE_NUMBER_FIELD_ERROR: 'This field cannot be negative.',
-  NUMBER_MIN_ERROR: 'This field must be greater than {min}',
-  NUMBER_MAX_ERROR: 'This field must be less than {max}',
-  NUMBER_DP_ERROR: 'The number of decimal places cannot exceed {dp} digits',
 
   PASSWORD_CONFIRM: 'Please enter password again',
   PASSWORD_CONFIRM_ERROR: 'Password does not match.',
@@ -49,13 +38,12 @@ export default {
 
   WALLET_CREATE: 'Create wallet',
   WALLET_OPEN: 'Open wallet',
-  CREATE: 'Create',
-  OPEN: 'Open',
+  CREATE : 'Create',
+  OPEN : 'Open',
   WALLET_DOWNLOAD: 'Download wallet',
   WALLET_UPLOAD: 'Upload wallet',
 
   NO_DATA: 'No data available',
-  PER_PAGE_TEXT: 'Rows per pages',
 
   footer: {
     TITLE: 'NKN: Network Infra for Decentralized Internet',
@@ -66,9 +54,8 @@ export default {
     TITLE: 'Node status',
     NODE_STATUS: 'Node status',
     NODE_VERSION: 'Node version',
-    ID: 'ID',
     RELAY_MESSAGE_COUNT: 'Message relayed by node',
-    HEIGHT: 'NKN node block height',
+    HEIGHT: 'NKN network block height',
     BENEFICIARY_ADDR: 'Beneficiary address'
   },
   current_wallet_status: {

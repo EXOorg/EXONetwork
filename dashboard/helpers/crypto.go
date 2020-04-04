@@ -8,15 +8,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"strconv"
-	"time"
-
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	. "github.com/nknorg/nkn/common"
 	serviceConfig "github.com/nknorg/nkn/dashboard/config"
 	"github.com/nknorg/nkn/util/log"
 	"github.com/nknorg/nkn/vault"
+	"net/http"
+	"strconv"
+	"time"
 )
 
 func HmacSha256(data []byte, secret []byte) []byte {
@@ -80,8 +80,9 @@ func DecryptData(context *gin.Context, hasSeed bool) string {
 	seed := ""
 	wallet, exists := context.Get("wallet")
 	if exists && hasSeed {
-		seedByte := sha256.Sum256(wallet.(*vault.Wallet).PasswordHash)
-		seed = hex.EncodeToString(seedByte[:])
+		passwordKeyHash := wallet.(*vault.WalletImpl).Data.PasswordHash
+		seedByte := sha256.Sum256([]byte(passwordKeyHash))
+		seed = BytesToHexString(seedByte[:])
 	}
 
 	tick := time.Now().Unix()
@@ -94,7 +95,7 @@ func DecryptData(context *gin.Context, hasSeed bool) string {
 	}
 
 	for i := tick - padding; i < tick+padding; i++ {
-		seedHash := hex.EncodeToString(HmacSha256([]byte(seed), []byte(token.(string)+strconv.FormatInt(i, 10))))
+		seedHash := BytesToHexString(HmacSha256([]byte(seed), []byte(token.(string)+strconv.FormatInt(i, 10))))
 		jsonData, err := AesDecrypt(body.Data, seedHash)
 		if err != nil {
 			continue
@@ -120,14 +121,15 @@ func EncryptData(context *gin.Context, hasSeed bool, sourceData interface{}) str
 	seed := ""
 	wallet, exists := context.Get("wallet")
 	if exists && hasSeed {
-		seedByte := sha256.Sum256(wallet.(*vault.Wallet).PasswordHash)
-		seed = hex.EncodeToString(seedByte[:])
+		passwordKeyHash := wallet.(*vault.WalletImpl).Data.PasswordHash
+		seedByte := sha256.Sum256([]byte(passwordKeyHash))
+		seed = BytesToHexString(seedByte[:])
 	}
 
 	tick := time.Now().Unix()
 	session := sessions.Default(context)
 	token := session.Get("token")
-	seedHash := hex.EncodeToString(HmacSha256([]byte(seed), []byte(token.(string)+strconv.FormatInt(tick, 10))))
+	seedHash := BytesToHexString(HmacSha256([]byte(seed), []byte(token.(string)+strconv.FormatInt(tick, 10))))
 	data, err := AesEncrypt(string(buf), seedHash)
 	if err != nil {
 		return ""

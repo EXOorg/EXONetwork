@@ -1,15 +1,10 @@
 package server
 
 import (
-	"bytes"
-	"compress/zlib"
 	"context"
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"strconv"
@@ -35,13 +30,9 @@ import (
 )
 
 const (
-	TlsPort                      = 443
-	sigChainCacheExpiration      = config.ConsensusTimeout
-	sigChainCacheCleanupInterval = time.Second
-	pingInterval                 = 8 * time.Second
-	pongTimeout                  = 10 * time.Second // should be greater than pingInterval
-	maxMessageSize               = config.MaxClientMessageSize
-	messageDeliveredCacheSize    = 65536
+	TlsPort                      uint16 = 443
+	sigChainCacheExpiration             = config.ConsensusTimeout
+	sigChainCacheCleanupInterval        = time.Second
 )
 
 type Handler struct {
@@ -51,31 +42,27 @@ type Handler struct {
 
 type WsServer struct {
 	sync.RWMutex
-	Upgrader              websocket.Upgrader
-	listener              net.Listener
-	tlsListener           net.Listener
-	server                *http.Server
-	tlsServer             *http.Server
-	SessionList           *session.SessionList
-	ActionMap             map[string]Handler
-	TxHashMap             map[string]string //key: txHash   value:sessionid
-	localNode             *node.LocalNode
-	wallet                *vault.Wallet
-	messageBuffer         *messagebuffer.MessageBuffer
-	messageDeliveredCache *DelayedChan
-	sigChainCache         Cache
+	Upgrader      websocket.Upgrader
+	listener      net.Listener
+	server        *http.Server
+	SessionList   *session.SessionList
+	ActionMap     map[string]Handler
+	TxHashMap     map[string]string //key: txHash   value:sessionid
+	localNode     *node.LocalNode
+	wallet        vault.Wallet
+	messageBuffer *messagebuffer.MessageBuffer
+	sigChainCache Cache
 }
 
-func InitWsServer(localNode *node.LocalNode, wallet *vault.Wallet) *WsServer {
+func InitWsServer(localNode *node.LocalNode, wallet vault.Wallet) *WsServer {
 	ws := &WsServer{
-		Upgrader:              websocket.Upgrader{},
-		SessionList:           session.NewSessionList(),
-		TxHashMap:             make(map[string]string),
-		localNode:             localNode,
-		wallet:                wallet,
-		messageBuffer:         messagebuffer.NewMessageBuffer(),
-		messageDeliveredCache: NewDelayedChan(messageDeliveredCacheSize, pongTimeout),
-		sigChainCache:         NewGoCache(sigChainCacheExpiration, sigChainCacheCleanupInterval),
+		Upgrader:      websocket.Upgrader{},
+		SessionList:   session.NewSessionList(),
+		TxHashMap:     make(map[string]string),
+		localNode:     localNode,
+		wallet:        wallet,
+		messageBuffer: messagebuffer.NewMessageBuffer(),
+		sigChainCache: NewGoCache(sigChainCacheExpiration, sigChainCacheCleanupInterval),
 	}
 	return ws
 }
@@ -90,30 +77,38 @@ func (ws *WsServer) Start() error {
 		return true
 	}
 
-	var err error
-	ws.tlsListener, err = ws.initTlsListen()
-	if err != nil {
-		log.Error("Https Cert: ", err.Error())
-		return err
-	}
-
-	ws.listener, err = net.Listen("tcp", ":"+strconv.Itoa(int(config.Parameters.HttpWsPort)))
-	if err != nil {
-		log.Error("net.Listen: ", err.Error())
-		return err
+	tlsFlag := false
+	if tlsFlag || config.Parameters.HttpWsPort%1000 == TlsPort {
+		var err error
+		ws.listener, err = ws.initTlsListen()
+		if err != nil {
+			log.Error("Https Cert: ", err.Error())
+			return err
+		}
+	} else {
+		var err error
+		ws.listener, err = net.Listen("tcp", ":"+strconv.Itoa(int(config.Parameters.HttpWsPort)))
+		if err != nil {
+			log.Error("net.Listen: ", err.Error())
+			return err
+		}
 	}
 
 	event.Queue.Subscribe(event.SendInboundMessageToClient, ws.sendInboundRelayMessageToClient)
 
+	var done = make(chan bool)
+	go ws.checkSessionsTimeout(done)
+
 	ws.server = &http.Server{Handler: http.HandlerFunc(ws.websocketHandler)}
-	go ws.server.Serve(ws.listener)
+	err := ws.server.Serve(ws.listener)
 
-	ws.tlsServer = &http.Server{Handler: http.HandlerFunc(ws.websocketHandler)}
-	go ws.tlsServer.Serve(ws.tlsListener)
-
-	go ws.startCheckingLostMessages()
-
+	done <- true
+	if err != nil {
+		log.Error("ListenAndServe: ", err.Error())
+		return err
+	}
 	return nil
+
 }
 
 func (ws *WsServer) registryMethod() {
@@ -138,41 +133,33 @@ func (ws *WsServer) registryMethod() {
 		if !ok {
 			return common.RespPacking(nil, common.INVALID_PARAMS)
 		}
-
 		clientID, pubKey, _, err := address.ParseClientAddress(addrStr)
 		if err != nil {
 			log.Error("Parse client address error:", err)
 			return common.RespPacking(nil, common.INVALID_PARAMS)
 		}
 
-		err = crypto.CheckPublicKey(pubKey)
+		_, err = crypto.DecodePoint(pubKey)
 		if err != nil {
-			log.Error("Invalid public key hex:", err)
+			log.Error("Invalid public key hex decoding to point:", err)
 			return common.RespPacking(nil, common.INVALID_PARAMS)
 		}
 
-		// TODO: use signature (or better, with one-time challenge) to verify identity
+		// TODO: use signature (or better, with one-time challange) to verify identity
 
-		localNode := s.GetNetNode()
-
-		isTlsClient := cmd["IsTls"].(bool)
-		var wsAddr, rpcAddr, localAddr string
-		var pubkey, id []byte
-
-		if isTlsClient {
-			wsAddr, rpcAddr, pubkey, id, err = localNode.FindWssAddr(clientID)
-			localAddr = localNode.GetWssAddr()
-		} else {
-			wsAddr, rpcAddr, pubkey, id, err = localNode.FindWsAddr(clientID)
-			localAddr = localNode.GetWsAddr()
+		localNode, err := s.GetNetNode()
+		if err != nil {
+			return common.RespPacking(nil, common.INTERNAL_ERROR)
 		}
+
+		addr, pubkey, id, err := localNode.FindWsAddr(clientID)
 		if err != nil {
 			log.Errorf("Find websocket address error: %v", err)
 			return common.RespPacking(nil, common.INTERNAL_ERROR)
 		}
 
-		if wsAddr != localAddr {
-			return common.RespPacking(common.NodeInfo(wsAddr, rpcAddr, pubkey, id), common.WRONG_NODE)
+		if addr != localNode.GetWsAddr() {
+			return common.RespPacking(common.NodeInfo(addr, pubkey, id), common.WRONG_NODE)
 		}
 
 		newSessionID := hex.EncodeToString(clientID)
@@ -181,7 +168,7 @@ func (ws *WsServer) registryMethod() {
 			log.Error("Change session id error: ", err)
 			return common.RespPacking(nil, common.INTERNAL_ERROR)
 		}
-		session.SetClient(clientID, pubKey, &addrStr, isTlsClient)
+		session.SetClient(clientID, pubKey, &addrStr)
 
 		go func() {
 			messages := ws.messageBuffer.PopMessages(clientID)
@@ -200,8 +187,8 @@ func (ws *WsServer) registryMethod() {
 		}
 
 		res := make(map[string]interface{})
-		res["node"] = common.NodeInfo(wsAddr, rpcAddr, pubkey, id)
-		res["sigChainBlockHash"] = hex.EncodeToString(sigChainBlockHash.ToArray())
+		res["node"] = common.NodeInfo(addr, pubkey, id)
+		res["sigChainBlockHash"] = BytesToHexString(sigChainBlockHash.ToArray())
 
 		return common.RespPacking(res, common.SUCCESS)
 	}
@@ -238,53 +225,51 @@ func (ws *WsServer) Restart() {
 	}()
 }
 
+func (ws *WsServer) checkSessionsTimeout(done chan bool) {
+	ticker := time.NewTicker(time.Second * 10)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			var closeList []*session.Session
+			ws.SessionList.ForEachSession(func(s *session.Session) {
+				if s.SessionTimeoverCheck() {
+					resp := common.ResponsePack(common.SESSION_EXPIRED)
+					ws.respondToSession(s, resp)
+					closeList = append(closeList, s)
+				}
+			})
+			for _, s := range closeList {
+				ws.SessionList.CloseSession(s)
+			}
+
+		case <-done:
+			return
+		}
+	}
+
+}
+
 //websocketHandler
 func (ws *WsServer) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	wsConn, err := ws.Upgrader.Upgrade(w, r, nil)
+
 	if err != nil {
 		log.Error("websocket Upgrader: ", err)
 		return
 	}
 	defer wsConn.Close()
-
-	sess, err := ws.SessionList.NewSession(wsConn)
+	nsSession, err := ws.SessionList.NewSession(wsConn)
 	if err != nil {
 		log.Error("websocket NewSession:", err)
 		return
 	}
 
 	defer func() {
-		ws.deleteTxHashs(sess.GetSessionId())
-		ws.SessionList.CloseSession(sess)
+		ws.deleteTxHashs(nsSession.GetSessionId())
+		ws.SessionList.CloseSession(nsSession)
 		if err := recover(); err != nil {
 			log.Error("websocket recover:", err)
-		}
-	}()
-
-	wsConn.SetReadLimit(maxMessageSize)
-	wsConn.SetReadDeadline(time.Now().Add(pongTimeout))
-	wsConn.SetPongHandler(func(string) error {
-		wsConn.SetReadDeadline(time.Now().Add(pongTimeout))
-		sess.UpdateLastReadTime()
-		return nil
-	})
-
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		ticker := time.NewTicker(pingInterval)
-		defer ticker.Stop()
-		var err error
-		for {
-			select {
-			case <-ticker.C:
-				err = sess.Ping()
-				if err != nil {
-					return
-				}
-			case <-done:
-				return
-			}
 		}
 	}()
 
@@ -295,12 +280,8 @@ func (ws *WsServer) websocketHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		wsConn.SetReadDeadline(time.Now().Add(pongTimeout))
-		sess.UpdateLastReadTime()
-
-		err = ws.OnDataHandle(sess, messageType, bysMsg, r)
-		if err != nil {
-			log.Error(err)
+		if ws.OnDataHandle(nsSession, messageType, bysMsg, r) {
+			nsSession.UpdateActiveTime()
 		}
 	}
 }
@@ -318,58 +299,42 @@ func (ws *WsServer) IsValidMsg(reqMsg map[string]interface{}) bool {
 	return true
 }
 
-func (ws *WsServer) OnDataHandle(curSession *session.Session, messageType int, bysMsg []byte, r *http.Request) error {
+func (ws *WsServer) OnDataHandle(curSession *session.Session, messageType int, bysMsg []byte, r *http.Request) bool {
 	if messageType == websocket.BinaryMessage {
 		msg := &pb.ClientMessage{}
 		err := proto.Unmarshal(bysMsg, msg)
 		if err != nil {
-			return fmt.Errorf("Parse client message error: %v", err)
-		}
-
-		var r io.Reader = bytes.NewReader(msg.Message)
-		switch msg.CompressionType {
-		case pb.COMPRESSION_NONE:
-		case pb.COMPRESSION_ZLIB:
-			r, err = zlib.NewReader(r)
-			if err != nil {
-				return fmt.Errorf("Create zlib reader error: %v", err)
-			}
-			defer r.(io.ReadCloser).Close()
-		default:
-			return fmt.Errorf("Unsupported message compression type %v", msg.CompressionType)
-		}
-
-		b, err := ioutil.ReadAll(io.LimitReader(r, config.MaxClientMessageSize+1))
-		if err != nil {
-			return fmt.Errorf("ReadAll from reader error: %v", err)
-		}
-		if len(b) > config.MaxClientMessageSize {
-			return fmt.Errorf("Max client message size reached.")
+			log.Error("Parse client message error:", err)
+			return false
 		}
 
 		switch msg.MessageType {
 		case pb.OUTBOUND_MESSAGE:
 			outboundMsg := &pb.OutboundMessage{}
-			err = proto.Unmarshal(b, outboundMsg)
+			err = proto.Unmarshal(msg.Message, outboundMsg)
 			if err != nil {
-				return fmt.Errorf("Unmarshal outbound message error: %v", err)
+				log.Errorf("Unmarshal outbound message error: %v", err)
+				return false
 			}
 			ws.sendOutboundRelayMessage(curSession.GetAddrStr(), outboundMsg)
 		case pb.RECEIPT:
 			receipt := &pb.Receipt{}
-			err = proto.Unmarshal(b, receipt)
+			err = proto.Unmarshal(msg.Message, receipt)
 			if err != nil {
-				return fmt.Errorf("Unmarshal receipt error: %v", err)
+				log.Errorf("Unmarshal receipt error: %v", err)
+				return false
 			}
 			err = ws.handleReceipt(receipt)
 			if err != nil {
-				return fmt.Errorf("Handle receipt error: %v", err)
+				log.Errorf("Handle receipt error: %v", err)
+				return false
 			}
 		default:
-			return fmt.Errorf("unsupported client message type %v", msg.MessageType)
+			log.Errorf("unsupported client message type %v", msg.MessageType)
+			return false
 		}
 
-		return nil
+		return true
 	}
 
 	var req = make(map[string]interface{})
@@ -377,24 +342,25 @@ func (ws *WsServer) OnDataHandle(curSession *session.Session, messageType int, b
 	if err := json.Unmarshal(bysMsg, &req); err != nil {
 		resp := common.ResponsePack(common.ILLEGAL_DATAFORMAT)
 		ws.respondToSession(curSession, resp)
-		return fmt.Errorf("websocket OnDataHandle: %v", err)
+		log.Error("websocket OnDataHandle:", err)
+		return false
 	}
 	actionName, ok := req["Action"].(string)
 	if !ok {
 		resp := common.ResponsePack(common.INVALID_METHOD)
 		ws.respondToSession(curSession, resp)
-		return nil
+		return false
 	}
 	action, ok := ws.ActionMap[actionName]
 	if !ok {
 		resp := common.ResponsePack(common.INVALID_METHOD)
 		ws.respondToSession(curSession, resp)
-		return nil
+		return false
 	}
 	if !ws.IsValidMsg(req) {
 		resp := common.ResponsePack(common.INVALID_PARAMS)
 		ws.respondToSession(curSession, resp)
-		return nil
+		return true
 	}
 	if height, ok := req["Height"].(float64); ok {
 		req["Height"] = strconv.FormatInt(int64(height), 10)
@@ -403,7 +369,6 @@ func (ws *WsServer) OnDataHandle(curSession *session.Session, messageType int, b
 		req["Raw"] = strconv.FormatInt(int64(raw), 10)
 	}
 	req["Userid"] = curSession.GetSessionId()
-	req["IsTls"] = r.TLS != nil
 	ret := action.handler(ws, req)
 	resp := common.ResponsePack(ret["error"].(common.ErrCode))
 	resp["Action"] = actionName
@@ -415,7 +380,7 @@ func (ws *WsServer) OnDataHandle(curSession *session.Session, messageType int, b
 	}
 	ws.respondToSession(curSession, resp)
 
-	return nil
+	return true
 }
 
 func (ws *WsServer) SetTxHashMap(txhash string, sessionid string) {
@@ -485,8 +450,8 @@ func (ws *WsServer) Broadcast(data []byte) error {
 
 func (ws *WsServer) initTlsListen() (net.Listener, error) {
 
-	CertPath := config.Parameters.HttpWssCert
-	KeyPath := config.Parameters.HttpWssKey
+	CertPath := config.Parameters.RestCertPath
+	KeyPath := config.Parameters.RestKeyPath
 
 	// load cert
 	cert, err := tls.LoadX509KeyPair(CertPath, KeyPath)
@@ -499,7 +464,8 @@ func (ws *WsServer) initTlsListen() (net.Listener, error) {
 		Certificates: []tls.Certificate{cert},
 	}
 
-	listener, err := tls.Listen("tcp", ":"+strconv.Itoa(int(config.Parameters.HttpWssPort)), tlsConfig)
+	log.Info("TLS listen port is ", strconv.Itoa(int(config.Parameters.HttpWsPort)))
+	listener, err := tls.Listen("tcp", ":"+strconv.Itoa(int(config.Parameters.HttpWsPort)), tlsConfig)
 	if err != nil {
 		log.Error(err)
 		return nil, err
@@ -512,8 +478,12 @@ func (ws *WsServer) GetClientsById(cliendID []byte) []*session.Session {
 	return sessions
 }
 
-func (ws *WsServer) GetNetNode() *node.LocalNode {
-	return ws.localNode
+func (ws *WsServer) GetNetNode() (*node.LocalNode, error) {
+	return ws.localNode, nil
+}
+
+func (ws *WsServer) GetWallet() (vault.Wallet, error) {
+	return ws.wallet, nil
 }
 
 func (ws *WsServer) NotifyWrongClients() {
@@ -523,27 +493,20 @@ func (ws *WsServer) NotifyWrongClients() {
 			return
 		}
 
-		localNode := ws.GetNetNode()
-
-		var wsAddr, rpcAddr, localAddr string
-		var pubkey, id []byte
-		var err error
-
-		if client.IsTlsClient() {
-			wsAddr, rpcAddr, pubkey, id, err = localNode.FindWssAddr(clientID)
-			localAddr = localNode.GetWssAddr()
-		} else {
-			wsAddr, rpcAddr, pubkey, id, err = localNode.FindWsAddr(clientID)
-			localAddr = localNode.GetWsAddr()
+		localNode, err := ws.GetNetNode()
+		if err != nil {
+			return
 		}
+
+		addr, pubkey, id, err := localNode.FindWsAddr(clientID)
 		if err != nil {
 			log.Errorf("Find websocket address error: %v", err)
 			return
 		}
 
-		if wsAddr != localAddr {
+		if addr != localNode.GetWsAddr() {
 			resp := common.ResponsePack(common.WRONG_NODE)
-			resp["Result"] = common.NodeInfo(wsAddr, rpcAddr, pubkey, id)
+			resp["Result"] = common.NodeInfo(addr, pubkey, id)
 			ws.respondToSession(client, resp)
 		}
 	})

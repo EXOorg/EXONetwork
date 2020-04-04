@@ -1,7 +1,6 @@
 package chain
 
 import (
-	"context"
 	"sync"
 
 	"github.com/nknorg/nkn/block"
@@ -32,7 +31,7 @@ func NewBlockchainWithGenesisBlock(store ILedgerStore) (*Blockchain, error) {
 		return nil, err
 	}
 
-	root, err := store.GenerateStateRoot(context.Background(), genesisBlock, false, false)
+	root, err := store.GenerateStateRoot(genesisBlock, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +56,6 @@ func (bc *Blockchain) AddBlock(block *block.Block, fastAdd bool) error {
 
 	err := bc.SaveBlock(block, fastAdd)
 	if err != nil {
-		log.Error("AddBlock error, ", err)
 		return err
 	}
 
@@ -73,18 +71,6 @@ func (bc *Blockchain) GetHeader(hash Uint256) (*block.Header, error) {
 }
 
 func (bc *Blockchain) SaveBlock(block *block.Block, fastAdd bool) error {
-	if !fastAdd {
-		err := HeaderCheck(block)
-		if err != nil {
-			return err
-		}
-
-		err = TransactionCheck(context.Background(), block)
-		if err != nil {
-			return err
-		}
-	}
-
 	err := DefaultLedger.Store.SaveBlock(block, fastAdd)
 	if err != nil {
 		log.Warning("Save Block failure , ", err)

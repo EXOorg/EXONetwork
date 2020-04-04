@@ -1,9 +1,11 @@
 package common
 
 import (
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	serviceConfig "github.com/nknorg/nkn/dashboard/config"
 	"github.com/nknorg/nkn/util/config"
+	"github.com/pborman/uuid"
 	"net/http"
 	"time"
 )
@@ -17,8 +19,13 @@ func SyncRouter(router *gin.RouterGroup) {
 	})
 
 	router.GET("/sync/token", func(context *gin.Context) {
+		token := uuid.NewUUID().String()
+		session := sessions.Default(context)
+		session.Set("token", token)
+		session.Save()
+
 		context.JSON(http.StatusOK, gin.H{
-			"token": serviceConfig.Token,
+			"token": token,
 			"unix":  time.Now().Unix(),
 		})
 		return
@@ -26,8 +33,7 @@ func SyncRouter(router *gin.RouterGroup) {
 
 	router.GET("/sync/status", func(context *gin.Context) {
 		context.JSON(http.StatusOK, gin.H{
-			"isNodeInit":                   serviceConfig.IsNodeInit,
-			"isWalletInit":                 serviceConfig.IsWalletInit,
+			"isInit":                       serviceConfig.IsInit,
 			"status":                       serviceConfig.Status,
 			"beneficiaryAddr":              config.Parameters.BeneficiaryAddr,
 			"webGuiCreateWallet":           config.Parameters.WebGuiCreateWallet,

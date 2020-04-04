@@ -7,6 +7,12 @@ import (
 	"github.com/nknorg/nkn/pb"
 )
 
+const (
+	SubscriptionsLimit      = 1000
+	BucketsLimit            = 1000
+	MaxSubscriptionDuration = 65535
+)
+
 type IPayload interface {
 	Marshal() (data []byte, err error)
 	Unmarshal(data []byte) error
@@ -31,14 +37,10 @@ func Unpack(payload *pb.Payload) (IPayload, error) {
 		pl = new(pb.SigChainTxn)
 	case pb.REGISTER_NAME_TYPE:
 		pl = new(pb.RegisterName)
-	case pb.TRANSFER_NAME_TYPE:
-		pl = new(pb.TransferName)
 	case pb.DELETE_NAME_TYPE:
 		pl = new(pb.DeleteName)
 	case pb.SUBSCRIBE_TYPE:
 		pl = new(pb.Subscribe)
-	case pb.UNSUBSCRIBE_TYPE:
-		pl = new(pb.Unsubscribe)
 	case pb.GENERATE_ID_TYPE:
 		pl = new(pb.GenerateID)
 	case pb.NANO_PAY_TYPE:
@@ -46,7 +48,7 @@ func Unpack(payload *pb.Payload) (IPayload, error) {
 	case pb.ISSUE_ASSET_TYPE:
 		pl = new(pb.IssueAsset)
 	default:
-		return nil, errors.New("invalid payload type")
+		return nil, errors.New("invalid payload type.")
 	}
 
 	err := pl.Unmarshal(payload.Data)
@@ -75,18 +77,9 @@ func NewSigChainTxn(sigChain []byte, submitter common.Uint160) IPayload {
 		Submitter: submitter.ToArray(),
 	}
 }
-func NewRegisterName(registrant []byte, name string, fee int64) IPayload {
+func NewRegisterName(registrant []byte, name string) IPayload {
 	return &pb.RegisterName{
-		Registrant:      registrant,
-		Name:            name,
-		RegistrationFee: fee,
-	}
-}
-
-func NewTransferName(registrant []byte, receipt []byte, name string) IPayload {
-	return &pb.TransferName{
 		Registrant: registrant,
-		Recipient:  receipt,
 		Name:       name,
 	}
 }
@@ -98,21 +91,14 @@ func NewDeleteName(registrant []byte, name string) IPayload {
 	}
 }
 
-func NewSubscribe(subscriber []byte, id, topic string, duration uint32, meta string) IPayload {
+func NewSubscribe(subscriber []byte, id, topic string, bucket, duration uint32, meta string) IPayload {
 	return &pb.Subscribe{
 		Subscriber: subscriber,
 		Identifier: id,
 		Topic:      topic,
+		Bucket:     bucket,
 		Duration:   duration,
 		Meta:       meta,
-	}
-}
-
-func NewUnsubscribe(subscriber []byte, id, topic string) IPayload {
-	return &pb.Unsubscribe{
-		Subscriber: subscriber,
-		Identifier: id,
-		Topic:      topic,
 	}
 }
 

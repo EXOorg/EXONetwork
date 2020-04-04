@@ -12,6 +12,8 @@ import (
 	"golang.org/x/crypto/ripemd160"
 )
 
+const MaxUint32 = ^uint32(0)
+
 type HexStr []byte
 
 func (b HexStr) MarshalJSON() ([]byte, error) {
@@ -53,9 +55,17 @@ func BytesToInt(b []byte) []int {
 	return i
 }
 
-func ClearBytes(b []byte) {
-	for i := 0; i < len(b); i++ {
-		b[i] = 0
+func BytesToHexString(data []byte) string {
+	return hex.EncodeToString(data)
+}
+
+func HexStringToBytes(value string) ([]byte, error) {
+	return hex.DecodeString(value)
+}
+
+func ClearBytes(arr []byte, len int) {
+	for i := 0; i < len; i++ {
+		arr[i] = 0
 	}
 }
 

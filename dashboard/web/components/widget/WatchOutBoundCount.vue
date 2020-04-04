@@ -7,7 +7,7 @@
                 right
     >
         {{ this.$t('neighbor.WARNING') }}
-        <v-btn dark text @click="close">
+        <v-btn dark flat @click="close">
             Close
         </v-btn>
     </v-snackbar>

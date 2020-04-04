@@ -17,28 +17,22 @@ import (
 	"github.com/nknorg/nkn/util/log"
 )
 
-func compareTxnPriority(txn1, txn2 *transaction.Transaction) int {
-	if txn1.UnsignedTx.Fee > txn2.UnsignedTx.Fee {
-		return 1
-	}
-	if txn1.UnsignedTx.Fee < txn2.UnsignedTx.Fee {
-		return -1
-	}
-	if txn1.GetSize() > txn2.GetSize() {
-		return -1
-	}
-	if txn1.GetSize() < txn2.GetSize() {
-		return 1
-	}
-	return 0
-}
-
 type dropTxnsHeap []*transaction.Transaction
 
-func (s dropTxnsHeap) Len() int            { return len(s) }
-func (s dropTxnsHeap) Swap(i, j int)       { s[i], s[j] = s[j], s[i] }
-func (s dropTxnsHeap) Less(i, j int) bool  { return compareTxnPriority(s[i], s[j]) < 0 }
-func (s *dropTxnsHeap) Push(x interface{}) { *s = append(*s, x.(*transaction.Transaction)) }
+func (s dropTxnsHeap) Len() int      { return len(s) }
+func (s dropTxnsHeap) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
+func (s dropTxnsHeap) Less(i, j int) bool {
+	if s[i].UnsignedTx.Fee == s[j].UnsignedTx.Fee {
+		return s[i].GetSize() > s[j].GetSize()
+	}
+	return s[i].UnsignedTx.Fee < s[j].UnsignedTx.Fee
+}
+
+func (s *dropTxnsHeap) Push(x interface{}) {
+	*s = append(*s, x.(*transaction.Transaction))
+}
+
 func (s *dropTxnsHeap) Pop() interface{} {
 	old := *s
 	n := len(old)
@@ -48,8 +42,7 @@ func (s *dropTxnsHeap) Pop() interface{} {
 }
 
 var (
-	ErrDuplicatedTx      = errors.New("duplicate transaction check failed")
-	ErrRejectLowPriority = errors.New("txpool full, rejecting transaction with low priority")
+	ErrDuplicatedTx = errors.New("duplicate transaction check failed")
 )
 
 // TxnPool is a list of txns that need to by add to ledger sent by user.
@@ -61,9 +54,6 @@ type TxnPool struct {
 	blockValidationState *chain.BlockValidationState
 	txnCount             int32
 	txnSize              int64
-
-	sync.RWMutex
-	lastDroppedTxn *transaction.Transaction
 }
 
 func NewTxPool() *TxnPool {
@@ -92,25 +82,12 @@ func isTxPoolFull(txnCount int32, txnSize int64) bool {
 	return false
 }
 
-func (tp *TxnPool) getLastDroppedTxn() *transaction.Transaction {
-	tp.RLock()
-	defer tp.RUnlock()
-	return tp.lastDroppedTxn
-}
-
-func (tp *TxnPool) setLastDroppedTxn(txn *transaction.Transaction) {
-	tp.Lock()
-	defer tp.Unlock()
-	tp.lastDroppedTxn = txn
-}
-
 func (tp *TxnPool) DropTxns() {
 	currentTxnCount := atomic.LoadInt32(&tp.txnCount)
 	currentTxnSize := atomic.LoadInt64(&tp.txnSize)
 
 	if !isTxPoolFull(currentTxnCount, currentTxnSize) {
 		log.Infof("DropTxns: %v txns (%v bytes) in txpool, no need to drop", currentTxnCount, currentTxnSize)
-		tp.setLastDroppedTxn(nil)
 		return
 	}
 
@@ -122,9 +99,12 @@ func (tp *TxnPool) DropTxns() {
 	tp.TxLists.Range(func(_, v interface{}) bool {
 		if list, ok := v.(*NonceSortedTxs); ok {
 			if listSize := list.Len(); listSize != 0 {
-				txn, err := list.GetLatestTxn()
+				nonce, err := list.GetLatestNonce()
 				if err == nil {
-					dropList = append(dropList, txn)
+					txn, err := list.Get(nonce)
+					if err == nil {
+						dropList = append(dropList, txn)
+					}
 				}
 			}
 		}
@@ -174,7 +154,11 @@ func (tp *TxnPool) DropTxns() {
 			}
 
 			if list.Len() > 0 {
-				nextTxn, err := list.GetLatestTxn()
+				nonce, err := list.GetLatestNonce()
+				if err != nil {
+					continue
+				}
+				nextTxn, err := list.Get(nonce)
 				if err != nil {
 					continue
 				}
@@ -199,11 +183,8 @@ func (tp *TxnPool) DropTxns() {
 	}
 
 	tp.blockValidationState.Lock()
-	err := tp.CleanBlockValidationState(txnsDropped)
+	tp.CleanBlockValidationState(txnsDropped)
 	tp.blockValidationState.Unlock()
-	if err != nil {
-		log.Errorf("CleanBlockValidationState error: %v", err)
-	}
 
 	bytesDropped := int64(0)
 	for _, txn := range txnsDropped {
@@ -211,21 +192,10 @@ func (tp *TxnPool) DropTxns() {
 	}
 	log.Infof("DropTxns: dropped %v txns (%v bytes)", len(txnsDropped), bytesDropped)
 
-	if len(txnsDropped) > 0 {
-		tp.setLastDroppedTxn(txnsDropped[len(txnsDropped)-1])
-	} else {
-		tp.setLastDroppedTxn(nil)
-	}
-
 	return
 }
 
 func (tp *TxnPool) AppendTxnPool(txn *transaction.Transaction) error {
-	lastDroppedTxn := tp.getLastDroppedTxn()
-	if lastDroppedTxn != nil && compareTxnPriority(txn, lastDroppedTxn) <= 0 {
-		return ErrRejectLowPriority
-	}
-
 	sender, err := txn.GetProgramHashes()
 	if err != nil {
 		return err
@@ -236,17 +206,17 @@ func (tp *TxnPool) AppendTxnPool(txn *transaction.Transaction) error {
 		return err
 	}
 
-	if _, err := list.GetByNonce(txn.UnsignedTx.Nonce); err != nil && list.Full() {
-		return errors.New("account txpool full, too many transaction in list")
+	if _, err := list.Get(txn.UnsignedTx.Nonce); err != nil && list.Full() {
+		return errors.New("txpool full, too many transaction in txpool")
 	}
 
 	// 2. verify txn
-	if err := chain.VerifyTransaction(txn, chain.DefaultLedger.Store.GetHeight()+1); err != nil {
+	if err := chain.VerifyTransaction(txn); err != nil {
 		return err
 	}
 
 	// 3. verify txn with ledger
-	if err := chain.VerifyTransactionWithLedger(txn, chain.DefaultLedger.Store.GetHeight()+1); err != nil {
+	if err := chain.VerifyTransactionWithLedger(txn); err != nil {
 		return err
 	}
 
@@ -298,9 +268,6 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 		return err
 	}
 
-	tp.blockValidationState.Lock()
-	defer tp.blockValidationState.Unlock()
-
 	switch txn.UnsignedTx.Payload.Type {
 	case pb.COINBASE_TYPE:
 		return fmt.Errorf("Invalid txn type %v", txn.UnsignedTx.Payload.Type)
@@ -308,14 +275,19 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 		// sigchain txn should not be added to txn pool
 		return nil
 	case pb.NANO_PAY_TYPE:
+		tp.blockValidationState.Lock()
+		defer tp.blockValidationState.Unlock()
 		if err := tp.blockValidationState.VerifyTransactionWithBlock(txn, 0); err != nil {
 			tp.blockValidationState.Reset()
 			return err
 		}
 		tp.NanoPayTxs.Store(txn.Hash(), txn)
+		tp.blockValidationState.Commit()
 	default:
-		if oldTxn, err := list.GetByNonce(txn.UnsignedTx.Nonce); err == nil {
+		if oldTxn, err := list.Get(txn.UnsignedTx.Nonce); err == nil {
 			log.Debug("replace old tx")
+			tp.blockValidationState.Lock()
+			defer tp.blockValidationState.Unlock()
 			if err := tp.CleanBlockValidationState([]*transaction.Transaction{oldTxn}); err != nil {
 				return err
 			}
@@ -324,7 +296,7 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 				return err
 			}
 
-			if err := list.Replace(txn); err != nil {
+			if err := list.Add(txn); err != nil {
 				return err
 			}
 
@@ -349,6 +321,8 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 				return errors.New("nonce is not continuous")
 			}
 
+			tp.blockValidationState.Lock()
+			defer tp.blockValidationState.Unlock()
 			if err := tp.blockValidationState.VerifyTransactionWithBlock(txn, 0); err != nil {
 				tp.blockValidationState.Reset()
 				return err
@@ -357,9 +331,9 @@ func (tp *TxnPool) processTx(txn *transaction.Transaction) error {
 				return err
 			}
 		}
-	}
 
-	tp.blockValidationState.Commit()
+		tp.blockValidationState.Commit()
+	}
 
 	tp.addTransactionToMap(txn)
 	atomic.AddInt32(&tp.txnCount, 1)
@@ -483,18 +457,6 @@ func (tp *TxnPool) GetAllTransactions() []*transaction.Transaction {
 	return txs
 }
 
-func (tp *TxnPool) GetSubscribers(topic string) []string {
-	tp.blockValidationState.RLock()
-	defer tp.blockValidationState.RUnlock()
-	return tp.blockValidationState.GetSubscribers(topic)
-}
-
-func (tp *TxnPool) GetSubscribersWithMeta(topic string) map[string]string {
-	tp.blockValidationState.RLock()
-	defer tp.blockValidationState.RUnlock()
-	return tp.blockValidationState.GetSubscribersWithMeta(topic)
-}
-
 func (tp *TxnPool) GetAllTransactionLists() map[common.Uint160][]*transaction.Transaction {
 	txs := make(map[common.Uint160][]*transaction.Transaction)
 
@@ -525,7 +487,7 @@ func (tp *TxnPool) GetAllTransactionLists() map[common.Uint160][]*transaction.Tr
 	return txs
 }
 
-func (tp *TxnPool) removeTransactions(txns []*transaction.Transaction) []*transaction.Transaction {
+func (tp *TxnPool) CleanSubmittedTransactions(txns []*transaction.Transaction) error {
 	txnsRemoved := make([]*transaction.Transaction, 0)
 
 	// clean submitted txs
@@ -538,21 +500,21 @@ func (tp *TxnPool) removeTransactions(txns []*transaction.Transaction) []*transa
 		case pb.SIG_CHAIN_TXN_TYPE:
 			continue
 		case pb.NANO_PAY_TYPE:
-			if _, ok := tp.NanoPayTxs.Load(txn.Hash()); ok {
-				tp.NanoPayTxs.Delete(txn.Hash())
-				txnsToRemove = append(txnsToRemove, txn)
-			}
+			tp.NanoPayTxs.Delete(txn.Hash())
+			txnsToRemove = append(txnsToRemove, txn)
 		default:
 			sender, _ := common.ToCodeHash(txn.Programs[0].Code)
 			txNonce := txn.UnsignedTx.Nonce
 
 			if v, ok := tp.TxLists.Load(sender); ok {
 				if list, ok := v.(*NonceSortedTxs); ok {
-					if _, err := list.GetByNonce(txNonce); err == nil {
+					if _, err := list.Get(txNonce); err == nil {
 						nonce := list.getNonce(list.idx[0])
-						txLst, err := list.PopN(uint16(txNonce - nonce + 1))
-						if err == nil {
-							txnsToRemove = append(txnsToRemove, txLst...)
+						for i := 0; uint64(i) <= txNonce-nonce; i++ {
+							t, err := list.Pop()
+							if err == nil {
+								txnsToRemove = append(txnsToRemove, t)
+							}
 						}
 					}
 				}
@@ -565,20 +527,16 @@ func (tp *TxnPool) removeTransactions(txns []*transaction.Transaction) []*transa
 			atomic.AddInt32(&tp.txnCount, -1)
 			atomic.AddInt64(&tp.txnSize, -int64(t.GetSize()))
 		}
+
+		tp.TxLists.Range(func(k, v interface{}) bool {
+			listLen := v.(*NonceSortedTxs).Len()
+			if listLen == 0 {
+				tp.TxLists.Delete(k)
+			}
+			return true
+		})
 	}
 
-	tp.TxLists.Range(func(k, v interface{}) bool {
-		if v.(*NonceSortedTxs).CleanIfEmpty() {
-			tp.TxLists.Delete(k)
-		}
-		return true
-	})
-
-	return txnsRemoved
-}
-
-func (tp *TxnPool) CleanSubmittedTransactions(txns []*transaction.Transaction) error {
-	txnsRemoved := tp.removeTransactions(txns)
 	tp.blockValidationState.Lock()
 	defer tp.blockValidationState.Unlock()
 	return tp.CleanBlockValidationState(txnsRemoved)
@@ -597,19 +555,7 @@ func (tp *TxnPool) deleteTransactionFromMap(txn *transaction.Transaction) {
 func (tp *TxnPool) CleanBlockValidationState(txns []*transaction.Transaction) error {
 	if err := tp.blockValidationState.CleanSubmittedTransactions(txns); err != nil {
 		log.Errorf("[CleanBlockValidationState] couldn't clean txn from block validation state: %v", err)
-		errMap := tp.blockValidationState.RefreshBlockValidationState(tp.GetAllTransactions())
-		if len(errMap) > 0 {
-			for txnHash, err := range errMap {
-				log.Errorf("RefreshBlockValidationState error for txn %x: %v", txnHash, err)
-			}
-			invalidTxns := make([]*transaction.Transaction, len(errMap))
-			for _, txn := range txns {
-				if _, ok := errMap[txn.Hash()]; ok {
-					invalidTxns = append(invalidTxns, txn)
-				}
-			}
-			tp.removeTransactions(invalidTxns)
-		}
+		return tp.blockValidationState.RefreshBlockValidationState(tp.GetAllTransactions())
 	}
 
 	return nil

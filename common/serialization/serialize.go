@@ -67,7 +67,7 @@ func WriteDataList(w io.Writer, list []SerializableData) error {
 
 func WriteVarUint(writer io.Writer, value uint64) error {
 	var buf [9]byte
-	len := 0
+	var len = 0
 	if value < 0xFD {
 		buf[0] = uint8(value)
 		len = 1

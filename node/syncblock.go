@@ -1,16 +1,16 @@
 package node
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/nknorg/consequential"
+
 	"github.com/nknorg/nkn/block"
 	"github.com/nknorg/nkn/chain"
 	"github.com/nknorg/nkn/common"
+	"github.com/nknorg/nkn/node/consequential"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/util/config"
 	"github.com/nknorg/nkn/util/log"
@@ -143,10 +143,6 @@ func (localNode *LocalNode) getBlockHeadersMessageHandler(remoteMessage *RemoteM
 		return replyBuf, false, nil
 	}
 
-	if !localNode.syncHeaderLimiter.AllowN(time.Now(), int(endHeight-startHeight)) {
-		return replyBuf, false, nil
-	}
-
 	if endHeight > chain.DefaultLedger.Store.GetHeaderHeight() {
 		return replyBuf, false, nil
 	}
@@ -193,10 +189,6 @@ func (localNode *LocalNode) getBlocksMessageHandler(remoteMessage *RemoteMessage
 	}
 
 	if endHeight-startHeight > maxSyncBlocksBatchSize {
-		return replyBuf, false, nil
-	}
-
-	if !localNode.syncBlockLimiter.AllowN(time.Now(), int(endHeight-startHeight)) {
 		return replyBuf, false, nil
 	}
 
@@ -315,9 +307,9 @@ func (localNode *LocalNode) StartSyncing(stopHash common.Uint256, stopHeight uin
 	var err error
 	started := false
 
-	localNode.mu.RLock()
+	localNode.RLock()
 	syncOnce := localNode.syncOnce
-	localNode.mu.RUnlock()
+	localNode.RUnlock()
 
 	syncOnce.Do(func() {
 		started = true
@@ -338,7 +330,7 @@ func (localNode *LocalNode) StartSyncing(stopHash common.Uint256, stopHeight uin
 		var rollbacked bool
 		rollbacked, err = localNode.maybeRollback(neighbors)
 		if err != nil {
-			log.Fatalf("Rollback error: %v", err)
+			panic(fmt.Errorf("Rollback error: %v", err))
 		}
 		if rollbacked {
 			currentHeight = chain.DefaultLedger.Store.GetHeight()
@@ -379,8 +371,8 @@ func (localNode *LocalNode) StartSyncing(stopHash common.Uint256, stopHeight uin
 
 // ResetSyncing resets syncOnce and allows for future block syncing
 func (localNode *LocalNode) ResetSyncing() {
-	localNode.mu.Lock()
-	defer localNode.mu.Unlock()
+	localNode.Lock()
+	defer localNode.Unlock()
 	localNode.syncOnce = new(sync.Once)
 }
 
@@ -399,7 +391,7 @@ func (localNode *LocalNode) syncBlockHeaders(startHeight, stopHeight uint32, sta
 		return batchStartHeight, batchEndHeight
 	}
 
-	getHeader := func(ctx context.Context, workerID, batchID uint32) (interface{}, bool) {
+	getHeader := func(workerID, batchID uint32) (interface{}, bool) {
 		neighbor := neighbors[workerID%uint32(len(neighbors))]
 		batchStartHeight, batchEndHeight := getBatchHeightRange(batchID)
 
@@ -412,7 +404,7 @@ func (localNode *LocalNode) syncBlockHeaders(startHeight, stopHeight uint32, sta
 		return batchHeaders, true
 	}
 
-	saveHeader := func(ctx context.Context, batchID uint32, result interface{}) bool {
+	saveHeader := func(batchID uint32, result interface{}) bool {
 		batchHeaders, ok := result.([]*block.Header)
 		if !ok {
 			log.Warningf("Convert batch headers error")
@@ -460,7 +452,7 @@ func (localNode *LocalNode) syncBlockHeaders(startHeight, stopHeight uint32, sta
 		return nil, err
 	}
 
-	err = cs.Start(context.Background())
+	err = cs.Start()
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +473,7 @@ func (localNode *LocalNode) syncBlocks(startHeight, stopHeight, syncBlocksBatchS
 		return batchStartHeight, batchEndHeight
 	}
 
-	getBlock := func(ctx context.Context, workerID, batchID uint32) (interface{}, bool) {
+	getBlock := func(workerID, batchID uint32) (interface{}, bool) {
 		neighbor := neighbors[workerID%uint32(len(neighbors))]
 		batchStartHeight, batchEndHeight := getBatchHeightRange(batchID)
 
@@ -494,7 +486,7 @@ func (localNode *LocalNode) syncBlocks(startHeight, stopHeight, syncBlocksBatchS
 		return batchBlocks, true
 	}
 
-	saveBlock := func(ctx context.Context, batchID uint32, result interface{}) bool {
+	saveBlock := func(batchID uint32, result interface{}) bool {
 		batchBlocks, ok := result.([]*block.Block)
 		if !ok {
 			log.Warningf("Convert batch blocks error")
@@ -534,7 +526,7 @@ func (localNode *LocalNode) syncBlocks(startHeight, stopHeight, syncBlocksBatchS
 		return err
 	}
 
-	err = cs.Start(context.Background())
+	err = cs.Start()
 	if err != nil {
 		return err
 	}
