@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
+	"github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/dashboard/helpers"
 	"github.com/nknorg/nkn/node"
 	"github.com/nknorg/nkn/util/config"
@@ -12,7 +13,7 @@ import (
 
 func StatusRouter(router *gin.RouterGroup) {
 	router.GET("/node/status", func(context *gin.Context) {
-		var out map[string]interface{}
+		var out map[string]interface{} = make(map[string]interface{})
 
 		localNode, exists := context.Get("localNode")
 
@@ -29,15 +30,22 @@ func StatusRouter(router *gin.RouterGroup) {
 				context.AbortWithError(http.StatusInternalServerError, err)
 				return
 			}
-			out["beneficiaryAddr"] = config.Parameters.BeneficiaryAddr
-
-			data := helpers.EncryptData(context, true, out)
-
-			context.JSON(http.StatusOK, gin.H{
-				"data": data,
-			})
-			return
+			id := context.MustGet("id").([]byte)
+			out["id"] = common.BytesToHexString(id)
 		}
+
+		out["beneficiaryAddr"] = config.Parameters.BeneficiaryAddr
+		out["registerIDTxnFee"] = config.Parameters.RegisterIDTxnFee
+		out["numLowFeeTxnPerBlock"] = config.Parameters.NumLowFeeTxnPerBlock
+		out["lowFeeTxnSizePerBlock"] = config.Parameters.LowFeeTxnSizePerBlock
+		out["minTxnFee"] = config.Parameters.MinTxnFee
+
+		data := helpers.EncryptData(context, true, out)
+
+		context.JSON(http.StatusOK, gin.H{
+			"data": data,
+		})
+		return
 
 	})
 }
