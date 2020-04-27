@@ -1,6 +1,10 @@
 package common
 
 import (
+	"context"
+	"errors"
+
+	"github.com/gogo/protobuf/proto"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/transaction"
 	"github.com/nknorg/nkn/vault"
@@ -86,13 +90,13 @@ func MakeDeleteNameTransaction(wallet vault.Wallet, name string, nonce uint64, f
 	return txn, nil
 }
 
-func MakeSubscribeTransaction(wallet vault.Wallet, identifier string, topic string, bucket uint32, duration uint32, meta string, nonce uint64, fee Fixed64) (*transaction.Transaction, error) {
+func MakeSubscribeTransaction(wallet vault.Wallet, identifier string, topic string, duration uint32, meta string, nonce uint64, fee Fixed64) (*transaction.Transaction, error) {
 	account, err := wallet.GetDefaultAccount()
 	if err != nil {
 		return nil, err
 	}
 	subscriber := account.PubKey().EncodePoint()
-	txn, err := transaction.NewSubscribeTransaction(subscriber, identifier, topic, bucket, duration, meta, nonce, fee)
+	txn, err := transaction.NewSubscribeTransaction(subscriber, identifier, topic, duration, meta, nonce, fee)
 	if err != nil {
 		return nil, err
 	}
@@ -106,15 +110,57 @@ func MakeSubscribeTransaction(wallet vault.Wallet, identifier string, topic stri
 	return txn, nil
 }
 
-func MakeGenerateIDTransaction(wallet vault.Wallet, regFee Fixed64, nonce uint64, txnFee Fixed64) (*transaction.Transaction, error) {
+func MakeUnsubscribeTransaction(wallet vault.Wallet, identifier string, topic string, nonce uint64, fee Fixed64) (*transaction.Transaction, error) {
+	account, err := wallet.GetDefaultAccount()
+	if err != nil {
+		return nil, err
+	}
+	subscriber := account.PubKey().EncodePoint()
+	txn, err := transaction.NewUnsubscribeTransaction(subscriber, identifier, topic, nonce, fee)
+	if err != nil {
+		return nil, err
+	}
+
+	// sign transaction contract
+	err = wallet.Sign(txn)
+	if err != nil {
+		return nil, err
+	}
+
+	return txn, nil
+}
+
+func MakeGenerateIDTransaction(ctx context.Context, wallet vault.Wallet, regFee Fixed64, nonce uint64, txnFee Fixed64, maxTxnHash Uint256) (*transaction.Transaction, error) {
 	account, err := wallet.GetDefaultAccount()
 	if err != nil {
 		return nil, err
 	}
 	pubkey := account.PubKey().EncodePoint()
-	txn, err := transaction.NewGenerateIDTransaction(pubkey, regFee, nonce, txnFee)
-	if err != nil {
-		return nil, err
+
+	var txn *transaction.Transaction
+	var txnHash Uint256
+	var i uint64
+	maxUint64 := ^uint64(0)
+	for i = uint64(0); i < maxUint64; i++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		txn, err = transaction.NewGenerateIDTransaction(pubkey, regFee, nonce, txnFee, proto.EncodeVarint(i))
+		if err != nil {
+			return nil, err
+		}
+
+		txnHash = txn.Hash()
+		if txnHash.CompareTo(maxTxnHash) <= 0 {
+			break
+		}
+	}
+
+	if i == maxUint64 {
+		return nil, errors.New("No available hash found for all uint64 attrs")
 	}
 
 	// sign transaction contract

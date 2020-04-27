@@ -24,8 +24,6 @@ import (
 )
 
 const (
-	MaxUint                      = ^uint(0)
-	MaxInt                       = int(MaxUint >> 1)
 	MaxNumTxnPerBlock            = 4096
 	MaxBlockSize                 = 1 * 1024 * 1024 // in bytes
 	ConsensusDuration            = 20 * time.Second
@@ -63,6 +61,7 @@ const (
 	GASAssetName                 = "New Network Coin"
 	GASAssetSymbol               = "nnc"
 	GASAssetPrecision            = uint32(8)
+	DumpMemInterval              = 30 * time.Second
 )
 
 const (
@@ -74,6 +73,8 @@ const (
 )
 
 var (
+	Debug            = false
+	PprofPort        = "127.0.0.1:8080"
 	ShortHashSalt    = util.RandomBytes(32)
 	GenesisTimestamp = time.Date(2019, time.June, 29, 13, 10, 13, 0, time.UTC).Unix()
 	GenesisBeacon    = make([]byte, RandomBeaconLength)
@@ -89,14 +90,36 @@ var (
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 	}
-	MaxTxnSubIdentifierList = HeightDependentInt{ // ChangePoin for txn payload Subscribe.Identifier
+	MaxSubscribeIdentifierLen = HeightDependentInt32{
 		heights: []uint32{133400, 0},
-		values:  []int{64, MaxInt},
+		values:  []int32{64, common.MaxInt32},
 	}
-	MaxTxnSubMetaList = HeightDependentInt{ // ChangePoin for txn payload Subscribe.Meta
+	MaxSubscribeMetaLen = HeightDependentInt32{
 		heights: []uint32{133400, 0},
-		values:  []int{1024, MaxInt},
+		values:  []int32{1024, common.MaxInt32},
 	}
+	MaxSubscribeBucket = HeightDependentInt32{
+		heights: []uint32{245000, 0},
+		values:  []int32{0, 1000},
+	}
+	MaxSubscribeDuration = HeightDependentInt32{
+		heights: []uint32{245000, 0},
+		values:  []int32{400000, 65535},
+	}
+	MaxSubscriptionsCount = 100000
+	MaxGenerateIDTxnHash  = HeightDependentUint256{
+		heights: []uint32{245000, 0},
+		values: []common.Uint256{
+			common.Uint256{
+				0x00, 0x00, 0x00, 0x07, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			},
+			common.MaxUint256,
+		},
+	}
+	MaxTxnAttributesLen = 100
 )
 
 var (
@@ -280,6 +303,7 @@ func Init() error {
 		if Parameters.TxPoolMaxMemorySize == 0 {
 			Parameters.TxPoolMaxMemorySize = defaultTxPoolMaxMemorySize
 		}
+		log.Printf("Set TxPoolMaxMemorySize to %v", Parameters.TxPoolMaxMemorySize)
 	}
 
 	err = Parameters.verify()

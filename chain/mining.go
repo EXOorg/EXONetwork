@@ -92,7 +92,7 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 	for {
 		select {
 		case <-ctx.Done():
-			break
+			return nil, ctx.Err()
 		default:
 		}
 
@@ -143,6 +143,8 @@ func (bm *BuiltinMining) BuildBlock(ctx context.Context, height uint32, chordID 
 			lowFeeTxSize += txn.GetSize()
 		}
 	}
+
+	bvs.Close()
 
 	txnRoot, err := crypto.ComputeRoot(txnHashList)
 	if err != nil {
