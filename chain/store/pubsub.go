@@ -271,7 +271,7 @@ func (sdb *StateDB) getSubscribers(topic string, bucket, offset, limit uint32) (
 		if i < offset {
 			continue
 		}
-		if limit > 0 && i >= offset+limit {
+		if limit > 0 && i >= offset + limit {
 			break
 		}
 
@@ -295,7 +295,7 @@ func (cs *ChainStore) GetSubscribers(topic string, bucket, offset, limit uint32)
 		return nil, err
 	}
 	subscribers := make([]string, 0)
-	for subscriber := range subscribersWithMeta {
+	for subscriber, _ := range subscribersWithMeta {
 		subscribers = append(subscribers, subscriber)
 	}
 	return subscribers, nil
@@ -339,7 +339,7 @@ func (sdb *StateDB) updatePubSub(id string, pubSub *pubSub) error {
 	buff := bytes.NewBuffer(nil)
 	err := pubSub.Serialize(buff)
 	if err != nil {
-		return fmt.Errorf("can't encode pub sub %v: %v", pubSub, err)
+		panic(fmt.Errorf("can't encode pub sub %v: %v", pubSub, err))
 	}
 
 	return sdb.trie.TryUpdate(append(PubSubPrefix, id...), buff.Bytes())
@@ -359,7 +359,7 @@ func (sdb *StateDB) updatePubSubCleanup(height uint32, psc pubSubCleanup) error 
 	buff := bytes.NewBuffer(nil)
 
 	if err := serialization.WriteVarUint(buff, uint64(len(psc))); err != nil {
-		return fmt.Errorf("can't encode pub sub cleanup %v: %v", psc, err)
+		panic(fmt.Errorf("can't encode pub sub cleanup %v: %v", psc, err))
 	}
 	pscs := make([]string, 0)
 	for id := range psc {
@@ -368,7 +368,7 @@ func (sdb *StateDB) updatePubSubCleanup(height uint32, psc pubSubCleanup) error 
 	sort.Strings(pscs)
 	for _, id := range pscs {
 		if err := serialization.WriteVarString(buff, id); err != nil {
-			return fmt.Errorf("can't encode pub sub cleanup %v: %v", psc, err)
+			panic(fmt.Errorf("can't encode pub sub cleanup %v: %v", psc, err))
 		}
 	}
 
@@ -388,17 +388,13 @@ func (sdb *StateDB) CleanupPubSub(height uint32) error {
 	return nil
 }
 
-func (sdb *StateDB) FinalizePubSub(commit bool) error {
-	var err error
+func (sdb *StateDB) FinalizePubSub(commit bool) {
 	sdb.pubSub.Range(func(key, value interface{}) bool {
 		if id, ok := key.(string); ok {
 			if ps, ok := value.(*pubSub); ok && !ps.Empty() {
-				err = sdb.updatePubSub(id, ps)
+				sdb.updatePubSub(id, ps)
 			} else {
-				err = sdb.deletePubSub(id)
-			}
-			if err != nil {
-				return false
+				sdb.deletePubSub(id)
 			}
 			if commit {
 				sdb.pubSub.Delete(id)
@@ -406,19 +402,13 @@ func (sdb *StateDB) FinalizePubSub(commit bool) error {
 		}
 		return true
 	})
-	if err != nil {
-		return err
-	}
 
 	sdb.pubSubCleanup.Range(func(key, value interface{}) bool {
 		if height, ok := key.(uint32); ok {
 			if psc, ok := value.(pubSubCleanup); ok && len(psc) > 0 {
-				err = sdb.updatePubSubCleanup(height, psc)
+				sdb.updatePubSubCleanup(height, psc)
 			} else {
-				err = sdb.deletePubSubCleanup(height)
-			}
-			if err != nil {
-				return false
+				sdb.deletePubSubCleanup(height)
 			}
 			if commit {
 				sdb.pubSubCleanup.Delete(height)
@@ -426,5 +416,4 @@ func (sdb *StateDB) FinalizePubSub(commit bool) error {
 		}
 		return true
 	})
-	return err
 }

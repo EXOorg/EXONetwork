@@ -138,7 +138,7 @@ func (sdb *StateDB) updateNanoPay(id string, nanoPay *nanoPay) error {
 	buff := bytes.NewBuffer(nil)
 	err := nanoPay.Serialize(buff)
 	if err != nil {
-		return fmt.Errorf("can't encode nano pay %v: %v", nanoPay, err)
+		panic(fmt.Errorf("can't encode nano pay %v: %v", nanoPay, err))
 	}
 
 	return sdb.trie.TryUpdate(append(NanoPayPrefix, id...), buff.Bytes())
@@ -158,7 +158,7 @@ func (sdb *StateDB) updateNanoPayCleanup(height uint32, npc nanoPayCleanup) erro
 	buff := bytes.NewBuffer(nil)
 
 	if err := serialization.WriteVarUint(buff, uint64(len(npc))); err != nil {
-		return fmt.Errorf("can't encode nano pay cleanup %v: %v", npc, err)
+		panic(fmt.Errorf("can't encode nano pay cleanup %v: %v", npc, err))
 	}
 	npcs := make([]string, 0)
 	for id := range npc {
@@ -167,7 +167,7 @@ func (sdb *StateDB) updateNanoPayCleanup(height uint32, npc nanoPayCleanup) erro
 	sort.Strings(npcs)
 	for _, id := range npcs {
 		if err := serialization.WriteVarString(buff, id); err != nil {
-			return fmt.Errorf("can't encode nano pay cleanup %v: %v", npc, err)
+			panic(fmt.Errorf("can't encode nano pay cleanup %v: %v", npc, err))
 		}
 	}
 
@@ -243,17 +243,13 @@ func (sdb *StateDB) CleanupNanoPay(height uint32) error {
 	return nil
 }
 
-func (sdb *StateDB) FinalizeNanoPay(commit bool) error {
-	var err error
+func (sdb *StateDB) FinalizeNanoPay(commit bool) {
 	sdb.nanoPay.Range(func(key, value interface{}) bool {
 		if id, ok := key.(string); ok {
 			if np, ok := value.(*nanoPay); ok && !np.Empty() {
-				err = sdb.updateNanoPay(id, np)
+				sdb.updateNanoPay(id, np)
 			} else {
-				err = sdb.deleteNanoPay(id)
-			}
-			if err != nil {
-				return false
+				sdb.deleteNanoPay(id)
 			}
 			if commit {
 				sdb.nanoPay.Delete(id)
@@ -261,19 +257,13 @@ func (sdb *StateDB) FinalizeNanoPay(commit bool) error {
 		}
 		return true
 	})
-	if err != nil {
-		return err
-	}
 
 	sdb.nanoPayCleanup.Range(func(key, value interface{}) bool {
 		if height, ok := key.(uint32); ok {
 			if npc, ok := value.(nanoPayCleanup); ok && len(npc) > 0 {
-				err = sdb.updateNanoPayCleanup(height, npc)
+				sdb.updateNanoPayCleanup(height, npc)
 			} else {
-				err = sdb.deleteNanoPayCleanup(height)
-			}
-			if err != nil {
-				return false
+				sdb.deleteNanoPayCleanup(height)
 			}
 			if commit {
 				sdb.nanoPayCleanup.Delete(height)
@@ -281,5 +271,4 @@ func (sdb *StateDB) FinalizeNanoPay(commit bool) error {
 		}
 		return true
 	})
-	return err
 }

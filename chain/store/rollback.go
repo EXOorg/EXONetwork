@@ -51,10 +51,6 @@ func (cs *ChainStore) Rollback(b *block.Block) error {
 		return err
 	}
 
-	if err := cs.rollbackRefCounts(b); err != nil {
-		return err
-	}
-
 	if err := cs.st.BatchCommit(); err != nil {
 		return err
 	}
@@ -111,7 +107,7 @@ func (cs *ChainStore) rollbackStates(b *block.Block) error {
 		return err
 	}
 
-	cs.States, err = NewStateDB(root, cs)
+	cs.States, err = NewStateDB(root, NewTrieStore(cs.GetDatabase()))
 	if err != nil {
 		return err
 	}
@@ -136,13 +132,4 @@ func (cs *ChainStore) rollbackDonation(b *block.Block) error {
 
 	cs.st.BatchDelete(db.DonationKey(b.Header.UnsignedHeader.Height))
 	return nil
-}
-
-func (cs *ChainStore) rollbackRefCounts(b *block.Block) error {
-	states, err := NewStateDB(common.EmptyUint256, cs)
-	if err != nil {
-		return err
-	}
-
-	return states.RollbackPruning(b)
 }

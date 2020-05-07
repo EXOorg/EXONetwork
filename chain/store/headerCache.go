@@ -35,13 +35,18 @@ func (hc *HeaderCache) AddHeaderToCache(header *block.Header) {
 	hc.mu.Unlock()
 }
 
-func (hc *HeaderCache) RemoveCachedHeader(height uint32) {
+func (hc *HeaderCache) RemoveCachedHeader(stopHeight uint32) {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 
-	if hash, ok := hc.headerIndex[height]; ok {
-		delete(hc.headerIndex, height)
-		delete(hc.headerCache, hash)
+	if hc.currentCacheHeight <= stopHeight {
+		return
+	}
+	for hash, header := range hc.headerCache {
+		if header.UnsignedHeader.Height < stopHeight {
+			delete(hc.headerIndex, header.UnsignedHeader.Height)
+			delete(hc.headerCache, hash)
+		}
 	}
 }
 

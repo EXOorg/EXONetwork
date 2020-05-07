@@ -88,7 +88,7 @@ func (acc *account) Serialize(w io.Writer) error {
 	}
 
 	var ids []common.Uint256
-	for id := range acc.balances {
+	for id, _ := range acc.balances {
 		ids = append(ids, id)
 	}
 	sort.Sort(sortIDs(ids))
@@ -260,7 +260,7 @@ func (sdb *StateDB) updateAccount(addr common.Uint160, acc *account) error {
 	buff := bytes.NewBuffer(nil)
 	err := acc.Serialize(buff)
 	if err != nil {
-		return fmt.Errorf("can't encode object at %x: %v", addr[:], err)
+		panic(fmt.Errorf("can't encode object at %x: %v", addr[:], err))
 	}
 
 	return sdb.trie.TryUpdate(append(AccountPrefix, addr[:]...), buff.Bytes())
@@ -340,18 +340,14 @@ func (sdb *StateDB) UpdateID(addr common.Uint160, id []byte) error {
 	return nil
 }
 
-func (sdb *StateDB) FinalizeAccounts(commit bool) error {
-	var err error
+func (sdb *StateDB) FinalizeAccounts(commit bool) {
 	sdb.accounts.Range(func(key, v interface{}) bool {
 		if addr, ok := key.(common.Uint160); ok {
 			if acc, ok := v.(*account); ok {
 				if acc.Empty() {
-					err = sdb.deleteAccount(addr)
+					sdb.deleteAccount(addr)
 				} else {
-					err = sdb.updateAccount(addr, acc)
-				}
-				if err != nil {
-					return false
+					sdb.updateAccount(addr, acc)
 				}
 			}
 			if commit {
@@ -360,5 +356,4 @@ func (sdb *StateDB) FinalizeAccounts(commit bool) error {
 		}
 		return true
 	})
-	return err
 }

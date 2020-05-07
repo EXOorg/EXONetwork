@@ -13,6 +13,7 @@ import (
 	"github.com/nknorg/nkn/chain/db"
 	. "github.com/nknorg/nkn/common"
 	"github.com/nknorg/nkn/common/serialization"
+	"github.com/nknorg/nkn/crypto"
 	"github.com/nknorg/nkn/pb"
 	"github.com/nknorg/nkn/program"
 	"github.com/nknorg/nkn/transaction"
@@ -92,32 +93,20 @@ func (cs *ChainStore) InitLedgerStoreWithGenesisBlock(genesisBlock *block.Block)
 		}
 
 		log.Info("state root:", root.ToHexString())
-		cs.States, err = NewStateDB(root, cs)
-		if err != nil {
-			return 0, err
-		}
-
-		switch config.Parameters.StatePruningMode {
-		case "lowmem":
-			err = cs.PruneStatesLowMemory()
-		case "none":
-			err = nil
-		default:
-			return 0, fmt.Errorf("unknown state pruning mode %v", config.Parameters.StatePruningMode)
-		}
-
+		cs.States, err = NewStateDB(root, NewTrieStore(cs.GetDatabase()))
 		if err != nil {
 			return 0, err
 		}
 
 		return cs.currentBlockHeight, nil
+
 	} else {
 		if err := cs.ResetDB(); err != nil {
 			return 0, fmt.Errorf("InitLedgerStoreWithGenesisBlock, ResetDB error: %v", err)
 		}
 
 		root := EmptyUint256
-		cs.States, err = NewStateDB(root, cs)
+		cs.States, err = NewStateDB(root, NewTrieStore(cs.GetDatabase()))
 		if err != nil {
 			return 0, err
 		}
@@ -262,34 +251,21 @@ func (cs *ChainStore) IsBlockInStore(hash Uint256) bool {
 }
 
 func (cs *ChainStore) persist(b *block.Block) error {
-	err := cs.st.NewBatch()
-	if err != nil {
-		return err
-	}
+	cs.st.NewBatch()
 
 	headerHash := b.Hash()
 
 	//batch put header
 	headerBuffer := bytes.NewBuffer(nil)
-	err = b.Trim(headerBuffer)
-	if err != nil {
-		return err
-	}
-
-	err = cs.st.BatchPut(db.HeaderKey(headerHash), headerBuffer.Bytes())
-	if err != nil {
+	b.Trim(headerBuffer)
+	if err := cs.st.BatchPut(db.HeaderKey(headerHash), headerBuffer.Bytes()); err != nil {
 		return err
 	}
 
 	//batch put headerhash
 	headerHashBuffer := bytes.NewBuffer(nil)
-	_, err = headerHash.Serialize(headerHashBuffer)
-	if err != nil {
-		return err
-	}
-
-	err = cs.st.BatchPut(db.BlockhashKey(b.Header.UnsignedHeader.Height), headerHashBuffer.Bytes())
-	if err != nil {
+	headerHash.Serialize(headerHashBuffer)
+	if err := cs.st.BatchPut(db.BlockhashKey(b.Header.UnsignedHeader.Height), headerHashBuffer.Bytes()); err != nil {
 		return err
 	}
 
@@ -314,7 +290,6 @@ func (cs *ChainStore) persist(b *block.Block) error {
 		case pb.TRANSFER_ASSET_TYPE:
 		case pb.ISSUE_ASSET_TYPE:
 		case pb.REGISTER_NAME_TYPE:
-		case pb.TRANSFER_NAME_TYPE:
 		case pb.DELETE_NAME_TYPE:
 		case pb.SUBSCRIBE_TYPE:
 		case pb.UNSUBSCRIBE_TYPE:
@@ -363,11 +338,7 @@ func (cs *ChainStore) persist(b *block.Block) error {
 	}
 
 	//batch put currentblockhash
-	err = serialization.WriteUint32(headerHashBuffer, b.Header.UnsignedHeader.Height)
-	if err != nil {
-		return err
-	}
-
+	serialization.WriteUint32(headerHashBuffer, b.Header.UnsignedHeader.Height)
 	err = cs.st.BatchPut(db.CurrentBlockHashKey(), headerHashBuffer.Bytes())
 	if err != nil {
 		return err
@@ -394,8 +365,8 @@ func (cs *ChainStore) SaveBlock(b *block.Block, fastAdd bool) error {
 	cs.currentBlockHash = b.Hash()
 	cs.mu.Unlock()
 
-	if cs.currentBlockHeight > config.Parameters.BlockHeaderCacheSize {
-		cs.headerCache.RemoveCachedHeader(cs.currentBlockHeight - config.Parameters.BlockHeaderCacheSize)
+	if cs.currentBlockHeight > 3 {
+		cs.headerCache.RemoveCachedHeader(cs.currentBlockHeight - 3)
 	}
 	cs.headerCache.AddHeaderToCache(b.Header)
 
@@ -455,10 +426,6 @@ func (cs *ChainStore) IsDoubleSpend(tx *transaction.Transaction) bool {
 	return false
 }
 
-func (cs *ChainStore) GetCurrentBlockHashFromDB() (Uint256, uint32, error) {
-	return cs.getCurrentBlockHashFromDB()
-}
-
 func (cs *ChainStore) getCurrentBlockHashFromDB() (Uint256, uint32, error) {
 	data, err := cs.st.Get(db.CurrentBlockHashKey())
 	if err != nil {
@@ -503,7 +470,12 @@ func (cs *ChainStore) GetNonce(addr Uint160) uint64 {
 }
 
 func (cs *ChainStore) GetID(publicKey []byte) ([]byte, error) {
-	programHash, err := program.CreateProgramHash(publicKey)
+	pubKey, err := crypto.NewPubKeyFromBytes(publicKey)
+	if err != nil {
+		return nil, fmt.Errorf("GetID error: %v", err)
+	}
+
+	programHash, err := program.CreateProgramHash(pubKey)
 	if err != nil {
 		return nil, fmt.Errorf("GetID error: %v", err)
 	}
@@ -607,110 +579,4 @@ func (cs *ChainStore) CalcNextDonation(height uint32) (*Donation, error) {
 	d := NewDonation(height, Fixed64(donationPerBlock))
 
 	return d, nil
-}
-
-func (cs *ChainStore) GetStateRoots(fromHeight, toHeight uint32) ([]Uint256, error) {
-	if toHeight < fromHeight {
-		return nil, fmt.Errorf("toHeight(%v) is less than fromHeight(%v)\n", toHeight, fromHeight)
-	}
-	roots := make([]Uint256, 0, toHeight-fromHeight+1)
-
-	for i := fromHeight; i <= toHeight; i++ {
-		headerHash, err := cs.GetBlockHash(i)
-		if err != nil {
-			return nil, err
-		}
-		header, err := cs.GetHeader(headerHash)
-		if err != nil {
-			return nil, err
-		}
-		stateRoot, err := Uint256ParseFromBytes(header.UnsignedHeader.StateRoot)
-		if err != nil {
-			return nil, err
-		}
-
-		roots = append(roots, stateRoot)
-	}
-
-	return roots, nil
-}
-func (cs *ChainStore) GetPruningStartHeight() (uint32, uint32) {
-	return cs.getPruningStartHeight()
-}
-
-func (cs *ChainStore) getPruningStartHeight() (uint32, uint32) {
-	var pruningStartHeight, refCountStartHeight uint32
-
-	heightBuffer, err := cs.st.Get(db.TrieRefCountHeightKey())
-	if err != nil {
-		log.Info("get height of trie counted error:", err)
-		refCountStartHeight = 0
-	} else {
-		refCountStartHeight = binary.LittleEndian.Uint32(heightBuffer) + 1
-	}
-
-	heightBuffer, err = cs.st.Get(db.TriePrunedHeightKey())
-	if err != nil {
-		log.Info("get height of trie pruned error:", err)
-		pruningStartHeight = 0
-	} else {
-		pruningStartHeight = binary.LittleEndian.Uint32(heightBuffer) + 1
-	}
-
-	return refCountStartHeight, pruningStartHeight
-}
-
-func (cs *ChainStore) PruneStates() error {
-	state, err := NewStateDB(EmptyUint256, cs)
-	if err != nil {
-		return err
-	}
-
-	return state.PruneStates()
-}
-
-func (cs *ChainStore) PruneStatesLowMemory() error {
-	state, err := NewStateDB(EmptyUint256, cs)
-	if err != nil {
-		return err
-	}
-
-	return state.PruneStatesLowMemory()
-}
-
-func (cs *ChainStore) SequentialPrune() error {
-	state, err := NewStateDB(EmptyUint256, cs)
-	if err != nil {
-		return err
-	}
-
-	return state.SequentialPrune()
-}
-
-func (cs *ChainStore) TrieTraverse() error {
-	_, currentHeight, err := cs.getCurrentBlockHashFromDB()
-	if err != nil {
-		return err
-	}
-
-	roots, err := cs.GetStateRoots(currentHeight, currentHeight)
-	if err != nil {
-		return err
-	}
-
-	states, err := NewStateDB(roots[0], cs)
-	if err != nil {
-		return err
-	}
-
-	return states.TrieTraverse()
-}
-
-func (cs *ChainStore) VerifyState() error {
-	state, err := NewStateDB(EmptyUint256, cs)
-	if err != nil {
-		return err
-	}
-
-	return state.VerifyState()
 }
