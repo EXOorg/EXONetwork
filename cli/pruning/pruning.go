@@ -19,58 +19,31 @@ func pruningAction(c *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		_, h, err := cs.GetCurrentBlockHashFromDB()
-		if err != nil {
-			return err
-		}
+		_, h, _ := cs.GetCurrentBlockHashFromDB()
 		fmt.Println(h)
-	case c.Bool("startheights"):
-		cs, err := store.NewLedgerStore()
-		if err != nil {
-			return err
-		}
-		refCountStartHeight, pruningStartHeight := cs.GetPruningStartHeight()
-		fmt.Println(refCountStartHeight, pruningStartHeight)
 	case c.Bool("pruning"):
 		cs, err := store.NewLedgerStore()
 		if err != nil {
 			return err
 		}
 
-		if c.Bool("seq") {
+		if c.Bool("sequential") {
 			err := cs.SequentialPrune()
 			if err != nil {
-				panic(err)
-				return err
-			}
-		} else if c.Bool("lowmem") {
-			err := cs.PruneStatesLowMemory()
-			if err != nil {
-				panic(err)
 				return err
 			}
 		} else {
 			err := cs.PruneStates()
 			if err != nil {
-				panic(err)
 				return err
 			}
 		}
-	case c.Bool("dumpnodes"):
+	case c.Bool("traverse"):
 		cs, err := store.NewLedgerStore()
 		if err != nil {
 			return err
 		}
 		err = cs.TrieTraverse()
-		if err != nil {
-			return err
-		}
-	case c.Bool("verifystate"):
-		cs, err := store.NewLedgerStore()
-		if err != nil {
-			return err
-		}
-		err = cs.VerifyState()
 		if err != nil {
 			return err
 		}
@@ -94,28 +67,16 @@ func NewCommand() *cli.Command {
 				Usage: "current block height of offline db",
 			},
 			cli.BoolFlag{
-				Name:  "startheights",
-				Usage: "start heights of refcount and pruning",
-			},
-			cli.BoolFlag{
 				Name:  "pruning",
 				Usage: "prune state trie",
 			},
 			cli.BoolFlag{
-				Name:  "seq",
-				Usage: "prune state trie sequential mode",
+				Name:  "sequential, seq",
+				Usage: "sequential mode",
 			},
 			cli.BoolFlag{
-				Name:  "lowmem",
-				Usage: "prune state trie low memory mode",
-			},
-			cli.BoolFlag{
-				Name:  "dumpnodes",
-				Usage: "dump nodes of trie",
-			},
-			cli.BoolFlag{
-				Name:  "verifystate",
-				Usage: "verify state of ledger",
+				Name:  "traverse",
+				Usage: "traverse trie",
 			},
 		},
 		Action: pruningAction,

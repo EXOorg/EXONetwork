@@ -14,11 +14,16 @@ type RefCounts struct {
 	trie   *Trie
 	counts map[common.Uint256]uint32
 
+	startRefCountHeight  uint32
+	startPruningHeight   uint32
 	targetRefCountHeight uint32
 	targetPruningHeight  uint32
+
+	dbCounter   int32
+	nodeCounter int32
 }
 
-func NewRefCounts(t *Trie, refCountTargetHeight, pruningTargetHeight uint32) (*RefCounts, error) {
+func NewRefCounts(t *Trie, refCountTargetHeight, pruningTargetHeight uint32) *RefCounts {
 	ref := &RefCounts{
 		counts:               make(map[common.Uint256]uint32, 0),
 		trie:                 t,
@@ -26,19 +31,23 @@ func NewRefCounts(t *Trie, refCountTargetHeight, pruningTargetHeight uint32) (*R
 		targetPruningHeight:  pruningTargetHeight,
 	}
 
-	return ref, nil
-}
+	heightBuffer, err := t.db.Get(db.TriePrunedHeightKey())
+	if err != nil {
+		log.Info("can not get current pruned height from DB,", err)
+		ref.startPruningHeight = 0
+	} else {
+		ref.startPruningHeight = binary.LittleEndian.Uint32(heightBuffer) + 1
+	}
 
-func (ref *RefCounts) NewBatch() error {
-	return ref.trie.db.NewBatch()
-}
+	heightBuffer, err = t.db.Get(db.TrieRefCountHeightKey())
+	if err != nil {
+		log.Info("can not get current counted height from DB,", err)
+		ref.startRefCountHeight = 0
+	} else {
+		ref.startRefCountHeight = binary.LittleEndian.Uint32(heightBuffer) + 1
+	}
 
-func (ref *RefCounts) Commit() error {
-	return ref.trie.db.BatchCommit()
-}
-
-func (ref *RefCounts) Compact() error {
-	return ref.trie.db.Compact()
+	return ref
 }
 
 func (ref *RefCounts) RebuildRefCount() error {
@@ -53,18 +62,26 @@ func (ref *RefCounts) RebuildRefCount() error {
 	return nil
 }
 
-func (ref *RefCounts) LengthOfCounts() int {
-	return len(ref.counts)
+func (ref *RefCounts) DumpInfo(offset uint32, pruning bool) error {
+	if !pruning {
+		log.Info("refcount", ref.startRefCountHeight+offset, ref.dbCounter, ref.nodeCounter, len(ref.counts))
+	} else {
+		log.Info("pruning", ref.startPruningHeight+offset, ref.dbCounter, ref.nodeCounter, len(ref.counts))
+	}
+
+	return nil
 }
 
-func (ref *RefCounts) CreateRefCounts(hash common.Uint256, inMemory bool) error {
+func (ref *RefCounts) CreateRefCounts(hash common.Uint256) error {
 	root, err := ref.trie.resolveHash(hash.ToArray(), true)
 	if err != nil {
 		return err
 	}
 
 	ref.trie.root = root
-	err = ref.createRefCounts(ref.trie.root, inMemory)
+	ref.dbCounter = 0
+	ref.nodeCounter = 0
+	err = ref.createRefCounts(ref.trie.root)
 	if err != nil {
 		return err
 	}
@@ -72,24 +89,14 @@ func (ref *RefCounts) CreateRefCounts(hash common.Uint256, inMemory bool) error 
 	return nil
 }
 
-func (ref *RefCounts) createRefCounts(n node, inMemory bool) error {
+func (ref *RefCounts) createRefCounts(n node) error {
+	ref.nodeCounter++
 	switch n := n.(type) {
 	case *shortNode:
 		hash, _ := n.cache()
 		hs, _ := common.Uint256ParseFromBytes(hash)
-		count, ok := ref.counts[hs]
-		if !inMemory {
-			if !ok {
-				v, err := ref.trie.db.Get(db.TrieRefCountKey(hash))
-				if err == nil {
-					count = binary.LittleEndian.Uint32(v)
-				}
-			}
-			ref.counts[hs] = count
-
-		}
-		if count == 0 {
-			if err := ref.createRefCounts(n.Val, inMemory); err != nil {
+		if count := ref.counts[hs]; count == 0 {
+			if err := ref.createRefCounts(n.Val); err != nil {
 				return err
 			}
 		}
@@ -99,20 +106,10 @@ func (ref *RefCounts) createRefCounts(n node, inMemory bool) error {
 	case *fullNode:
 		hash, _ := n.cache()
 		hs, _ := common.Uint256ParseFromBytes(hash)
-		count, ok := ref.counts[hs]
-		if !inMemory {
-			if !ok {
-				v, err := ref.trie.db.Get(db.TrieRefCountKey(hash))
-				if err == nil {
-					count = binary.LittleEndian.Uint32(v)
-				}
-			}
-			ref.counts[hs] = count
-		}
-		if count == 0 {
-			for i := 0; i < LenOfChildrenNodes; i++ {
+		if count := ref.counts[hs]; count == 0 {
+			for i := 0; i < 17; i++ {
 				if n.Children[i] != nil {
-					err := ref.createRefCounts(n.Children[i], inMemory)
+					err := ref.createRefCounts(n.Children[i])
 					if err != nil {
 						return err
 					}
@@ -124,17 +121,7 @@ func (ref *RefCounts) createRefCounts(n node, inMemory bool) error {
 		return nil
 	case hashNode:
 		hs, _ := common.Uint256ParseFromBytes(n)
-		count, ok := ref.counts[hs]
-		if !inMemory {
-			if !ok {
-				v, err := ref.trie.db.Get(db.TrieRefCountKey([]byte(n)))
-				if err == nil {
-					count = binary.LittleEndian.Uint32(v)
-				}
-			}
-			ref.counts[hs] = count
-		}
-		if count != 0 {
+		if count := ref.counts[hs]; count != 0 {
 			ref.counts[hs]++
 			return nil
 		}
@@ -142,25 +129,26 @@ func (ref *RefCounts) createRefCounts(n node, inMemory bool) error {
 		if err != nil {
 			return err
 		}
-		return ref.createRefCounts(child, inMemory)
+		ref.dbCounter++
+		return ref.createRefCounts(child)
 	case nil:
 		return nil
 	case valueNode:
 		return nil
 	default:
-		log.Fatalf("Invalid node type : %v, %v", reflect.TypeOf(n), n)
+		panic(fmt.Sprintf("invalid node type : %v, %v", reflect.TypeOf(n), n))
+
 	}
-	return nil
 }
 
-func (ref *RefCounts) Prune(hash common.Uint256, inMemory bool) error {
+func (ref *RefCounts) Prune(hash common.Uint256) error {
 	root, err := ref.trie.resolveHash(hash.ToArray(), true)
 	if err != nil {
 		return err
 	}
 	ref.trie.root = root
 
-	err = ref.prune(ref.trie.root, inMemory)
+	err = ref.prune(ref.trie.root)
 	if err != nil {
 		return err
 	}
@@ -168,25 +156,17 @@ func (ref *RefCounts) Prune(hash common.Uint256, inMemory bool) error {
 	return nil
 }
 
-func (ref *RefCounts) prune(n node, inMemory bool) error {
+func (ref *RefCounts) prune(n node) error {
 	switch n := n.(type) {
 	case *shortNode:
 		hash, _ := n.cache()
 		hs, _ := common.Uint256ParseFromBytes(hash)
 		count, ok := ref.counts[hs]
-		if !inMemory {
-			if !ok {
-				v, err := ref.trie.db.Get(db.TrieRefCountKey(hash))
-				if err == nil {
-					count = binary.LittleEndian.Uint32(v)
-					ref.counts[hs] = count
-				} else {
-					log.Fatal("Trie get error: %v", err)
-				}
-			}
+		if !ok {
+			panic(fmt.Sprintf("cannot get refcount, %v", hs.ToHexString()))
 		}
 		if count == 0 {
-			log.Fatalf("RefCount cannot be zero, %v", hs.ToHexString())
+			panic(fmt.Sprintf("refCount cannot be zero, %v", hs.ToHexString()))
 		}
 
 		if count > 1 {
@@ -196,28 +176,17 @@ func (ref *RefCounts) prune(n node, inMemory bool) error {
 
 		delete(ref.counts, hs)
 		ref.trie.db.BatchDelete(db.TrieNodeKey([]byte(hash)))
-		if !inMemory {
-			ref.trie.db.BatchDelete(db.TrieRefCountKey([]byte(hash)))
-		}
-		return ref.prune(n.Val, inMemory)
+		return ref.prune(n.Val)
 
 	case *fullNode:
 		hash, _ := n.cache()
 		hs, _ := common.Uint256ParseFromBytes(hash)
 		count, ok := ref.counts[hs]
-		if !inMemory {
-			if !ok {
-				v, err := ref.trie.db.Get(db.TrieRefCountKey(hash))
-				if err == nil {
-					count = binary.LittleEndian.Uint32(v)
-					ref.counts[hs] = count
-				} else {
-					log.Fatal("Trie get error: %v", err)
-				}
-			}
+		if !ok {
+			panic(fmt.Sprintf("cannot get refcount, %v", hs.ToHexString()))
 		}
 		if count == 0 {
-			log.Fatalf("RefCount cannot be zero, %v", hs.ToHexString())
+			panic(fmt.Sprintf("refCount cannot be zero, %v", hs.ToHexString()))
 		}
 
 		if count > 1 {
@@ -227,12 +196,9 @@ func (ref *RefCounts) prune(n node, inMemory bool) error {
 
 		delete(ref.counts, hs)
 		ref.trie.db.BatchDelete(db.TrieNodeKey([]byte(hash)))
-		if !inMemory {
-			ref.trie.db.BatchDelete(db.TrieRefCountKey([]byte(hash)))
-		}
-		for i := 0; i < LenOfChildrenNodes; i++ {
+		for i := 0; i < 17; i++ {
 			if n.Children[i] != nil {
-				if err := ref.prune(n.Children[i], inMemory); err != nil {
+				if err := ref.prune(n.Children[i]); err != nil {
 					return err
 				}
 			}
@@ -242,19 +208,11 @@ func (ref *RefCounts) prune(n node, inMemory bool) error {
 	case hashNode:
 		hs, _ := common.Uint256ParseFromBytes([]byte(n))
 		count, ok := ref.counts[hs]
-		if !inMemory {
-			if !ok {
-				v, err := ref.trie.db.Get(db.TrieRefCountKey([]byte(n)))
-				if err == nil {
-					count = binary.LittleEndian.Uint32(v)
-					ref.counts[hs] = count
-				} else {
-					log.Fatal("Trie get error: %v", err)
-				}
-			}
+		if !ok {
+			panic(fmt.Sprintf("cannot get refcount, %v", hs.ToHexString()))
 		}
 		if count == 0 {
-			log.Fatalf("RefCount cannot be zero, %v", hs.ToHexString())
+			panic(fmt.Sprintf("refCount cannot be zero, %v", hs.ToHexString()))
 		}
 
 		if count > 1 {
@@ -266,15 +224,15 @@ func (ref *RefCounts) prune(n node, inMemory bool) error {
 		if err != nil {
 			return err
 		}
-		return ref.prune(child, inMemory)
+		return ref.prune(child)
 	case nil:
 		return nil
 	case valueNode:
 		return nil
 	default:
-		log.Fatalf("Invalid node type : %v, %v", reflect.TypeOf(n), n)
+		panic(fmt.Sprintf("invalid node type : %v, %v", reflect.TypeOf(n), n))
+
 	}
-	return nil
 }
 
 func (ref *RefCounts) SequentialPrune() error {
@@ -309,7 +267,7 @@ func (ref *RefCounts) PersistRefCounts() error {
 	return nil
 }
 
-func (ref *RefCounts) PersistRefCountHeights() error {
+func (ref *RefCounts) PersistPruningHeights() error {
 	heightBuffer := make([]byte, 4)
 	binary.LittleEndian.PutUint32(heightBuffer[:], ref.targetRefCountHeight)
 	err := ref.trie.db.BatchPut(db.TrieRefCountHeightKey(), heightBuffer)
@@ -317,13 +275,8 @@ func (ref *RefCounts) PersistRefCountHeights() error {
 		return err
 	}
 
-	return nil
-}
-
-func (ref *RefCounts) PersistPrunedHeights() error {
-	heightBuffer := make([]byte, 4)
 	binary.LittleEndian.PutUint32(heightBuffer[:], ref.targetPruningHeight)
-	err := ref.trie.db.BatchPut(db.TriePrunedHeightKey(), heightBuffer)
+	err = ref.trie.db.BatchPut(db.TriePrunedHeightKey(), heightBuffer)
 	if err != nil {
 		return err
 	}
@@ -338,17 +291,12 @@ func (ref *RefCounts) Verify(hash common.Uint256) error {
 	}
 	ref.trie.root = root
 
-	err = ref.trie.traverse(ref.trie.root, false)
+	err = ref.trie.traverse(ref.trie.root)
 	if err != nil {
-		log.Fatal("Trie traverse error: %v", err)
+		panic(err)
 	}
 
-	hs := ref.trie.Hash()
-	if hash.CompareTo(hs) != 0 {
-		return fmt.Errorf("state root not equal:%v, %v", hash.ToHexString(), hs.ToHexString())
-	}
-
-	log.Info("Verification finished.")
+	log.Info("verification has done.")
 
 	return nil
 }
