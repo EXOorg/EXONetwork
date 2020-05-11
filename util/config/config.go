@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -33,6 +34,10 @@ const (
 	MaxRollbackBlocks            = 180
 	SigChainBlockDelay           = 1
 	SigChainPropogationTime      = 2
+	GossipSampleChordNeighbor    = 0.1
+	GossipSampleRandomNeighbor   = 1.0
+	VotingSampleChordNeighbor    = 0.5
+	VotingSampleRandomNeighbor   = 0.0
 	HeaderVersion                = 1
 	DBVersion                    = 0x01
 	InitialIssueAddress          = "NKNFCrUMFPkSeDRMG2ME21hD6wBCA2poc347"
@@ -74,7 +79,7 @@ const (
 
 var (
 	Debug            = false
-	Pruning          = false
+	StatePruning     = false
 	PprofPort        = "127.0.0.1:8080"
 	ShortHashSalt    = util.RandomBytes(32)
 	GenesisTimestamp = time.Date(2019, time.June, 29, 13, 10, 13, 0, time.UTC).Unix()
@@ -93,11 +98,11 @@ var (
 	}
 	MaxSubscribeIdentifierLen = HeightDependentInt32{
 		heights: []uint32{133400, 0},
-		values:  []int32{64, common.MaxInt32},
+		values:  []int32{64, math.MaxInt32},
 	}
 	MaxSubscribeMetaLen = HeightDependentInt32{
 		heights: []uint32{133400, 0},
-		values:  []int32{1024, common.MaxInt32},
+		values:  []int32{1024, math.MaxInt32},
 	}
 	MaxSubscribeBucket = HeightDependentInt32{
 		heights: []uint32{245000, 0},
@@ -120,7 +125,11 @@ var (
 			common.MaxUint256,
 		},
 	}
-	MaxTxnAttributesLen = 100
+	MaxTxnAttributesLen  = 100
+	AllowTxnRegisterName = HeightDependentBool{
+		heights: []uint32{7500, 0},
+		values:  []bool{false, true},
+	}
 )
 
 var (
