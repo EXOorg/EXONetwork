@@ -47,6 +47,7 @@ const (
 	ErrAppendTxnPool         ErrCode = 45021
 	ErrNullID                ErrCode = 45022
 	ErrZeroID                ErrCode = 45023
+	ErrNullDB                ErrCode = 45024
 )
 
 var ErrMessage = map[ErrCode]string{
@@ -84,4 +85,36 @@ var ErrMessage = map[ErrCode]string{
 	ErrAppendTxnPool:        "INTERNAL ERROR, can not append tx to txpool",
 	ErrNullID:               "INTERNAL ERROR, there is no ID in account",
 	ErrZeroID:               "INTERNAL ERROR, it's zero ID in account",
+	ErrNullDB:               "INTERNAL ERROR, DB service is unavailable",
+}
+
+type ErrorWithCode interface {
+	error
+	Code() ErrCode
+}
+
+type Error struct {
+	code    ErrCode
+	message string
+}
+
+func NewError(code ErrCode, msg ...string) ErrorWithCode {
+	var errMsg string
+	if len(msg) > 0 {
+		errMsg = msg[0]
+	} else {
+		errMsg = ErrMessage[code]
+	}
+	return &Error{
+		code:    code,
+		message: errMsg,
+	}
+}
+
+func (e *Error) Code() ErrCode {
+	return e.code
+}
+
+func (e *Error) Error() string {
+	return e.message
 }

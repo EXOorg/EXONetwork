@@ -29,6 +29,9 @@ type RPCServer struct {
 
 	//the reference of Wallet
 	wallet vault.Wallet
+
+	//true if ledger initialization complete
+	ledgerInit bool
 }
 
 type ServeMux struct {
@@ -47,9 +50,10 @@ func NewServer(localNode *node.LocalNode, wallet vault.Wallet) *RPCServer {
 		mainMux: ServeMux{
 			m: make(map[string]common.Handler),
 		},
-		listeners: []string{":" + strconv.Itoa(int(config.Parameters.HttpJsonPort))},
-		localNode: localNode,
-		wallet:    wallet,
+		listeners:  []string{":" + strconv.Itoa(int(config.Parameters.HttpJsonPort))},
+		localNode:  localNode,
+		wallet:     wallet,
+		ledgerInit: false,
 	}
 
 	return server
@@ -239,10 +243,37 @@ func (s *RPCServer) Start() {
 	httpServer.Serve(listener)
 }
 
-func (s *RPCServer) GetNetNode() (*node.LocalNode, error) {
-	return s.localNode, nil
+func (s *RPCServer) GetLocalNode() *node.LocalNode {
+	s.mainMux.RLock()
+	defer s.mainMux.RUnlock()
+	return s.localNode
+}
+
+func (s *RPCServer) SetLocalNode(ln *node.LocalNode) {
+	s.mainMux.Lock()
+	defer s.mainMux.Unlock()
+	s.localNode = ln
+}
+
+func (s *RPCServer) GetNetNode() (*node.LocalNode, common.ErrorWithCode) {
+	ln := s.GetLocalNode()
+	if ln == nil {
+		if s.GetLedgerStatus() == false {
+			return nil, common.NewError(common.ErrNullDB)
+		}
+		return nil, common.NewError(common.ErrNullID)
+	}
+	return ln, nil
 }
 
 func (s *RPCServer) GetWallet() (vault.Wallet, error) {
 	return s.wallet, nil
+}
+
+func (s *RPCServer) SetLedgerStatus(status bool) {
+	s.ledgerInit = status
+}
+
+func (s *RPCServer) GetLedgerStatus() bool {
+	return s.ledgerInit
 }
