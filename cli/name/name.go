@@ -37,6 +37,14 @@ func nameAction(c *cli.Context) error {
 		txnFee, _ = StringToFixed64(fee)
 	}
 
+	regFeeString := c.String("regfee")
+	var regFee Fixed64
+	if regFeeString == "" {
+		regFee = Fixed64(0)
+	} else {
+		regFee, _ = StringToFixed64(regFeeString)
+	}
+
 	nonce := c.Uint64("nonce")
 
 	var resp []byte
@@ -47,7 +55,7 @@ func nameAction(c *cli.Context) error {
 			fmt.Println("name is required with [--name]")
 			return nil
 		}
-		txn, _ := MakeRegisterNameTransaction(myWallet, name, nonce, txnFee)
+		txn, _ := MakeRegisterNameTransaction(myWallet, name, nonce, regFee, txnFee)
 		buff, _ := txn.Marshal()
 		resp, err = client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": hex.EncodeToString(buff)})
 	case c.Bool("del"):
@@ -60,6 +68,13 @@ func nameAction(c *cli.Context) error {
 		txn, _ := MakeDeleteNameTransaction(myWallet, name, nonce, txnFee)
 		buff, _ := txn.Marshal()
 		resp, err = client.Call(Address(), "sendrawtransaction", 0, map[string]interface{}{"tx": hex.EncodeToString(buff)})
+	case c.Bool("get"):
+		name := c.String("name")
+		if name == "" {
+			fmt.Println("name is required with [--name]")
+			return nil
+		}
+		resp, err = client.Call(Address(), "getregistrant", 0, map[string]interface{}{"name": name})
 	default:
 		cli.ShowSubcommandHelp(c)
 		return nil
@@ -88,6 +103,10 @@ func NewCommand() *cli.Command {
 				Name:  "del, d",
 				Usage: "delete name of your address",
 			},
+			cli.BoolFlag{
+				Name:  "get, g",
+				Usage: "get register name info",
+			},
 			cli.StringFlag{
 				Name:  "name",
 				Usage: "name",
@@ -109,6 +128,10 @@ func NewCommand() *cli.Command {
 			cli.Uint64Flag{
 				Name:  "nonce",
 				Usage: "nonce",
+			},
+			cli.StringFlag{
+				Name:  "regfee",
+				Usage: "regfee",
 			},
 		},
 		Action: nameAction,

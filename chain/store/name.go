@@ -3,7 +3,6 @@ package store
 import (
 	"bytes"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -68,7 +67,7 @@ func (sdb *StateDB) getRegistrant(name string) ([]byte, uint32, error) {
 	nameId := getNameId(name)
 	ni, err := sdb.getNameInfo(nameId)
 	if err != nil {
-		return nil, 0, errors.New("name registration info not found")
+		return nil, 0, fmt.Errorf("name registration info not found, %v", err)
 	}
 
 	return ni.registrant, ni.expiresAt, nil
@@ -91,17 +90,15 @@ func (sdb *StateDB) getNameInfo(nameId []byte) (*nameInfo, error) {
 	}
 	ni := new(nameInfo)
 	if len(enc) > 0 {
-		ni := new(nameInfo)
 		buff := bytes.NewBuffer(enc)
 		if err := ni.Deserialize(buff); err != nil {
 			return nil, err
 		}
-		return ni, nil
 	}
 
 	sdb.names.Store(string(nameId), ni)
 
-	return &nameInfo{}, nil
+	return ni, nil
 }
 
 func (sdb *StateDB) registerName(name string, registrant []byte, expiresAt uint32) error {
@@ -113,7 +110,7 @@ func (sdb *StateDB) registerName(name string, registrant []byte, expiresAt uint3
 	}
 
 	if !ni.Empty() {
-		return errors.New("name is already registered")
+		return fmt.Errorf("name is already registered")
 	} else {
 		if err := sdb.cancelNameCleanupAtHeight(ni.expiresAt, name); err != nil {
 			return err
@@ -269,8 +266,6 @@ func (sdb *StateDB) cancelNameCleanupAtHeight(height uint32, name string) error 
 	if err != nil {
 		return err
 	}
-	if _, ok := ids[name]; ok {
-		delete(ids, name)
-	}
+	delete(ids, name)
 	return nil
 }

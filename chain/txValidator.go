@@ -144,13 +144,20 @@ func CheckTransactionPayload(txn *transaction.Transaction, height uint32) error 
 		if ok := config.AllowTxnRegisterName.GetValueAtHeight(height); !ok {
 			return errors.New("Register name transaction is not supported yet")
 		}
+
 		pld := payload.(*pb.RegisterName)
-		match, err := regexp.MatchString("(^[A-Za-z][A-Za-z0-9-_.+]{2,254}$)", pld.Name)
+		if !config.LegacyNameService.GetValueAtHeight(height) {
+			if Fixed64(pld.RegistrationFee) < Fixed64(config.MinGenNameRegistrationFee) {
+				return errors.New("registration fee is lower than MinGenNameRegistrationFee")
+			}
+		}
+		regexPattern := config.AllowNameRegex.GetValueAtHeight(height)
+		match, err := regexp.MatchString(regexPattern, pld.Name)
 		if err != nil {
 			return err
 		}
 		if !match {
-			return fmt.Errorf("name %s should start with a letter, contain A-Za-z0-9-_.+ and have length 3-255", pld.Name)
+			fmt.Errorf("name should match regex %s", regexPattern)
 		}
 	case pb.DELETE_NAME_TYPE:
 	case pb.SUBSCRIBE_TYPE:
@@ -264,7 +271,7 @@ func CheckTransactionPayload(txn *transaction.Transaction, height uint32) error 
 }
 
 // VerifyTransactionWithLedger verifys a transaction with history transaction in ledger
-func VerifyTransactionWithLedger(txn *transaction.Transaction) error {
+func VerifyTransactionWithLedger(txn *transaction.Transaction, height uint32) error {
 	if DefaultLedger.Store.IsDoubleSpend(txn) {
 		return errors.New("[VerifyTransactionWithLedger] IsDoubleSpend check faild")
 	}
@@ -321,20 +328,36 @@ func VerifyTransactionWithLedger(txn *transaction.Transaction) error {
 		}
 
 		pld := payload.(*pb.RegisterName)
-		name, err := DefaultLedger.Store.GetName(pld.Registrant)
-		if name != "" {
-			return fmt.Errorf("pubKey %+v already has registered name %s", pld.Registrant, name)
-		}
-		if err != nil {
-			return err
-		}
 
-		registrant, err := DefaultLedger.Store.GetRegistrant(pld.Name)
-		if registrant != nil {
-			return fmt.Errorf("name %s is already registered for pubKey %+v", pld.Name, registrant)
-		}
-		if err != nil {
-			return err
+		if config.LegacyNameService.GetValueAtHeight(height) {
+			name, err := DefaultLedger.Store.GetName_legacy(pld.Registrant)
+			if name != "" {
+				return fmt.Errorf("pubKey %+v already has registered name %s", pld.Registrant, name)
+			}
+			if err != nil {
+				return err
+			}
+
+			registrant, err := DefaultLedger.Store.GetRegistrant_legacy(pld.Name)
+			if registrant != nil {
+				return fmt.Errorf("name %s is already registered for pubKey %+v", pld.Name, registrant)
+			}
+			if err != nil {
+				return err
+			}
+		} else {
+			registrant, _, err := DefaultLedger.Store.GetRegistrant(pld.Name)
+			if registrant != nil && bytes.Compare(registrant, pld.Registrant) != 0 {
+				return fmt.Errorf("name %s is already registered for pubKey %+v", pld.Name, registrant)
+			}
+			if err != nil {
+				return err
+			}
+
+			balance := DefaultLedger.Store.GetBalance(BytesToUint160(pld.Registrant))
+			if int64(balance) < pld.RegistrationFee {
+				return errors.New("not sufficient funds")
+			}
 		}
 	case pb.DELETE_NAME_TYPE:
 		if err := checkNonce(); err != nil {
@@ -342,7 +365,7 @@ func VerifyTransactionWithLedger(txn *transaction.Transaction) error {
 		}
 
 		pld := payload.(*pb.DeleteName)
-		name, err := DefaultLedger.Store.GetName(pld.Registrant)
+		name, err := DefaultLedger.Store.GetName_legacy(pld.Registrant)
 		if err != nil {
 			return err
 		}
@@ -406,7 +429,6 @@ func VerifyTransactionWithLedger(txn *transaction.Transaction) error {
 			return err
 		}
 
-		height := DefaultLedger.Store.GetHeight()
 		if height > pld.TxnExpiration {
 			return errors.New("nano pay txn has expired")
 		}
@@ -777,6 +799,7 @@ func (bvs *BlockValidationState) CleanSubmittedTransactions(txns []*transaction.
 
 			registrant := BytesToHexString(namePayload.Registrant)
 			delete(bvs.nameRegistrants, registrant)
+
 		case pb.DELETE_NAME_TYPE:
 			namePayload := payload.(*pb.DeleteName)
 
